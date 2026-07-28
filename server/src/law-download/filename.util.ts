@@ -14,14 +14,22 @@ function slugify(text: string, maxLength: number): string {
     .replace(/-+$/g, '');
 }
 
-/** Matches the existing laws/manifest.json convention: `{citation-slug}_{title-slug}{ext}`. */
+/**
+ * Matches the existing laws/manifest.json convention: `{citation-slug}_{title-slug}{ext}`.
+ * A document can have several attachments (e.g. a decree plus phụ lục annexes) —
+ * when there's more than one, a 1-based `-{index}` suffix keeps filenames distinct;
+ * a single-attachment document (the common case) gets the plain, suffix-free name.
+ */
 export function buildFilename(
   citation: string,
   title: string,
   fileUrl: string,
+  fileIndex = 0,
+  fileCount = 1,
 ): string {
   const citationSlug = citation.replace(/\//g, '-').replace(/\s+/g, '');
   const titleSlug = slugify(title, MAX_SLUG_LENGTH);
   const ext = extname(new URL(fileUrl).pathname) || '.pdf';
-  return `${citationSlug}_${titleSlug}${ext}`;
+  const suffix = fileCount > 1 ? `-${fileIndex + 1}` : '';
+  return `${citationSlug}_${titleSlug}${suffix}${ext}`;
 }

@@ -46,9 +46,16 @@ export class LawDownloadService {
     }
 
     const outcomes: DownloadOutcome[] = [];
-    for (const fileUrl of parsed.fileUrls) {
+    for (const [index, fileUrl] of parsed.fileUrls.entries()) {
       outcomes.push(
-        await this.persistFile(parsed, fileUrl, dto.subdirOverride, dto.force),
+        await this.persistFile(
+          parsed,
+          fileUrl,
+          index,
+          parsed.fileUrls.length,
+          dto.subdirOverride,
+          dto.force,
+        ),
       );
     }
     return outcomes;
@@ -214,6 +221,8 @@ export class LawDownloadService {
   private async persistFile(
     parsed: ParsedLawDocument,
     fileUrl: string,
+    fileIndex: number,
+    fileCount: number,
     subdirOverride: string | undefined,
     force: boolean | undefined,
   ): Promise<DownloadOutcome> {
@@ -228,7 +237,13 @@ export class LawDownloadService {
     }
 
     const { subdir } = classification;
-    const filename = buildFilename(parsed.citation, parsed.title, fileUrl);
+    const filename = buildFilename(
+      parsed.citation,
+      parsed.title,
+      fileUrl,
+      fileIndex,
+      fileCount,
+    );
 
     if (!force && (await this.manifest.fileExists(subdir, filename))) {
       return this.buildOutcome(parsed, fileUrl, subdir, filename, {
