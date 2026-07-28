@@ -23,7 +23,45 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Processing server for the legal-agent project: scrapes/downloads Vietnamese legal documents and will grow into the backend for the law web app. Built with [Nest](https://github.com/nestjs/nest).
+
+See [../laws/README.md](../laws/README.md) for the dataset this server populates, and [../docs/database-design.md](../docs/database-design.md) for the planned Postgres/OpenSearch/ChromaDB/Neo4j schema.
+
+## Configuration
+
+Copy `.env.example` to `.env` and fill in real values — see the file for what each variable does (datastore connections, app port, `LAWS_DOWNLOAD_DIR`).
+
+## Law document downloads
+
+`src/law-download/` scrapes [vanban.chinhphu.vn](https://vanban.chinhphu.vn/) — the only source this module ever fetches documents from — and files results into `LAWS_DOWNLOAD_DIR` (defaults to the repo-root `../laws/`, see [laws/README.md](../laws/README.md) for the 14-tier folder layout). Every download updates `laws/manifest.json` and `laws/download-log.csv` in place, matching their existing schema.
+
+Document type + issuing body (read off vanban.chinhphu.vn's own detail page) are mapped to one of the 14 tiers by `law-tier-classifier.ts`. When a document doesn't fit a recognized tier (e.g. "Văn bản hợp nhất", which isn't one of the 14 Điều 4 categories), the API returns a clear error instead of guessing — pass `subdirOverride` to force a location.
+
+Three endpoints, all under `/laws/downloads`:
+
+- `POST /laws/downloads` — download one document from its `vanban.chinhphu.vn` detail page URL.
+
+  ```json
+  { "url": "https://vanban.chinhphu.vn/?pageid=27160&docid=219000" }
+  ```
+
+- `POST /laws/downloads/batch` — download a list of documents (same shape, up to 100 per call).
+
+  ```json
+  { "documents": [{ "url": "https://vanban.chinhphu.vn/?pageid=27160&docid=219000" }] }
+  ```
+
+- `POST /laws/downloads/search` — replays the "TÌM KIẾM VĂN BẢN" filter form at `vanban.chinhphu.vn/?pageid=41852&mode=0` (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and downloads matches, paginating as needed up to `maxResults`.
+
+  ```json
+  { "keyword": "đất đai", "year": "2024", "maxResults": 20, "dryRun": true }
+  ```
+
+  Set `dryRun: true` to preview matches without downloading anything.
+
+  **Known site limitation:** for some filter combinations (notably a bare keyword with no year/category/org set), vanban.chinhphu.vn's own "total results" figure is unreliable — it can just echo the selected page size rather than a true count, and the second page can come back empty even though the reported total implied more. This module trusts the site's response as-is (stops paging once it returns zero rows); it isn't something to work around locally, since it's a limitation of the upstream endpoint.
+
+Downloads are sequential with a small delay between requests to `vanban.chinhphu.vn` — this is a shared government server, not a CDN.
 
 ## Project setup
 

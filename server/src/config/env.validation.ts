@@ -21,4 +21,6 @@ export const envValidationSchema = Joi.object({
   NEO4J_PASSWORD: Joi.string().required(),
 
   CHROMADB_URL: Joi.string().uri().required(),
+
+  LAWS_DOWNLOAD_DIR: Joi.string().default('../laws'),
 });

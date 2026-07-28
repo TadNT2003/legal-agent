@@ -10,6 +10,8 @@ import {
   postgresConfig,
 } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
+import { LawDownloadModule } from './law-download/law-download.module';
+import { lawDownloadConfig } from './law-download/law-download.config';
 
 @Module({
   imports: [
@@ -22,12 +24,14 @@ import { envValidationSchema } from './config/env.validation';
         opensearchConfig,
         neo4jConfig,
         chromadbConfig,
+        lawDownloadConfig,
       ],
       validationSchema: envValidationSchema,
       validationOptions: {
         abortEarly: false,
       },
     }),
+    LawDownloadModule,
   ],
   controllers: [AppController],
   providers: [AppService],
