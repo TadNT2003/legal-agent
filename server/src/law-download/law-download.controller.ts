@@ -1,5 +1,6 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { BatchDownloadDto } from './dto/batch-download.dto';
+import { CheckStatusDto } from './dto/check-status.dto';
 import { DownloadByUrlDto } from './dto/download-by-url.dto';
 import { SearchDownloadDto } from './dto/search-download.dto';
 import { LawDownloadService } from './law-download.service';
@@ -12,6 +13,15 @@ export class LawDownloadController {
   @Post()
   downloadOne(@Body() dto: DownloadByUrlDto) {
     return this.downloadService.downloadFromUrl(dto);
+  }
+
+  /**
+   * Check whether a vanban.chinhphu.vn document URL is already downloaded,
+   * without fetching or writing any file.
+   */
+  @Get('status')
+  checkStatus(@Query() dto: CheckStatusDto) {
+    return this.downloadService.checkStatus(dto.url, dto.subdirOverride);
   }
 
   /** Download a batch of documents from a list of vanban.chinhphu.vn detail page URLs. */

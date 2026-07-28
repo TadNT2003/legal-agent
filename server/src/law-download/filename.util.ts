@@ -1,12 +1,10 @@
 import { extname } from 'path';
+import { foldDiacritics } from './text-normalize.util';
 
 const MAX_SLUG_LENGTH = 80;
 
 function slugify(text: string, maxLength: number): string {
-  return text
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // strip diacritics (post-NFD combining marks)
-    .replace(/đ/gi, 'd')
+  return foldDiacritics(text)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')

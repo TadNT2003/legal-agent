@@ -27,6 +27,30 @@ export interface SearchDownloadResult {
   downloaded: DownloadOutcome[];
 }
 
+export interface UrlStatusFile {
+  fileUrl: string;
+  subdir: string;
+  filename: string;
+  downloaded: boolean;
+}
+
+export interface UrlStatusResult {
+  citation: string;
+  title: string;
+  sourceUrl: string;
+  files: UrlStatusFile[];
+  allDownloaded: boolean;
+  error: string | null;
+}
+
+interface DownloadTarget {
+  fileUrl: string;
+  filename: string;
+}
+
+type ClassifiedTargets =
+  { subdir: string; targets: DownloadTarget[] } | { error: string };
+
 @Injectable()
 export class LawDownloadService {
   constructor(
@@ -36,29 +60,68 @@ export class LawDownloadService {
 
   async downloadFromUrl(dto: DownloadByUrlDto): Promise<DownloadOutcome[]> {
     const parsed = await this.resolveAndParseDetail(dto.url);
+    const resolved = this.classifyAndBuildTargets(parsed, dto.subdirOverride);
 
-    if (parsed.fileUrls.length === 0) {
+    if ('error' in resolved) {
       return [
-        this.buildOutcome(parsed, null, null, null, {
-          error: 'No attached file found on this document page.',
-        }),
+        this.buildOutcome(parsed, null, null, null, { error: resolved.error }),
       ];
     }
 
     const outcomes: DownloadOutcome[] = [];
-    for (const [index, fileUrl] of parsed.fileUrls.entries()) {
+    for (const target of resolved.targets) {
       outcomes.push(
         await this.persistFile(
           parsed,
-          fileUrl,
-          index,
-          parsed.fileUrls.length,
-          dto.subdirOverride,
+          resolved.subdir,
+          target.fileUrl,
+          target.filename,
           dto.force,
         ),
       );
     }
     return outcomes;
+  }
+
+  /** Predicts what downloadFromUrl would do, without fetching or writing any file. */
+  async checkStatus(
+    url: string,
+    subdirOverride?: string,
+  ): Promise<UrlStatusResult> {
+    const parsed = await this.resolveAndParseDetail(url);
+    const resolved = this.classifyAndBuildTargets(parsed, subdirOverride);
+
+    if ('error' in resolved) {
+      return {
+        citation: parsed.citation,
+        title: parsed.title,
+        sourceUrl: url,
+        files: [],
+        allDownloaded: false,
+        error: resolved.error,
+      };
+    }
+
+    const files = await Promise.all(
+      resolved.targets.map(async (target) => ({
+        fileUrl: target.fileUrl,
+        subdir: resolved.subdir,
+        filename: target.filename,
+        downloaded: await this.manifest.fileExists(
+          resolved.subdir,
+          target.filename,
+        ),
+      })),
+    );
+
+    return {
+      citation: parsed.citation,
+      title: parsed.title,
+      sourceUrl: url,
+      files,
+      allDownloaded: files.length > 0 && files.every((f) => f.downloaded),
+      error: null,
+    };
   }
 
   async downloadBatch(
@@ -185,6 +248,39 @@ export class LawDownloadService {
     return { totalMatched: totalAvailable, documents, downloaded };
   }
 
+  private classifyAndBuildTargets(
+    parsed: ParsedLawDocument,
+    subdirOverride: string | undefined,
+  ): ClassifiedTargets {
+    if (parsed.fileUrls.length === 0) {
+      return { error: 'No attached file found on this document page.' };
+    }
+
+    const classification = subdirOverride
+      ? { subdir: subdirOverride }
+      : classifyTier(parsed.docType, parsed.issuingBody, parsed.title);
+
+    if (!classification) {
+      return {
+        error: `Could not classify document type "${parsed.docType}" / issuing body "${parsed.issuingBody}" into a laws/ tier. Pass subdirOverride to force a location.`,
+      };
+    }
+
+    const { subdir } = classification;
+    const targets = parsed.fileUrls.map((fileUrl, index) => ({
+      fileUrl,
+      filename: buildFilename(
+        parsed.citation,
+        parsed.title,
+        fileUrl,
+        index,
+        parsed.fileUrls.length,
+      ),
+    }));
+
+    return { subdir, targets };
+  }
+
   private async resolveAndParseDetail(url: string): Promise<ParsedLawDocument> {
     const html = await this.client.fetchDocumentPage(url);
     const parsed = parseDocumentDetailPage(html, url);
@@ -220,31 +316,11 @@ export class LawDownloadService {
 
   private async persistFile(
     parsed: ParsedLawDocument,
+    subdir: string,
     fileUrl: string,
-    fileIndex: number,
-    fileCount: number,
-    subdirOverride: string | undefined,
+    filename: string,
     force: boolean | undefined,
   ): Promise<DownloadOutcome> {
-    const classification = subdirOverride
-      ? { subdir: subdirOverride }
-      : classifyTier(parsed.docType, parsed.issuingBody, parsed.title);
-
-    if (!classification) {
-      return this.buildOutcome(parsed, fileUrl, null, null, {
-        error: `Could not classify document type "${parsed.docType}" / issuing body "${parsed.issuingBody}" into a laws/ tier. Pass subdirOverride to force a location.`,
-      });
-    }
-
-    const { subdir } = classification;
-    const filename = buildFilename(
-      parsed.citation,
-      parsed.title,
-      fileUrl,
-      fileIndex,
-      fileCount,
-    );
-
     if (!force && (await this.manifest.fileExists(subdir, filename))) {
       return this.buildOutcome(parsed, fileUrl, subdir, filename, {
         skipped: true,

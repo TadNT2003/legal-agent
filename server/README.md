@@ -37,13 +37,15 @@ Copy `.env.example` to `.env` and fill in real values — see the file for what 
 
 Document type + issuing body (read off vanban.chinhphu.vn's own detail page) are mapped to one of the 14 tiers by `law-tier-classifier.ts`. When a document doesn't fit a recognized tier (e.g. "Văn bản hợp nhất", which isn't one of the 14 Điều 4 categories), the API returns a clear error instead of guessing — pass `subdirOverride` to force a location.
 
-Three endpoints, all under `/laws/downloads`:
+Downloading, all under `/laws/downloads`:
 
 - `POST /laws/downloads` — download one document from its `vanban.chinhphu.vn` detail page URL.
 
   ```json
   { "url": "https://vanban.chinhphu.vn/?pageid=27160&docid=219000" }
   ```
+
+- `GET /laws/downloads/status?url=...` — check whether a `vanban.chinhphu.vn` document URL (same shape as above) is already downloaded, without fetching or writing any file. Fetches only the detail page, classifies it the same way a real download would, and reports per-file `downloaded: true/false` — so it exactly predicts what `POST /laws/downloads` would do.
 
 - `POST /laws/downloads/batch` — download a list of documents (same shape, up to 100 per call).
 
@@ -62,6 +64,11 @@ Three endpoints, all under `/laws/downloads`:
   **Known site limitation:** for some filter combinations (notably a bare keyword with no year/category/org set), vanban.chinhphu.vn's own "total results" figure is unreliable — it can just echo the selected page size rather than a true count, and the second page can come back empty even though the reported total implied more. This module trusts the site's response as-is (stops paging once it returns zero rows); it isn't something to work around locally, since it's a limitation of the upstream endpoint.
 
 Downloads are sequential with a small delay between requests to `vanban.chinhphu.vn` — this is a shared government server, not a CDN.
+
+Browsing what's already downloaded (reads `laws/manifest.json` and the filesystem — never touches `vanban.chinhphu.vn`):
+
+- `GET /laws/tiers` — document count and total size per tier folder, recursing into sub-folders (e.g. tier 2's `luat/` vs `luat-sua-doi-bo-sung/`).
+- `GET /laws/documents?citation=...` or `?title=...` (optionally with `dateFrom`/`dateTo`, real date-range filtering, not text matching) — streams back the matching file. `citation` is an exact, case-insensitive match; `title` is a closest-match fuzzy search ([fuse.js](https://fuse.js.org/), diacritics-folded so `"bo luat lao dong"` finds `"Bộ Luật Lao động"`) — no need to type it exactly. If a document has multiple attachments (e.g. a decree plus phụ lục annexes), the main file wins. Responds `404` if nothing matches, or if the manifest lists a file that's since gone missing from disk.
 
 ## Project setup
 
