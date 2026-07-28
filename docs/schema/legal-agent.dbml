@@ -1,0 +1,234 @@
+// Legal Agent — Database Schema (Postgres, source of truth)
+// Last revised: 28/07/2026
+//
+// Notes:
+//   - Status: PROPOSAL, not yet implemented — no migrations exist for this schema yet.
+//   - OpenSearch, Neo4j, and the vector store (Qdrant / ChromaDB / ClickHouse — still under
+//     evaluation, see DATABASE_DESIGN.md §4) are NOT modeled here. They are derived read views
+//     projected from this schema via a proposed CDC pipeline (see README.md#cdc-pipeline-proposed).
+//     The Neo4j relationship taxonomy (MODIFIES/CITES/IMPLEMENTS/CONSOLIDATES) is designed to be
+//     a close 1:1 translation of document_reference rows — see DATABASE_DESIGN.md §2.
+//   - Modeled for the Vietnamese legal system specifically, per Luật Ban hành văn bản quy phạm
+//     pháp luật số 64/2025/QH15 and its implementing Nghị định 78/2025/NĐ-CP — document_type
+//     and document_node's hierarchy are not a generic/Western template.
+//   - All date fields are calendar dates (no time component) unless noted otherwise.
+//   - Fields marked "ro" are immutable after record creation.
+//   - Fields marked "auto-computed" are maintained by application/CDC logic, not direct writes.
+
+// ============================================================
+// Enums
+// ============================================================
+
+Enum document_type {
+  hien_phap                   [note: '(1) Hiến pháp — Constitution']
+  bo_luat                     [note: '(2) Bộ luật — Code, e.g. Bộ luật Dân sự']
+  luat                        [note: '(2) Luật — Law']
+  nghi_quyet_qh                [note: '(2) Nghị quyết của Quốc hội']
+  phap_lenh                   [note: '(3) Pháp lệnh — Ordinance of UBTVQH']
+  nghi_quyet_ubtvqh            [note: '(3) Nghị quyết của UBTVQH']
+  nghi_quyet_lien_tich         [note: '(3)/(5) Joint resolution — UBTVQH or CP with VFF Central Committee']
+  lenh_ctn                    [note: '(4) Lệnh của Chủ tịch nước']
+  quyet_dinh_ctn               [note: '(4) Quyết định của Chủ tịch nước']
+  nghi_dinh                   [note: '(5) Nghị định của Chính phủ']
+  nghi_quyet_cp                 [note: '(5) Nghị quyết của Chính phủ']
+  quyet_dinh_ttg               [note: '(6) Quyết định của Thủ tướng Chính phủ']
+  nghi_quyet_hdtp              [note: '(7) Nghị quyết của Hội đồng Thẩm phán TANDTC']
+  thong_tu                    [note: '(8) Thông tư — Chánh án TANDTC / Viện trưởng VKSNDTC / Bộ trưởng / Tổng Kiểm toán nhà nước']
+  thong_tu_lien_tich            [note: '(9) Thông tư liên tịch']
+  nghi_quyet_hdnd_tinh          [note: '(10) Nghị quyết của HĐND cấp tỉnh']
+  quyet_dinh_ubnd_tinh          [note: '(11) Quyết định của UBND cấp tỉnh']
+  vbqppl_dia_phuong_dac_biet   [note: '(12) VBQPPL of an administrative-economic special zone']
+  nghi_quyet_hdnd_huyen         [note: '(13) Nghị quyết của HĐND cấp huyện']
+  quyet_dinh_ubnd_huyen         [note: '(14) Quyết định của UBND cấp huyện']
+}
+// The (N) prefix above is the item number in the authority hierarchy — Điều 4, Luật số 64/2025/QH15.
+// Lower item number = higher legal authority.
+
+Enum issuing_scope {
+  national
+  local
+}
+
+Enum node_type {
+  phan       [note: 'Phần — Part; optional']
+  chuong     [note: 'Chương — Chapter; optional']
+  muc        [note: 'Mục — Section; optional']
+  tieu_muc   [note: 'Tiểu mục — Sub-section; optional']
+  dieu       [note: 'Điều — Article; the only mandatory level, numbered from 1']
+  khoan      [note: 'Khoản — Clause; optional under Điều']
+  diem       [note: 'Điểm — Point; optional under Khoản']
+}
+// Order and optionality per Điều 63 khoản 1, Nghị định 78/2025/NĐ-CP.
+
+Enum validity_status {
+  con_hieu_luc            [note: 'còn hiệu lực — in force']
+  het_hieu_luc            [note: 'hết hiệu lực — expired, whole document/node']
+  het_hieu_luc_mot_phan   [note: 'hết hiệu lực một phần — partially expired']
+  chua_co_hieu_luc        [note: 'chưa có hiệu lực — not yet in force']
+  ngung_hieu_luc          [note: 'ngưng hiệu lực — temporarily suspended, per Điều 56']
+}
+
+Enum reference_type {
+  cites                [note: 'informational reference only — does not change target validity']
+  amends               [note: 'requires change_type; same-issuing-authority rule applies — Điều 8.1']
+  repeals              [note: 'bãi bỏ — Điều 8.2']
+  supersedes_partially [note: 'target partially replaced, rest remains in force']
+  consolidated_by      [note: 'points from an original document to its văn bản hợp nhất — Điều 65.1']
+  implements           [note: 'quy định chi tiết / hướng dẫn thi hành — deterministic from Căn cứ preamble or the parent\'s own điều khoản thi hành list, e.g. Điều 71.5 of Luật 64/2025/QH15']
+  corrects             [note: 'đính chính — technical correction only (typo/format/legal-basis error); explicitly does NOT change legal content — Điều 9, Nghị định 78/2025/NĐ-CP']
+  defines_term         [note: 'giải thích từ ngữ reference']
+}
+
+Enum change_type {
+  replace   [note: 'sửa đổi']
+  add       [note: 'bổ sung']
+  repeal    [note: 'bãi bỏ']
+  suspend   [note: 'tạm ngưng hiệu lực — Điều 56; may be self-initiated by the issuing body or imposed via đình chỉ thi hành from an oversight authority']
+}
+
+Enum extraction_method {
+  deterministic  [note: 'regex/parser over citation and Căn cứ grammar — Điều 62/68, Nghị định 78/2025/NĐ-CP']
+  llm            [note: 'NER/relation extraction — LLMGraphTransformer or GraphRAG; used only where deterministic parsing cannot resolve the reference']
+}
+
+Enum sync_target {
+  opensearch    [note: 'BM25 / lexical index']
+  vector_store  [note: 'semantic index — engine (Qdrant/ChromaDB/ClickHouse) still under evaluation, see DATABASE_DESIGN.md §4']
+  neo4j         [note: 'knowledge graph']
+}
+
+Enum sync_status {
+  pending
+  in_progress
+  synced
+  failed
+}
+
+// ============================================================
+// Reference Data
+// ============================================================
+
+Table issuing_body {
+  // Identification
+  id      uuid    [pk, not null, note: 'ro']
+  name    varchar [not null, note: 'e.g. Quốc hội, Chính phủ, Bộ Tài chính']
+  name_en varchar [note: 'English name, optional']
+
+  // Hierarchy
+  authority_rank int           [not null, note: 'lower = higher legal authority; drives precedence resolution per Điều 58.3 — see document_type enum for the canonical (1)-(14) ordering it is derived from']
+  scope          issuing_scope [not null, default: 'national']
+  parent_body_id uuid          [ref: > issuing_body.id, note: 'nullable — e.g. a department under a ministry']
+
+  Note: 'Reference data: the fixed set of bodies empowered to issue văn bản quy phạm pháp luật, per Điều 4, Luật 64/2025/QH15. Small, rarely-changing table.'
+}
+
+// ============================================================
+// Core Content — Source of Truth
+// ============================================================
+
+Table document {
+  // Identification
+  id            uuid          [pk, not null, note: 'ro']
+  citation_id   varchar       [unique, not null, note: 'ro — e.g. "45/2019/QH14", "78/2025/NĐ-CP"; format per Điều 7 khoản 3, Luật 64/2025/QH15']
+  title         varchar       [not null]
+  document_type document_type [not null]
+
+  // Issuance
+  issuing_body_id        uuid [not null, ref: > issuing_body.id]
+  enacted_date           date [not null, note: 'ngày thông qua / ký ban hành']
+  effective_date         date [note: 'nullable until published — Điều 53: no earlier than 45 days (central) / 10 days (local) after enacted_date, unless issued via rút gọn/đặc biệt procedure']
+  gazette_published_date date [note: 'ngày đăng công báo điện tử']
+
+  // Lifecycle
+  status                    validity_status [not null]
+  is_consolidated           boolean [not null, default: false, note: 'true if this row is a văn bản hợp nhất (Điều 65.1) rather than an original enactment']
+  consolidates_document_id  uuid    [ref: > document.id, note: 'nullable — set only when is_consolidated = true; points to the original document this row consolidates']
+
+  // Content
+  raw_source      jsonb   [note: 'original ingested text/XML, kept for audit and re-parse']
+  content_version varchar [not null, note: 'auto-computed — content hash; bumped on any change; drives CDC']
+
+  // Management Metadata
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  Note: 'Source-of-truth record for one legal document (Luật, Nghị định, Thông tư, etc). Metadata envelope only — the structural body lives in document_node.'
+}
+
+Table document_node {
+  // Identification
+  id          uuid [pk, not null, note: 'ro']
+  document_id uuid [not null, ref: > document.id, note: 'ro']
+  parent_id   uuid [ref: > document_node.id, note: 'ro — null for a document\'s top-level nodes; self-referencing adjacency list, the source of truth for the tree (path below is derived from this)']
+
+  // Structure
+  node_type node_type [not null]
+  path      ltree      [not null, note: 'auto-computed materialized path mirroring parent_id, e.g. chuong2.muc1.dieu5.khoan2 — kept only for fast ancestor/descendant queries; parent_id wins on any disagreement']
+  ordinal   varchar    [not null, note: 'sibling order key; alphanumeric — an inserted amendment appends a letter (e.g. "5a") rather than renumbering siblings, per Điều 69.4, Nghị định 78/2025/NĐ-CP']
+  label     varchar    [not null, note: 'e.g. "Điều 5" — always present regardless of node_type']
+  heading   varchar    [note: 'required for phan/chuong/muc/tieu_muc/dieu per Điều 63.3; null for khoan/diem']
+
+  // Content
+  text_content varchar [note: 'null for pure container nodes (e.g. a Chương that only holds a heading); real prose for leaf/atomic nodes']
+  content_hash varchar [note: 'auto-computed — drives downstream re-chunk/re-embed/re-index diffing']
+
+  // Lifecycle
+  status                 validity_status [not null]
+  valid_from              date [not null]
+  valid_to                date [note: 'null = still current']
+  superseded_by_node_id   uuid [ref: > document_node.id, note: 'nullable — set when a later amendment closes this row out']
+
+  indexes {
+    path [type: gist, note: 'ltree GiST index — enables path <@ / @> ancestor-descendant queries without recursion']
+  }
+
+  Note: 'One row per structural unit at ANY level (Phần/Chương/Mục/Tiểu mục/Điều/Khoản/Điểm) — not a fixed one-row-per-Điều model. Only Điều is mandatory; every other level is optional (Điều 63.1, Nghị định 78/2025/NĐ-CP). The atomic/citable unit consumed downstream (ChromaDB chunking, Neo4j :Provision) is Khoản, or the Điều itself when that Điều has no Khoản children.'
+}
+
+// ============================================================
+// Relationships
+// ============================================================
+
+Table document_reference {
+  // Identification
+  id uuid [pk, not null, note: 'ro']
+
+  // Source — a reference may originate from a whole document or one specific node
+  source_document_id uuid [ref: > document.id,      note: 'nullable — set for document-level references, e.g. this Luật replacing that Luật in its điều khoản thi hành']
+  source_node_id      uuid [ref: > document_node.id, note: 'nullable — set for node-level references, e.g. one Khoản amending another']
+
+  // Target — same nullable-pair pattern
+  target_document_id uuid [ref: > document.id,      note: 'nullable']
+  target_node_id      uuid [ref: > document_node.id, note: 'nullable']
+
+  // Classification
+  reference_type    reference_type    [not null]
+  change_type        change_type       [note: 'set only when reference_type = amends; null otherwise']
+  raw_citation_text  varchar           [not null, note: 'the literal citation text as written in the source, following the viện dẫn grammar in Điều 68, Nghị định 78/2025/NĐ-CP']
+  extraction_method  extraction_method [not null]
+  confidence         float             [note: 'null for deterministic extraction; set (0.0-1.0) for llm-extracted references']
+
+  Note: 'Explicit citation/relationship, one row per reference. Citations and amendments are extractable deterministically — Điều 8.3 mandates the amending document name the target explicitly. LLM extraction is reserved for implicit relationships. Designed to map close to 1:1 onto the Neo4j relationship taxonomy — see DATABASE_DESIGN.md §2.'
+}
+
+// ============================================================
+// CDC Sync State
+// ============================================================
+
+Table document_sync_state {
+  // Composite PK
+  document_id uuid        [not null, ref: > document.id, note: 'ro']
+  target       sync_target [not null, note: 'ro']
+
+  // State
+  synced_version varchar     [note: 'the document.content_version last successfully synced to this target; comparing the two detects staleness']
+  status         sync_status [not null, default: 'pending']
+  last_error     varchar     [note: 'null unless status = failed']
+  updated_at     timestamp   [not null]
+
+  indexes {
+    (document_id, target) [pk]
+  }
+
+  Note: 'Per-target CDC sync tracking — the ground truth for "is this document actually in sync," and the input to the reconciliation job. Proposed design, not yet implemented — see README.md#cdc-pipeline-proposed.'
+}

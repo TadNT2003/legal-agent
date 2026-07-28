@@ -1,0 +1,7 @@
+.env
+
+# Legistration files
+laws/
+
+# Local files
+.playwright-mcp/
