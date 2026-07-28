@@ -1,12 +1,12 @@
 # Database design
 
-**Status: proposal, not yet implemented.** No migrations, index mappings, or collection configs exist in this repo yet. This is the design reference for all four data stores — Postgres, OpenSearch, Neo4j, and a vector store (Qdrant/ChromaDB/ClickHouse, under evaluation) — kept in one place since they're meant to stay derivable from each other, not designed independently. See [README.md](README.md) for infra setup and the [CDC pipeline proposal](README.md#cdc-pipeline-proposed) that's meant to keep them in sync.
+**Status: proposal, not yet implemented.** No migrations, index mappings, or collection configs exist in this repo yet. This is the design reference for all four data stores — Postgres, OpenSearch, Neo4j, and a vector store (Qdrant/ChromaDB/ClickHouse, under evaluation) — kept in one place since they're meant to stay derivable from each other, not designed independently. See [../README.md](../README.md) for infra setup and the [CDC pipeline proposal](../README.md#cdc-pipeline-proposed) that's meant to keep them in sync.
 
 ## Design principles
 
 - **Postgres is the single structural source of truth.** The other three stores are derived read views, each holding a different *projection* of the same underlying content — not independent copies that happen to agree.
 - **`document_node` (Postgres) is the single source of structural truth; each downstream store applies its own rollup over the same rows, rather than all sharing one identical unit.** ChromaDB chunks at the atomic-statement level (Khoản, or bare Điều when there's no Khoản subdivision, with Điểm folded into their parent). OpenSearch rolls up to Điều (better BM25 statistics, more readable hits). Neo4j materializes `:Provision` nodes for Điều always, and for Khoản/Điểm only when they're actually a source or target of a relationship. None of the three re-derive structure by re-parsing text — that's what actually prevents cross-store drift, not a shared node granularity.
-- **Modeled for the Vietnamese legal system specifically** — document-type authority hierarchy, Phần/Chương/Mục/Tiểu mục/Điều/Khoản/Điểm structure (only Điều is mandatory; every other level is optional per Điều 63 khoản 1, Nghị định 78/2025/NĐ-CP), `{số}/{năm}/{loại}-{cơ quan}` citation format, per-node granular validity (a single Điều can be "hết hiệu lực một phần" while the rest of the law stands), and amendment-via-separate-document + văn bản hợp nhất consolidation practice.
+- **Modeled for the Vietnamese legal system specifically** — document-type authority hierarchy, Phần/Chương/Mục/Tiểu mục/Điều/Khoản/Điểm structure (only Điều is mandatory; every other level is optional per Điều 63 khoản 1, Nghị định 78/2025/NĐ-CP), `{số}/{năm}/{loại}-{cơ quan}` citation format, per-node granular validity (a single Điều can be "hết hiệu lực một phần" while the rest of the law stands), and amendment-via-separate-document + văn bản hợp nhất consolidation practice. The underlying rules (validity states, effective-date lead times, retroactivity limits, same-authority amendment requirement, alpha-suffixed inserted-provision numbering, đính chính-vs-amendment distinction) are sourced from [vn-legal-document-structure.md](vn-legal-document-structure.md) — see §1a and §2b below for where each rule lands in the schema.
 
 ---
 
@@ -39,9 +39,11 @@ document_node(                  -- ONE ROW PER STRUCTURAL UNIT — see rationale
   id, document_id FK, parent_id FK NULL,       -- self-referencing tree
   node_type,                    -- phan / chuong / muc / tieu_muc / dieu / khoan / diem
   path ltree,                   -- e.g. 'chuong2.muc1.tieumuc1.dieu5.khoan2'
-  ordinal, label,                -- "Điều 5"
+  ordinal, ordinal_suffix NULL,  -- suffix populated for bổ sung-inserted nodes, e.g. "5a"
+  label,                        -- "Điều 5" / "Điều 5a"
   heading, text_content, content_hash,
-  status,                       -- per-node validity — can differ from sibling nodes
+  status,                       -- per-node validity, one of the 5 states below — can
+                                 -- differ from sibling nodes
   valid_from, valid_to,         -- amendment history: old row closed, new row opened
   superseded_by_node_id FK NULL
 )
@@ -50,8 +52,10 @@ document_reference(             -- explicit citations, parsed deterministically 
   id, source_node_id FK NULL, source_document_id FK NULL,
   target_document_id FK NULL, target_node_id FK NULL,
   reference_type,               -- cites / amends / repeals / supersedes_partially /
-                                 -- consolidated_by / implements / defines_term
-  change_type,                  -- NULL, or replace / add / repeal / suspend — see §2
+                                 -- consolidated_by / implements / defines_term / corrects
+  change_type,                  -- NULL, or replace / add / repeal / suspend / correction
+                                 -- — see §2 for replace/add/repeal/suspend, and §1a for
+                                 -- why `correction` is its own value, not an amendment
   raw_citation_text,
   extraction_method,            -- deterministic (regex/parser) vs. llm (NER enrichment)
   confidence                    -- NULL for deterministic, set for llm-extracted
@@ -65,6 +69,16 @@ document_sync_state(document_id, target, synced_version, status, last_error, upd
 
 `document_reference.reference_type` and `change_type` are designed to map directly onto the Neo4j relationship taxonomy in §2 — the CDC Neo4j projector should be close to a 1:1 translation of these rows into typed edges, not a separate interpretation of the text.
 
+### 1a. Legal semantics baked into the Postgres model
+
+A handful of rules from Luật Ban hành văn bản quy phạm pháp luật số 64/2025/QH15 and Nghị định 78/2025/NĐ-CP (see [vn-legal-document-structure.md](vn-legal-document-structure.md)) drive specific field/constraint choices, not just prose color:
+
+- **`status` is a closed 5-state enum, not a boolean flag:** `chua_hieu_luc` (not yet effective), `con_hieu_luc` (in force), `tam_ngung_hieu_luc` (suspended — Điều 56 Luật 64/2025/QH15, either self-imposed by the issuing authority or ordered by a superior pending review), `het_hieu_luc_mot_phan` and `het_hieu_luc_toan_bo` (partially / fully expired — Điều 57). Each is tracked per-`document_node`, not just per-`document`, because expiry and suspension are explicitly allowed to apply to only part of a document (Điều 56 khoản 1, Điều 57 khoản 1).
+- **`effective_date` has a legally-enforced minimum lead time from `enacted_date`**, checked at ingest rather than assumed: ≥45 days for văn bản issued by central-government bodies, ≥10 days for local-government văn bản, waivable only when the document went through thủ tục rút gọn (expedited procedure) — in which case it may take effect on the signing date itself, but must be published immediately (Điều 53 Luật 64/2025/QH15). A document whose `effective_date` violates this without a rút gọn flag is an ingestion/extraction error, not a valid state.
+- **`valid_from` may legitimately precede `enacted_date`** (hiệu lực trở về trước / retroactive effect), but only for văn bản from central agencies or provincial HĐND/UBND — never for cấp huyện — and never to newly impose or increase legal liability for past conduct (Điều 55 Luật 64/2025/QH15). Worth a check constraint or ingest-time validation flag rather than silent trust of the source text.
+- **`ordinal`/`label` need an alphabetic-suffix mode, not just integers:** when a văn bản sửa đổi, bổ sung inserts a new Điều/Khoản/Điểm between existing ones, the inserted node keeps the numeric position of its predecessor and appends the next Vietnamese-alphabet letter (e.g. a new Điều between 5 and 6 becomes "Điều 5a") rather than renumbering everything after it (Điều 69 khoản 4, Nghị định 78/2025/NĐ-CP). This is why `ordinal_suffix` is a separate column instead of overloading `ordinal` with non-integer values — it keeps `path`/ltree ordering and the numeric `ordinal` sort stable while still round-tripping the letter suffix for display and citation matching.
+- **Đính chính (correction) is not an amendment and must not create a `MODIFIES` edge.** Nghị định 78/2025/NĐ-CP Điều 9 draws a hard line: đính chính fixes only sai sót về căn cứ ban hành, lỗi chính tả, or thể thức/kỹ thuật trình bày (wrong legal-basis citation, typos, formatting/drafting errors) and explicitly "không làm thay đổi nội dung" (does not change the substantive content) — it cannot touch thẩm quyền or nội dung. That's why `change_type = correction` is kept distinct from `replace/add/repeal/suspend`: a correction bumps `document_node.content_hash` (the text literally changed) but should not appear in an amendment-history traversal (§2b) or trigger the same downstream re-embedding priority as a substantive edit.
+
 ---
 
 ## 2. Neo4j (graph — hierarchy & relationships between legislation)
@@ -73,13 +87,29 @@ Two genuinely different kinds of "hierarchy" get asked about here, and they need
 
 ### 2a. Authority hierarchy (categorical, not per-document)
 
-"Nghị định must rank below Luật" is a rule about *document types*, established once by Luật Ban hành văn bản quy phạm pháp luật — not a fact you learn by linking specific documents to each other. Modeling it as pairwise edges between every document instance would mean an edge explosion (O(n²)) for a fact that's actually just ~10 fixed categories in a total order:
+"Nghị định must rank below Luật" is a rule about *document types*, established once by Luật Ban hành văn bản quy phạm pháp luật — not a fact you learn by linking specific documents to each other. Modeling it as pairwise edges between every document instance would mean an edge explosion (O(n²)) for a fact that's actually just a fixed total order over ~14 categories, per Điều 4 Luật số 64/2025/QH15:
 
 ```
-Hiến pháp → Luật/Bộ luật → Pháp lệnh/Nghị quyết (UBTVQH) → Nghị định → Thông tư → local HĐND/UBND
+1.  Hiến pháp
+2.  Bộ luật, luật, nghị quyết của Quốc hội
+3.  Pháp lệnh, nghị quyết của UBTVQH; nghị quyết liên tịch UBTVQH–Đoàn Chủ tịch UBTƯMTTQVN;
+    nghị quyết liên tịch UBTVQH, Chính phủ–Đoàn Chủ tịch UBTƯMTTQVN
+4.  Lệnh, quyết định của Chủ tịch nước
+5.  Nghị định, nghị quyết của Chính phủ; nghị quyết liên tịch Chính phủ–Đoàn Chủ tịch UBTƯMTTQVN
+6.  Quyết định của Thủ tướng Chính phủ
+7.  Nghị quyết của Hội đồng Thẩm phán TANDTC
+8.  Thông tư của Chánh án TANDTC / Viện trưởng VKSNDTC / Bộ trưởng, Thủ trưởng cơ quan ngang Bộ /
+    Tổng Kiểm toán nhà nước
+9.  Thông tư liên tịch giữa Chánh án TANDTC, Viện trưởng VKSNDTC, Tổng Kiểm toán nhà nước,
+    Bộ trưởng, Thủ trưởng cơ quan ngang Bộ
+10. Nghị quyết của HĐND cấp tỉnh
+11. Quyết định của UBND cấp tỉnh
+12. Văn bản QPPL của chính quyền địa phương ở đơn vị hành chính – kinh tế đặc biệt
+13. Nghị quyết của HĐND cấp huyện
+14. Quyết định của UBND cấp huyện
 ```
 
-So: a small **reference dataset**, not per-instance edges.
+So: a small **reference dataset**, not per-instance edges. `authority_rank` is this list's 1–14 position, and ties within a rank (e.g. luật vs. nghị quyết of Quốc hội, both rank 2) are same-authority, not orderable against each other by rank alone — see the `MODIFIES` validation rule below, which needs same-issuing-body, not just same-or-better rank, to actually hold.
 
 ```
 (:DocumentType {code, name, authority_rank})   -- ~10 fixed nodes, rarely changes
@@ -121,7 +151,7 @@ These are real edges, because they're facts about *specific* documents/provision
 
 **Why `MODIFIES` is one relationship type with a `change_type` property, not four separate types:** the common query pattern is "what's the full amendment history of this provision" — one relationship type keeps that a single-hop traversal (`MATCH (p:Provision)<-[m:MODIFIES]-(source) RETURN source, m.change_type, m.effective_date ORDER BY m.effective_date`) instead of a UNION across four relationship types.
 
-**Validation rule tying 2a and 2b together:** a `MODIFIES` edge should only exist where the source document's `authority_rank` is equal-or-higher authority than the target's — a document cannot legally amend something ranked above it. This is a useful ingestion-time sanity check: if extraction produces a `MODIFIES` edge that violates this, it's either a data error or was actually an `IMPLEMENTS` relationship misclassified (guidance documents often use amendment-sounding language without legally amending the text).
+**Validation rule tying 2a and 2b together:** the actual legal rule is stricter than "equal-or-higher rank" — a `MODIFIES` (or a repeal) edge should only exist where the source document was issued by the **same issuing body/person with authority** (chính cơ quan, người có thẩm quyền) as the target document, per the "Sửa đổi, bổ sung, thay thế, bãi bỏ..." rule in Luật số 64/2025/QH15 (see [vn-legal-document-structure.md](vn-legal-document-structure.md)) — narrow statutory exceptions aside, a document cannot amend another merely because it outranks it; only the body that issued the original (or a luật/nghị quyết of Quốc hội overriding that default) can amend or repeal it. This is a useful ingestion-time sanity check: if extraction produces a `MODIFIES`/repeal edge where `source.issuing_body_id != target.issuing_body_id` (outside the statutory exceptions), it's either a data error or was actually an `IMPLEMENTS` relationship misclassified (guidance documents often use amendment-sounding language without legally amending the text). `authority_rank` comparison is still the right check for a *separate* question — flagging potential conflicts between independently-issued documents (see the third example query below) — just not for validating `MODIFIES` itself.
 
 **Temporal queries** combine `MODIFIES.effective_date` with `Provision.valid_from/valid_to` (mirrored from Postgres) to answer "what did Điều 5 say, and what amendments existed, as of date X" — the graph doesn't need to duplicate full text history since Postgres already owns that; it just needs the edges and dates to reconstruct the timeline.
 
