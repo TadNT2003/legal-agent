@@ -24,18 +24,22 @@ issuing_body(
 
 document(
   id, citation_id UNIQUE,       -- e.g. "45/2019/QH14"
-  title, document_type,         -- luat / nghi_dinh / thong_tu / ...
+  title, document_type,         -- luat / nghi_dinh / thong_tu / lenh_ctn / quyet_dinh_ctn / ...
   issuing_body_id FK,
   enacted_date, effective_date, gazette_published_date,
   status,                       -- document-level rollup of the 5 validity states
   is_consolidated,              -- true if this is a văn bản hợp nhất
   consolidates_document_id FK NULL,
+  index_scope,                  -- 'full' | 'metadata_only' — gates OpenSearch/ChromaDB/Neo4j
+                                 -- :Provision projection; defaults by document_type, overridable
+                                 -- per-document (see §1a, tier-4 Lệnh/Quyết định CTN note)
   raw_source JSONB,             -- original ingested text/XML, kept for audit/re-parse
   content_version,              -- hash, bumped on any content change — drives CDC
   created_at, updated_at
 )
 
-document_node(                  -- ONE ROW PER STRUCTURAL UNIT — see rationale below
+document_node(                  -- ONE ROW PER STRUCTURAL UNIT — see rationale below; absent
+                                 -- entirely for a document where index_scope = 'metadata_only'
   id, document_id FK, parent_id FK NULL,       -- self-referencing tree
   node_type,                    -- phan / chuong / muc / tieu_muc / dieu / khoan / diem / phu_luc
   content_class,                 -- normative | template — only meaningful for phu_luc, see §1a
@@ -64,6 +68,8 @@ document_reference(             -- explicit citations, parsed deterministically 
 
 document_sync_state(document_id, target, synced_version, status, last_error, updated_at)
   -- target ∈ {opensearch, chromadb, neo4j}
+  -- status includes 'not_applicable' for a metadata_only document's opensearch/chromadb/neo4j
+  -- rows — marks the gap as intentional so reconciliation doesn't flag it as a sync failure
 ```
 
 **Why `document_node` as one-row-per-unit is the key move:** the same structural row serves as the chunk boundary for ChromaDB, the source of a graph edge for Neo4j (via `document_reference`), and the unit indexed in OpenSearch. Modeling structure once removes the need for each projector to independently reinvent "what's a chunk" or "what's an entity boundary" by re-parsing a text blob.
@@ -85,6 +91,7 @@ A handful of rules from Luật Ban hành văn bản quy phạm pháp luật số
   - **Nội dung văn bản** (Điều 71 khoản 2.g) is the `document_node` tree (Phần/Chương/.../Điều/Khoản/Điểm).
   - **Phụ lục** (Điều 71 khoản 3.a — optional) gets its own `document_node` row (`node_type = phu_luc`, parented directly under the document, `label` numbered with Roman numerals per Phụ lục I §III.3.a — "Phụ lục I", "Phụ lục II" — when a document has more than one). It's not decorative: per Điều 67 khoản 4, Nghị định 78/2025/NĐ-CP, a phụ lục can literally *be* the list of repealed/replaced provisions (a `document_reference`/`MODIFIES` source). `content_class` gates what happens downstream: `normative` (repeal/replacement lists, tables, danh mục/tiêu chuẩn content) flows into OpenSearch/Chroma/Neo4j through the same rollup rules as the rest of the tree; `template` (blank biểu mẫu forms) stops at Postgres — stored for completeness/audit, never indexed. That classification is a per-phụ lục ingest-time decision (heading heuristic — "Danh mục"/"Bảng" vs. "Mẫu số" — or an LLM flag), not a blanket rule. Separately, Phụ lục I §III.3(a) requires the *citing* Điều/Khoản to explicitly reference the phụ lục ("phải chỉ dẫn về Phụ lục đó") — that citing sentence (pattern: "... kèm theo Phụ lục [I|II|...]") is itself a deterministically parseable `document_reference` row linking the citing node to the phụ lục node, same extraction method as inline citations.
   - **Chữ ký/dấu/nơi nhận** (Điều 71 khoản 2 h-k) plus the optional độ-mật marking, soạn-thảo ký hiệu, and contact info (khoản 3 b-d) are discarded the same way as the opening boilerplate — provenance/administrative metadata with no retrieval value for a legal Q&A agent, kept only in `raw_source`. (Dấu chỉ độ mật — confidentiality marking — would matter if the corpus ever ingests non-public documents; out of scope while the corpus is public VBQPPL published on công báo.)
+- **Not every `document_type` needs full-text projection to OpenSearch/ChromaDB/Neo4j — Lệnh, quyết định của Chủ tịch nước (tier 4, Điều 4 khoản 4, [laws/04-lenh-quyet-dinh-chu-tich-nuoc/](../laws/04-lenh-quyet-dinh-chu-tich-nuoc/README.md)) is the clearest candidate for metadata-only treatment.** Most of what's actually issued under this type — công bố luật/pháp lệnh (Điều 12, Điều 43), bổ nhiệm/miễn nhiệm, đặc xá, quốc tịch, khen thưởng, phong/thăng quân hàm — is individually-scoped văn bản áp dụng pháp luật (targets a specific person/case, not a general rule of conduct), even though Điều 4 keeps it inside the VBQPPL system on account of who issues it, not what it says. It's also a structurally poor fit regardless of that classification question: these are short administrative notices without real Phần/Chương/.../Điều/Khoản subdivision, so the Điều/Khoản-anchored rollup rules in §3a/§4 don't have much to anchor to. Mechanically, this is a single `document.index_scope = 'metadata_only'` flag (defaulted by `document_type`, overridable per-document) rather than a schema change in any of the three downstream stores: it just means no `document_node` rows get parsed for that document, so OpenSearch's Điều-rollup (§3a), the vector store's chunk rule (§4), and Neo4j's `:Provision` materialization (§2b) all naturally produce nothing — none of the three needs a new field or a special case of its own to honor it. What a metadata-only document still gets: a normal `document` row (citation_id, issuing_body_id, enacted_date, effective_date/công bố date — enough to answer "when was luật X promulgated"), a `(:Document)-[:HAS_TYPE]->(:DocumentType)` node in Neo4j (§2a, unaffected by content since it's document-level, not `:Provision`-level), and `document_sync_state` rows marked `not_applicable` for the opensearch/chromadb/neo4j targets so reconciliation doesn't treat the gap as a failure. Left genuinely open: whether a Lệnh công bố luật should still get a Neo4j edge to the law it promulgates — it isn't a content change (`MODIFIES`) or an operationalization (`IMPLEMENTS`), so it would need a new relationship type (e.g. `PROMULGATES`) if this ever gets built, not a reuse of §2b's existing three. The rare substantive exception (tổng động viên, tình trạng khẩn cấp — same Điều 4 khoản 4, genuine normative content) would still need full projection if one is ever issued, so `index_scope` should stay a per-document, content-aware check (similar in spirit to the phụ lục `content_class` gate above), not a blanket type-level filter that could silently drop something that matters. Not a final decision — flagging now so it isn't lost by the time the OpenSearch/ChromaDB/Neo4j projectors actually get built (see [README.md](../README.md) Sequencing); no tier-4 documents are downloaded yet, so there's nothing to retrofit.
 
 ---
 
