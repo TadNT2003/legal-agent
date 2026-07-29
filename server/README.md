@@ -67,6 +67,27 @@ Downloading, all under `/laws/downloads`:
 
 Downloads are sequential with a small delay between requests to `vanban.chinhphu.vn` — this is a shared government server, not a CDN.
 
+## Law index (vbpl.vn -> Postgres)
+
+`src/law-index/` is a separate, independent workflow from the download module above — see [../CLAUDE.md](../CLAUDE.md) for why the two are deliberately kept decoupled. Where `src/law/` builds a raw-file corpus on disk from vanban.chinhphu.vn, `src/law-index/` scrapes [vbpl.vn](https://vbpl.vn/) ("Cơ sở dữ liệu quốc gia về pháp luật", Bộ Tư pháp) and writes structured rows into Postgres — the actual ingestion path for the RAG/chatbot system. Scoped to **Trung ương only** (tiers 1–9, Điều 4 Luật 64/2025/QH15) — central-issued documents have nationwide effect; local (tiers 10–14) documents don't and aren't in scope.
+
+vbpl.vn is a Next.js SPA whose document data (attributes, full text, relationship diagram) is rendered client-side, not present in the raw HTML — this module drives a real headless browser (Playwright) rather than a plain HTTP client. Run `npm run playwright:install` once after `npm install` to fetch the Chromium binary.
+
+Setup:
+
+```bash
+npm run playwright:install   # one-time, downloads Chromium
+npm run db:generate          # generate a migration from src/law-index/persistence/schema/
+npm run db:migrate           # apply it (needs postgres up — docker compose up -d postgres)
+```
+
+Endpoints, under `/law-index`:
+
+- `POST /law-index/sync/document` — scrape and upsert one document from its vbpl.vn detail page URL.
+- `POST /law-index/sync` — crawl the trung-ương sitemap block and sync every document found. Pass `limit` for a smoke test — an unbounded crawl is one very long-running request (no resumable cursor/job-queue yet).
+
+Document-level only for now — the Điều/Khoản/Điểm hierarchy (`document_node`) and everything downstream of Postgres (OpenSearch/ChromaDB/Neo4j projectors, CDC) are later, separately-planned phases.
+
 Browsing what's already downloaded (reads `laws/manifest.json` and the filesystem — never touches `vanban.chinhphu.vn`):
 
 - `GET /laws/overview` — document count and total size across every tier folder. Stops at the tier's own known sub-splits (e.g. tier 2's `luat/` vs `luat-sua-doi-bo-sung/`) — doesn't enumerate every individual downloaded law.

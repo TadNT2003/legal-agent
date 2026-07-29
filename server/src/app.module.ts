@@ -12,6 +12,8 @@ import {
 import { envValidationSchema } from './config/env.validation';
 import { LawModule } from './law/law.module';
 import { lawDownloadConfig } from './law/utils/law-download.config';
+import { LawIndexModule } from './law-index/law-index.module';
+import { lawIndexConfig } from './law-index/law-index.config';
 
 @Module({
   imports: [
@@ -25,6 +27,7 @@ import { lawDownloadConfig } from './law/utils/law-download.config';
         neo4jConfig,
         chromadbConfig,
         lawDownloadConfig,
+        lawIndexConfig,
       ],
       validationSchema: envValidationSchema,
       validationOptions: {
@@ -32,6 +35,7 @@ import { lawDownloadConfig } from './law/utils/law-download.config';
       },
     }),
     LawModule,
+    LawIndexModule,
   ],
   controllers: [AppController],
   providers: [AppService],

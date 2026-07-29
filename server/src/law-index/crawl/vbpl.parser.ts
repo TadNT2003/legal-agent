@@ -1,0 +1,301 @@
+import type {
+  ParsedVbplAttributes,
+  ParsedVbplDocument,
+  RawAttributeEntry,
+  RawRelationSection,
+  RawVbplPage,
+  VbplChangeType,
+  VbplConsolidation,
+  VbplReferenceType,
+  VbplRelation,
+} from './vbpl-document.interface';
+
+/**
+ * Maps every relation-card heading vbpl.vn actually renders (confirmed against
+ * the live site — both the "VĂN BẢN ĐANG XEM" self-referencing card, which
+ * lists the outbound/active-voice headings, and the target-document card,
+ * which lists the inbound/passive-voice headings) to a canonical
+ * reference_type. `thisDocIsSource: true` = the heading is active-voice
+ * ("Văn bản X" = this document does X to another); `false` = passive-voice
+ * ("Văn bản được/bị X" = another document did X to this one).
+ *
+ * "Văn bản (được/bị) hợp nhất" is handled separately (see parseConsolidation)
+ * since it's a document-level flag/FK in the schema, not a document_reference
+ * row. "Văn bản liên quan cùng nội dung" is a content-similarity suggestion,
+ * not a legal relationship, and is intentionally excluded — mapped to null.
+ */
+const RELATION_LABEL_MAP: Record<
+  string,
+  {
+    referenceType: VbplReferenceType;
+    changeType: VbplChangeType;
+    thisDocIsSource: boolean;
+  } | null
+> = {
+  'Văn bản được hướng dẫn áp dụng': {
+    referenceType: 'guides',
+    changeType: null,
+    thisDocIsSource: false,
+  },
+  'Văn bản hướng dẫn áp dụng': {
+    referenceType: 'guides',
+    changeType: null,
+    thisDocIsSource: true,
+  },
+
+  'Văn bản được quy định chi tiết, hướng dẫn thi hành': {
+    referenceType: 'implements',
+    changeType: null,
+    thisDocIsSource: false,
+  },
+  'Văn bản quy định chi tiết, hướng dẫn thi hành': {
+    referenceType: 'implements',
+    changeType: null,
+    thisDocIsSource: true,
+  },
+
+  'Văn bản được sửa đổi bổ sung': {
+    referenceType: 'amends',
+    changeType: null,
+    thisDocIsSource: false,
+  },
+  'Văn bản sửa đổi bổ sung': {
+    referenceType: 'amends',
+    changeType: null,
+    thisDocIsSource: true,
+  },
+
+  'Văn bản được đính chính': {
+    referenceType: 'corrects',
+    changeType: null,
+    thisDocIsSource: false,
+  },
+  'Văn bản đính chính': {
+    referenceType: 'corrects',
+    changeType: null,
+    thisDocIsSource: true,
+  },
+
+  'Văn bản được thay thế': {
+    referenceType: 'amends',
+    changeType: 'replace',
+    thisDocIsSource: false,
+  },
+  'Văn bản thay thế': {
+    referenceType: 'amends',
+    changeType: 'replace',
+    thisDocIsSource: true,
+  },
+
+  'Văn bản bị bãi bỏ': {
+    referenceType: 'repeals',
+    changeType: null,
+    thisDocIsSource: false,
+  },
+  'Văn bản bãi bỏ': {
+    referenceType: 'repeals',
+    changeType: null,
+    thisDocIsSource: true,
+  },
+
+  'Văn bản được dẫn chiếu': {
+    referenceType: 'cites',
+    changeType: null,
+    thisDocIsSource: false,
+  },
+  'Văn bản dẫn chiếu': {
+    referenceType: 'cites',
+    changeType: null,
+    thisDocIsSource: true,
+  },
+
+  // "Basis" has no được/bị prefix on either side — direction confirmed by
+  // observation: "Căn cứ ban hành (4)" on a document lists the laws *it*
+  // cites as its own legal authority (outbound); "Văn bản áp dụng" is the
+  // inverse (other documents that cite this one as their basis, inbound).
+  'Căn cứ ban hành': {
+    referenceType: 'has_basis',
+    changeType: null,
+    thisDocIsSource: true,
+  },
+  'Văn bản áp dụng': {
+    referenceType: 'has_basis',
+    changeType: null,
+    thisDocIsSource: false,
+  },
+
+  'Văn bản được giải thích': {
+    referenceType: 'explains',
+    changeType: null,
+    thisDocIsSource: false,
+  },
+  'Văn bản giải thích': {
+    referenceType: 'explains',
+    changeType: null,
+    thisDocIsSource: true,
+  },
+
+  'Văn bản bị đình chỉ thi hành': {
+    referenceType: 'amends',
+    changeType: 'suspend_execution',
+    thisDocIsSource: false,
+  },
+  'Văn bản đình chỉ thi hành': {
+    referenceType: 'amends',
+    changeType: 'suspend_execution',
+    thisDocIsSource: true,
+  },
+
+  'Văn bản bị tạm ngưng hiệu lực': {
+    referenceType: 'amends',
+    changeType: 'suspend_effect',
+    thisDocIsSource: false,
+  },
+  'Văn bản tạm ngưng hiệu lực': {
+    referenceType: 'amends',
+    changeType: 'suspend_effect',
+    thisDocIsSource: true,
+  },
+
+  'Văn bản được công bố': {
+    referenceType: 'promulgates',
+    changeType: null,
+    thisDocIsSource: false,
+  },
+  'Văn bản công bố': {
+    referenceType: 'promulgates',
+    changeType: null,
+    thisDocIsSource: true,
+  },
+
+  'Văn bản liên quan cùng nội dung': null,
+};
+
+const CONSOLIDATION_LABELS = {
+  consolidatedInto: 'Văn bản được hợp nhất',
+  consolidates: 'Văn bản hợp nhất',
+};
+
+const EMPTY_RELATION_PLACEHOLDER = '--';
+
+/** Strips the trailing " (N)" result-count vbpl.vn appends to every card heading. */
+function stripCount(categoryLabel: string): string {
+  return categoryLabel.replace(/\s*\(\d+\)\s*$/, '').trim();
+}
+
+/**
+ * Best-effort extraction of a citation ("45/2019/QH14", "78/2025/NĐ-CP",
+ * "216-NQ-QHK4", ...) from a relation entry's raw title text. Relation
+ * entries carry no href/id (confirmed — they're React click handlers, not
+ * real links), so this text match is the only way to resolve a target;
+ * unmatched entries stay unresolved (document_reference.target_document_id
+ * left null) rather than guessing, per the forward-reference-healing design.
+ */
+export function extractCitationFromTitle(title: string): string | null {
+  const match = title.match(/số\s+([\dA-ZĐ][\dA-ZĐ/-]*[\dA-ZĐ])/i);
+  return match ? match[1] : null;
+}
+
+/** "DD/MM/YYYY" -> "YYYY-MM-DD"; "--" (vbpl.vn's empty-value placeholder) -> null. */
+export function parseVbplDate(raw: string | null | undefined): string | null {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed || trimmed === EMPTY_RELATION_PLACEHOLDER) return null;
+  const match = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match) return null;
+  const [, day, month, year] = match;
+  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+}
+
+export function parseAttributes(
+  raw: RawAttributeEntry[],
+): ParsedVbplAttributes {
+  const byLabel = new Map(raw.map((e) => [e.label.trim(), e.value.trim()]));
+  const get = (label: string) => byLabel.get(label) ?? null;
+
+  const citation = get('Số hiệu');
+  const documentType = get('Loại văn bản');
+  const issuingBody = get('Cơ quan ban hành');
+  const validityStatusRaw = get('Tình trạng hiệu lực');
+  if (!citation || !documentType || !issuingBody || !validityStatusRaw) {
+    throw new Error(
+      `vbpl.vn attributes tab missing a required field (citation/documentType/issuingBody/validityStatus) — got labels: ${raw.map((e) => e.label).join(', ')}`,
+    );
+  }
+
+  return {
+    citation,
+    documentType,
+    industry: get('Ngành'),
+    field: get('Lĩnh vực'),
+    issuingBody,
+    signerTitle: get('Chức danh'),
+    signerName: get('Người ký'),
+    issuedDateRaw: get('Ngày ban hành'),
+    effectiveDateRaw: get('Ngày có hiệu lực'),
+    expiryDateRaw: get('Ngày hết hiệu lực'),
+    validityStatusRaw,
+  };
+}
+
+export function parseRelations(raw: RawRelationSection[]): {
+  relations: VbplRelation[];
+  consolidation: VbplConsolidation;
+} {
+  const relations: VbplRelation[] = [];
+  const consolidatesRawTitles: string[] = [];
+  const consolidatedIntoRawTitles: string[] = [];
+
+  for (const section of raw) {
+    const label = stripCount(section.categoryLabel);
+    const realEntries = section.entries.filter(
+      (e) => e.trim() && e.trim() !== EMPTY_RELATION_PLACEHOLDER,
+    );
+    if (realEntries.length === 0) continue;
+
+    if (label === CONSOLIDATION_LABELS.consolidates) {
+      consolidatesRawTitles.push(...realEntries);
+      continue;
+    }
+    if (label === CONSOLIDATION_LABELS.consolidatedInto) {
+      consolidatedIntoRawTitles.push(...realEntries);
+      continue;
+    }
+
+    const mapping = RELATION_LABEL_MAP[label];
+    if (mapping === undefined) {
+      throw new Error(
+        `Unrecognized vbpl.vn relation category "${label}" — the RELATION_LABEL_MAP in vbpl.parser.ts needs a new entry (or this is a genuinely new relation type vbpl.vn added).`,
+      );
+    }
+    if (mapping === null) continue; // e.g. "Văn bản liên quan cùng nội dung" — intentionally not persisted
+
+    for (const entry of realEntries) {
+      relations.push({
+        referenceType: mapping.referenceType,
+        changeType: mapping.changeType,
+        thisDocIsSource: mapping.thisDocIsSource,
+        otherDocRawText: entry,
+        otherDocCitation: extractCitationFromTitle(entry),
+      });
+    }
+  }
+
+  return {
+    relations,
+    consolidation: { consolidatesRawTitles, consolidatedIntoRawTitles },
+  };
+}
+
+export function parseVbplPage(raw: RawVbplPage): ParsedVbplDocument {
+  const attributes = parseAttributes(raw.attributes);
+  const { relations, consolidation } = parseRelations(raw.relations);
+  return {
+    sourceUrl: raw.sourceUrl,
+    scope: raw.scope,
+    title: raw.title,
+    fullText: raw.fullText,
+    attributes,
+    relations,
+    consolidation,
+  };
+}
