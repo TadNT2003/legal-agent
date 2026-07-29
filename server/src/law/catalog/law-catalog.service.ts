@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { access, readdir, stat } from 'fs/promises';
 import { join } from 'path';
 import {
@@ -8,6 +12,7 @@ import {
 } from '../utils/document-matcher';
 import type { ManifestEntry } from '../utils/download-outcome.interface';
 import { LawManifestService } from '../utils/law-manifest.service';
+import { TIER_DEFINITIONS } from '../utils/tier-definitions';
 
 const EXCLUDED_FILENAMES = new Set(['README.md']);
 
@@ -56,6 +61,26 @@ export class LawCatalogService {
         ),
       ),
     );
+  }
+
+  /** Document count and total size for one tier (1-14, per Điều 4 Luật 64/2025/QH15), recursing into its sub-folders. */
+  async getTierStats(tier: number): Promise<FolderStats> {
+    const definition = TIER_DEFINITIONS[tier - 1];
+    if (!Number.isInteger(tier) || !definition) {
+      throw new BadRequestException(
+        `tier must be an integer from 1 to ${TIER_DEFINITIONS.length}.`,
+      );
+    }
+
+    const absoluteDir = join(this.manifest.dir, definition.subdir);
+    try {
+      return await this.scanDirectory(absoluteDir, definition.subdir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { subdir: definition.subdir, documentCount: 0, totalBytes: 0 };
+      }
+      throw err;
+    }
   }
 
   /**

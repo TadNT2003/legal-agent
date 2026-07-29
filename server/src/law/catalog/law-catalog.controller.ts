@@ -2,10 +2,12 @@ import {
   BadRequestException,
   Controller,
   Get,
+  Param,
+  ParseIntPipe,
   Query,
   Res,
 } from '@nestjs/common';
-import { ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiProduces, ApiTags } from '@nestjs/swagger';
 import archiver from 'archiver';
 import { createReadStream } from 'fs';
 import { stat } from 'fs/promises';
@@ -19,15 +21,27 @@ import { LawCatalogService } from './law-catalog.service';
 export class LawCatalogController {
   constructor(private readonly catalog: LawCatalogService) {}
 
-  /** Document count and total size per tier folder (and its sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung). */
+  /** Document count and total size across every tier folder (and their sub-folders). */
   @ApiOperation({
-    summary: 'Tier folder stats',
+    summary: 'All-tier overview',
     description:
-      "Document count and total size per tier folder under laws/ (and its sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung).",
+      "Document count and total size for every tier folder under laws/ (and their sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung).",
   })
-  @Get('tiers')
-  getTierOverview() {
+  @Get('overview')
+  getOverview() {
     return this.catalog.getTierOverview();
+  }
+
+  /** Document count and total size for one tier only (and its sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung). */
+  @ApiOperation({
+    summary: 'Single-tier stats',
+    description:
+      "Document count and total size for one tier (and its sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung) — per Điều 4, Luật 64/2025/QH15.",
+  })
+  @ApiParam({ name: 'tier', description: 'Tier number, 1-14.', example: 2 })
+  @Get('tiers/:tier')
+  getTierStats(@Param('tier', ParseIntPipe) tier: number) {
+    return this.catalog.getTierStats(tier);
   }
 
   /**
