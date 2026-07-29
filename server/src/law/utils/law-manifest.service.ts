@@ -10,7 +10,7 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import { lawDownloadConfig } from './law-download.config';
-import type { ManifestEntry } from './interfaces/download-outcome.interface';
+import type { ManifestEntry } from './download-outcome.interface';
 import { TIER_DEFINITIONS } from './tier-definitions';
 
 const LOG_HEADER = 'citation,subdir,filename,http_code,bytes';
@@ -95,7 +95,7 @@ export class LawManifestService implements OnModuleInit {
 
     const content = `# Downloaded laws
 
-Populated by \`server/src/law-download/\` (see [server/README.md](../server/README.md#law-document-downloads)) from [vanban.chinhphu.vn](https://vanban.chinhphu.vn/).
+Populated by \`server/src/law/download/\` (see [server/README.md](../server/README.md#law-document-downloads)) from [vanban.chinhphu.vn](https://vanban.chinhphu.vn/).
 
 ## Structure
 
@@ -181,7 +181,9 @@ ${tierRows}
     const manifest = await this.readManifest();
     const idx = manifest.findIndex(
       (e) =>
-        e.subdir === oldSubdir && e.folder === folder && e.filename === filename,
+        e.subdir === oldSubdir &&
+        e.folder === folder &&
+        e.filename === filename,
     );
     if (idx === -1) return;
     manifest[idx] = { ...manifest[idx], subdir: newSubdir };

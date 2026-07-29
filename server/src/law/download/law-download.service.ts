@@ -7,22 +7,25 @@ import { pipeline } from 'stream/promises';
 import { DEFAULT_MAX_RESULTS, DEFAULT_RECORDS_PER_PAGE } from './constants';
 import { DownloadByUrlDto } from './dto/download-by-url.dto';
 import { SearchDownloadDto } from './dto/search-download.dto';
-import { findSupersededConflict, parseManifestDate } from './document-matcher';
+import {
+  findSupersededConflict,
+  parseManifestDate,
+} from '../utils/document-matcher';
 import { buildFilename, buildLawFolderName } from './filename.util';
 import type {
   DownloadOutcome,
   ManifestEntry,
-} from './interfaces/download-outcome.interface';
+} from '../utils/download-outcome.interface';
 import type {
   ParsedLawDocument,
   SearchResultRow,
-} from './interfaces/parsed-law-document.interface';
+} from './parsed-law-document.interface';
+import { classifyTier } from './law-tier-classifier';
 import {
-  classifyTier,
   LUAT_HET_HIEU_LUC_SUBDIR,
   LUAT_SUBDIR,
-} from './law-tier-classifier';
-import { LawManifestService } from './law-manifest.service';
+} from '../utils/tier-definitions';
+import { LawManifestService } from '../utils/law-manifest.service';
 import { VanBanChinhPhuClientService } from './vanban-chinh-phu-client.service';
 import {
   parseDocumentDetailPage,

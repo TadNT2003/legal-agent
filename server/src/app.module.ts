@@ -10,8 +10,8 @@ import {
   postgresConfig,
 } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
-import { LawDownloadModule } from './law-download/law-download.module';
-import { lawDownloadConfig } from './law-download/law-download.config';
+import { LawModule } from './law/law.module';
+import { lawDownloadConfig } from './law/utils/law-download.config';
 
 @Module({
   imports: [
@@ -31,7 +31,7 @@ import { lawDownloadConfig } from './law-download/law-download.config';
         abortEarly: false,
       },
     }),
-    LawDownloadModule,
+    LawModule,
   ],
   controllers: [AppController],
   providers: [AppService],

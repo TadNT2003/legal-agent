@@ -5,9 +5,9 @@ import {
   findByCitation,
   resolveBestMatch,
   type DocumentQuery,
-} from './document-matcher';
-import type { ManifestEntry } from './interfaces/download-outcome.interface';
-import { LawManifestService } from './law-manifest.service';
+} from '../utils/document-matcher';
+import type { ManifestEntry } from '../utils/download-outcome.interface';
+import { LawManifestService } from '../utils/law-manifest.service';
 
 const EXCLUDED_FILENAMES = new Set(['README.md']);
 

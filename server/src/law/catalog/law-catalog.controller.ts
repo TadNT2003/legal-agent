@@ -1,4 +1,11 @@
-import { BadRequestException, Controller, Get, Query, Res } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Query,
+  Res,
+} from '@nestjs/common';
+import { ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
 import archiver from 'archiver';
 import { createReadStream } from 'fs';
 import { stat } from 'fs/promises';
@@ -7,11 +14,17 @@ import { FindDocumentDto } from './dto/find-document.dto';
 import { buildContentDisposition, mimeTypeForFilename } from './http-file.util';
 import { LawCatalogService } from './law-catalog.service';
 
+@ApiTags('law-catalog')
 @Controller('laws')
 export class LawCatalogController {
   constructor(private readonly catalog: LawCatalogService) {}
 
   /** Document count and total size per tier folder (and its sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung). */
+  @ApiOperation({
+    summary: 'Tier folder stats',
+    description:
+      "Document count and total size per tier folder under laws/ (and its sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung).",
+  })
   @Get('tiers')
   getTierOverview() {
     return this.catalog.getTierOverview();
@@ -23,6 +36,17 @@ export class LawCatalogController {
    * range. A single-file document streams back as-is; a document with phụ lục
    * attachments streams back as a zip of every file (main text + annexes).
    */
+  @ApiOperation({
+    summary: 'Serve a downloaded document',
+    description:
+      "Resolves citation or closest title match (optionally date-filtered) and streams every file belonging to it — the raw file itself when there's only one, or a .zip of the main text + every phụ lục attachment when there are several.",
+  })
+  @ApiProduces(
+    'application/pdf',
+    'application/msword',
+    'application/zip',
+    'application/octet-stream',
+  )
   @Get('documents')
   async serveDocument(
     @Query() query: FindDocumentDto,
@@ -57,7 +81,7 @@ export class LawCatalogController {
     }
 
     // Every entry sharing a citation was written with the same `folder`
-    // (see law-download.service.ts) — safe to read it off any one of them.
+    // (see ../download/law-download.service.ts) — safe to read it off any one of them.
     const zipFilename = `${files[0].entry.folder}.zip`;
     res.set({
       'Content-Type': 'application/zip',

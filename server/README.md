@@ -33,7 +33,7 @@ Copy `.env.example` to `.env` and fill in real values — see the file for what 
 
 ## Law document downloads
 
-`src/law-download/` scrapes [vanban.chinhphu.vn](https://vanban.chinhphu.vn/) — the only source this module ever fetches documents from — and files results into `LAWS_DOWNLOAD_DIR` (defaults to the repo-root `../laws/`, see [laws/README.md](../laws/README.md) for the 14-tier folder layout). Every download updates `laws/manifest.json` and `laws/download-log.csv` in place, matching their existing schema.
+`src/law/` scrapes [vanban.chinhphu.vn](https://vanban.chinhphu.vn/) — the only source this module ever fetches documents from — and files results into `LAWS_DOWNLOAD_DIR` (defaults to the repo-root `../laws/`, see [laws/README.md](../laws/README.md) for the 14-tier folder layout). Every download updates `laws/manifest.json` and `laws/download-log.csv` in place, matching their existing schema. Internally it's split into `src/law/download/` (fetching from vanban.chinhphu.vn), `src/law/catalog/` (browsing/serving what's already downloaded), and `src/law/utils/` (the manifest read-write layer and other plumbing shared by both).
 
 Document type + issuing body (read off vanban.chinhphu.vn's own detail page) are mapped to one of the 14 tiers by `law-tier-classifier.ts`. When a document doesn't fit a recognized tier (e.g. "Văn bản hợp nhất", which isn't one of the 14 Điều 4 categories), the API returns a clear error instead of guessing — pass `subdirOverride` to force a location (this also skips the supersession check below, since an explicit override means the caller has already decided).
 
@@ -70,7 +70,7 @@ Downloads are sequential with a small delay between requests to `vanban.chinhphu
 Browsing what's already downloaded (reads `laws/manifest.json` and the filesystem — never touches `vanban.chinhphu.vn`):
 
 - `GET /laws/tiers` — document count and total size per tier folder, recursing into sub-folders (e.g. tier 2's `luat/` vs `luat-sua-doi-bo-sung/`).
-- `GET /laws/documents?citation=...` or `?title=...` (optionally with `dateFrom`/`dateTo`, real date-range filtering, not text matching) — streams back the matching file. `citation` is an exact, case-insensitive match; `title` is a closest-match fuzzy search ([fuse.js](https://fuse.js.org/), diacritics-folded so `"bo luat lao dong"` finds `"Bộ Luật Lao động"`) — no need to type it exactly. If a document has multiple attachments (e.g. a decree plus phụ lục annexes), the main file wins. Responds `404` if nothing matches, or if the manifest lists a file that's since gone missing from disk.
+- `GET /laws/documents?citation=...` or `?title=...` (optionally with `dateFrom`/`dateTo`, real date-range filtering, not text matching) — streams back every file belonging to the matching document. `citation` is an exact, case-insensitive match; `title` is a closest-match fuzzy search ([fuse.js](https://fuse.js.org/), diacritics-folded so `"bo luat lao dong"` finds `"Bộ Luật Lao động"`) — no need to type it exactly. A single-file document streams back as-is; a document with phụ lục attachments streams back as a `.zip` of the main text plus every annex. Responds `404` if nothing matches, or if the manifest lists a file that's since gone missing from disk.
 
 ## Project setup
 

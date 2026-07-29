@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js';
-import type { ManifestEntry } from './interfaces/download-outcome.interface';
+import type { ManifestEntry } from './download-outcome.interface';
 import { foldDiacritics } from './text-normalize.util';
 
 const TITLE_MATCH_THRESHOLD = 0.4;

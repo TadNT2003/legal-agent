@@ -6,7 +6,7 @@ import {
   parseManifestDate,
   resolveBestMatch,
 } from './document-matcher';
-import type { ManifestEntry } from './interfaces/download-outcome.interface';
+import type { ManifestEntry } from './download-outcome.interface';
 
 const ENTRIES: ManifestEntry[] = [
   {

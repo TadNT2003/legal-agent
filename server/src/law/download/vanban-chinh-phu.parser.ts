@@ -3,7 +3,7 @@ import { VANBANCHINHPHU_BASE_URL } from './constants';
 import type {
   ParsedLawDocument,
   SearchResultRow,
-} from './interfaces/parsed-law-document.interface';
+} from './parsed-law-document.interface';
 
 export interface SearchFormControls {
   category: string;

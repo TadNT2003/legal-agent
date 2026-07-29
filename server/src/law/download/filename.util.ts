@@ -1,5 +1,5 @@
 import { extname } from 'path';
-import { foldDiacritics } from './text-normalize.util';
+import { foldDiacritics } from '../utils/text-normalize.util';
 
 const MAX_SLUG_LENGTH = 80;
 

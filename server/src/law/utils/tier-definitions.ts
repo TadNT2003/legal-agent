@@ -1,4 +1,10 @@
-import { LUAT_HET_HIEU_LUC_SUBDIR, LUAT_SUBDIR } from './law-tier-classifier';
+// Referenced by law-tier-classifier.ts for supersession resolution — the
+// only two tier-2 subfolders that hold standalone Luật/Bộ luật (not
+// amendments, not Quốc hội resolutions), so the only ones a newer document
+// can legitimately bump an older one out of.
+export const LUAT_SUBDIR = '02-luat-nghi-quyet-quoc-hoi/luat';
+export const LUAT_HET_HIEU_LUC_SUBDIR =
+  '02-luat-nghi-quyet-quoc-hoi/luat-het-hieu-luc';
 
 export interface TierDefinition {
   subdir: string;
