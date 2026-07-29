@@ -69,9 +69,10 @@ Downloads are sequential with a small delay between requests to `vanban.chinhphu
 
 Browsing what's already downloaded (reads `laws/manifest.json` and the filesystem — never touches `vanban.chinhphu.vn`):
 
-- `GET /laws/overview` — document count and total size across every tier folder, recursing into sub-folders (e.g. tier 2's `luat/` vs `luat-sua-doi-bo-sung/`).
-- `GET /laws/tiers/:tier` — same stats, scoped to one tier only. `tier` is an integer 1-14 (Điều 4, Luật 64/2025/QH15).
+- `GET /laws/overview` — document count and total size across every tier folder. Stops at the tier's own known sub-splits (e.g. tier 2's `luat/` vs `luat-sua-doi-bo-sung/`) — doesn't enumerate every individual downloaded law.
+- `GET /laws/tiers/:tier` — same stats, scoped to one tier only, but with the full recursive breakdown down to each individual law folder. `tier` is an integer 1-14 (Điều 4, Luật 64/2025/QH15).
 - `GET /laws/documents?citation=...` or `?title=...` (optionally with `dateFrom`/`dateTo`, real date-range filtering, not text matching) — streams back every file belonging to the matching document. `citation` is an exact, case-insensitive match; `title` is a closest-match fuzzy search ([fuse.js](https://fuse.js.org/), diacritics-folded so `"bo luat lao dong"` finds `"Bộ Luật Lao động"`) — no need to type it exactly. A single-file document streams back as-is; a document with phụ lục attachments streams back as a `.zip` of the main text plus every annex. Responds `404` if nothing matches, or if the manifest lists a file that's since gone missing from disk.
+- `GET /laws/documents/status` — same citation/title (+ optional dateFrom/dateTo) resolution as the endpoint above, but returns manifest.json metadata and file count as JSON instead of streaming content, with a per-file `existsOnDisk` flag (reports drift instead of throwing `404` on a missing file).
 
 ## Project setup
 

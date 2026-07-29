@@ -36,6 +36,20 @@ export interface DocumentGroupLookupResult {
   files: DocumentFile[];
 }
 
+export interface DocumentStatusFile {
+  /** The raw manifest.json row — citation, title, date, source URL, subdir, folder, filename. */
+  entry: ManifestEntry;
+  existsOnDisk: boolean;
+}
+
+export interface DocumentStatusResult {
+  citation: string;
+  title: string;
+  score: number;
+  fileCount: number;
+  files: DocumentStatusFile[];
+}
+
 @Injectable()
 export class LawCatalogService {
   constructor(private readonly manifest: LawManifestService) {}
@@ -58,6 +72,7 @@ export class LawCatalogService {
         this.scanDirectory(
           join(this.manifest.dir, dirEntry.name),
           dirEntry.name,
+          false,
         ),
       ),
     );
@@ -111,16 +126,53 @@ export class LawCatalogService {
     };
   }
 
-  private async resolveOnDisk(entry: ManifestEntry): Promise<DocumentFile> {
-    const absolutePath = join(
-      this.manifest.dir,
-      entry.subdir,
-      entry.folder,
-      entry.filename,
+  /**
+   * Same resolution as `findDocumentGroup` (citation or closest title match,
+   * same document group), but reports manifest.json metadata + on-disk
+   * presence per file instead of streaming content — a missing file is
+   * reported as `existsOnDisk: false`, not a thrown 404, since the point of
+   * a status check is to surface exactly that kind of drift.
+   */
+  async getDocumentStatus(query: DocumentQuery): Promise<DocumentStatusResult> {
+    const manifestEntries = await this.manifest.readManifest();
+    const match = resolveBestMatch(manifestEntries, query);
+    if (!match) {
+      throw new NotFoundException('No matching document found.');
+    }
+
+    const siblings = findByCitation(manifestEntries, match.entry.citation);
+    const files = await Promise.all(
+      siblings.map(async (entry) => ({
+        entry,
+        existsOnDisk: await this.existsOnDisk(entry),
+      })),
     );
+
+    return {
+      citation: match.entry.citation,
+      title: match.entry.title,
+      score: match.score,
+      fileCount: files.length,
+      files,
+    };
+  }
+
+  private absolutePathFor(entry: ManifestEntry): string {
+    return join(this.manifest.dir, entry.subdir, entry.folder, entry.filename);
+  }
+
+  private async existsOnDisk(entry: ManifestEntry): Promise<boolean> {
     try {
-      await access(absolutePath);
+      await access(this.absolutePathFor(entry));
+      return true;
     } catch {
+      return false;
+    }
+  }
+
+  private async resolveOnDisk(entry: ManifestEntry): Promise<DocumentFile> {
+    const absolutePath = this.absolutePathFor(entry);
+    if (!(await this.existsOnDisk(entry))) {
       throw new NotFoundException(
         `"${entry.filename}" is listed in manifest.json but is missing on disk.`,
       );
@@ -128,9 +180,16 @@ export class LawCatalogService {
     return { entry, absolutePath };
   }
 
+  /**
+   * `includeChildren` still walks the full tree either way (needed for
+   * accurate totals) — set to `false` to get aggregate counts without the
+   * per-law-folder-level breakdown (see `getTierOverview`, which would
+   * otherwise list every single downloaded document).
+   */
   private async scanDirectory(
     absoluteDir: string,
     relativeSubdir: string,
+    includeChildren = true,
   ): Promise<FolderStats> {
     const entries = await readdir(absoluteDir, { withFileTypes: true });
     let documentCount = 0;
@@ -142,8 +201,9 @@ export class LawCatalogService {
         const childStats = await this.scanDirectory(
           join(absoluteDir, entry.name),
           `${relativeSubdir}/${entry.name}`,
+          includeChildren,
         );
-        children.push(childStats);
+        if (includeChildren) children.push(childStats);
         documentCount += childStats.documentCount;
         totalBytes += childStats.totalBytes;
       } else if (
