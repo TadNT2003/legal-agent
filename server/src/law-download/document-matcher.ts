@@ -42,6 +42,35 @@ export function filterByDateRange(
   });
 }
 
+function subjectKey(title: string): string {
+  return foldDiacritics(title).toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Finds a different document in `subdir` covering the same subject as `title`
+ * (Vietnamese replacement laws — luật thay thế — keep the same title across
+ * versions; only the citation changes, unlike amendments which get "sửa đổi,
+ * bổ sung" prepended). Excludes entries with the same citation so re-downloading
+ * a document already in place is never mistaken for a supersession conflict.
+ */
+export function findSupersededConflict(
+  entries: ManifestEntry[],
+  subdir: string,
+  citation: string,
+  title: string,
+): ManifestEntry | null {
+  const key = subjectKey(title);
+  const normalizedCitation = citation.trim().toLowerCase();
+  return (
+    entries.find(
+      (entry) =>
+        entry.subdir === subdir &&
+        entry.citation.trim().toLowerCase() !== normalizedCitation &&
+        subjectKey(entry.title) === key,
+    ) ?? null
+  );
+}
+
 export function findByCitation(
   entries: ManifestEntry[],
   citation: string,

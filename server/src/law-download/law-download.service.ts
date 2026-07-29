@@ -7,13 +7,21 @@ import { pipeline } from 'stream/promises';
 import { DEFAULT_MAX_RESULTS, DEFAULT_RECORDS_PER_PAGE } from './constants';
 import { DownloadByUrlDto } from './dto/download-by-url.dto';
 import { SearchDownloadDto } from './dto/search-download.dto';
+import { findSupersededConflict, parseManifestDate } from './document-matcher';
 import { buildFilename } from './filename.util';
-import type { DownloadOutcome } from './interfaces/download-outcome.interface';
+import type {
+  DownloadOutcome,
+  ManifestEntry,
+} from './interfaces/download-outcome.interface';
 import type {
   ParsedLawDocument,
   SearchResultRow,
 } from './interfaces/parsed-law-document.interface';
-import { classifyTier } from './law-tier-classifier';
+import {
+  classifyTier,
+  LUAT_HET_HIEU_LUC_SUBDIR,
+  LUAT_SUBDIR,
+} from './law-tier-classifier';
 import { LawManifestService } from './law-manifest.service';
 import { VanBanChinhPhuClientService } from './vanban-chinh-phu-client.service';
 import {
@@ -31,6 +39,8 @@ export interface UrlStatusFile {
   fileUrl: string;
   subdir: string;
   filename: string;
+  /** Where this file would land (or already lives), regardless of `downloaded`. */
+  absolutePath: string;
   downloaded: boolean;
 }
 
@@ -60,7 +70,10 @@ export class LawDownloadService {
 
   async downloadFromUrl(dto: DownloadByUrlDto): Promise<DownloadOutcome[]> {
     const parsed = await this.resolveAndParseDetail(dto.url);
-    const resolved = this.classifyAndBuildTargets(parsed, dto.subdirOverride);
+    const resolved = await this.classifyAndBuildTargets(
+      parsed,
+      dto.subdirOverride,
+    );
 
     if ('error' in resolved) {
       return [
@@ -89,7 +102,7 @@ export class LawDownloadService {
     subdirOverride?: string,
   ): Promise<UrlStatusResult> {
     const parsed = await this.resolveAndParseDetail(url);
-    const resolved = this.classifyAndBuildTargets(parsed, subdirOverride);
+    const resolved = await this.classifyAndBuildTargets(parsed, subdirOverride);
 
     if ('error' in resolved) {
       return {
@@ -107,6 +120,7 @@ export class LawDownloadService {
         fileUrl: target.fileUrl,
         subdir: resolved.subdir,
         filename: target.filename,
+        absolutePath: join(this.manifest.dir, resolved.subdir, target.filename),
         downloaded: await this.manifest.fileExists(
           resolved.subdir,
           target.filename,
@@ -248,10 +262,10 @@ export class LawDownloadService {
     return { totalMatched: totalAvailable, documents, downloaded };
   }
 
-  private classifyAndBuildTargets(
+  private async classifyAndBuildTargets(
     parsed: ParsedLawDocument,
     subdirOverride: string | undefined,
-  ): ClassifiedTargets {
+  ): Promise<ClassifiedTargets> {
     if (parsed.fileUrls.length === 0) {
       return { error: 'No attached file found on this document page.' };
     }
@@ -266,7 +280,12 @@ export class LawDownloadService {
       };
     }
 
-    const { subdir } = classification;
+    // An explicit subdirOverride is the caller deliberately choosing a location —
+    // don't second-guess it with automatic supersession detection.
+    const subdir = subdirOverride
+      ? classification.subdir
+      : await this.resolveLuatSupersession(parsed, classification.subdir);
+
     const targets = parsed.fileUrls.map((fileUrl, index) => ({
       fileUrl,
       filename: buildFilename(
@@ -279,6 +298,56 @@ export class LawDownloadService {
     }));
 
     return { subdir, targets };
+  }
+
+  /**
+   * Only the plain "luat" bucket has a notion of supersession — amendments and
+   * Quốc hội resolutions aren't "replaced" the same way a standalone law is.
+   * A newer document bumps the current occupant of luat/ out to
+   * luat-het-hieu-luc/; an older one goes straight there itself. This is a
+   * heuristic (title-subject matching), not an authoritative "replaces"
+   * relationship — vanban.chinhphu.vn doesn't expose one (see laws/README.md's
+   * Known limitations).
+   */
+  private async resolveLuatSupersession(
+    parsed: ParsedLawDocument,
+    subdir: string,
+  ): Promise<string> {
+    if (subdir !== LUAT_SUBDIR) return subdir;
+
+    const manifestEntries = await this.manifest.readManifest();
+    const conflict = findSupersededConflict(
+      manifestEntries,
+      LUAT_SUBDIR,
+      parsed.citation,
+      parsed.title,
+    );
+    if (!conflict) return subdir;
+
+    const incomingDate = parseManifestDate(parsed.date);
+    const existingDate = parseManifestDate(conflict.date);
+    if (!incomingDate || !existingDate) return subdir; // can't compare safely — leave as classified
+
+    if (incomingDate.getTime() > existingDate.getTime()) {
+      await this.moveToSuperseded(conflict);
+      return subdir;
+    }
+
+    return LUAT_HET_HIEU_LUC_SUBDIR;
+  }
+
+  private async moveToSuperseded(entry: ManifestEntry): Promise<void> {
+    const oldPath = join(this.manifest.dir, entry.subdir, entry.filename);
+    const newDir = await this.manifest.ensureTargetDir(
+      LUAT_HET_HIEU_LUC_SUBDIR,
+    );
+    const newPath = join(newDir, entry.filename);
+    await rename(oldPath, newPath);
+    await this.manifest.moveEntry(
+      entry.subdir,
+      entry.filename,
+      LUAT_HET_HIEU_LUC_SUBDIR,
+    );
   }
 
   private async resolveAndParseDetail(url: string): Promise<ParsedLawDocument> {

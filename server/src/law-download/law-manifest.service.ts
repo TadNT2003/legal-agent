@@ -71,6 +71,24 @@ export class LawManifestService {
     );
   }
 
+  /** Repoints an existing entry to a new subdir in place — the caller is responsible for moving the file itself. */
+  async moveEntry(
+    oldSubdir: string,
+    filename: string,
+    newSubdir: string,
+  ): Promise<void> {
+    const manifest = await this.readManifest();
+    const idx = manifest.findIndex(
+      (e) => e.subdir === oldSubdir && e.filename === filename,
+    );
+    if (idx === -1) return;
+    manifest[idx] = { ...manifest[idx], subdir: newSubdir };
+    await writeFile(
+      this.manifestPath,
+      JSON.stringify(manifest, null, 2) + '\n',
+    );
+  }
+
   async appendLogEntry(entry: {
     citation: string;
     subdir: string;
