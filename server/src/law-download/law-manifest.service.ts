@@ -1,9 +1,17 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
-import { mkdir, readFile, writeFile, appendFile, access } from 'fs/promises';
+import {
+  mkdir,
+  readFile,
+  readdir,
+  writeFile,
+  appendFile,
+  access,
+} from 'fs/promises';
 import { join } from 'path';
 import { lawDownloadConfig } from './law-download.config';
 import type { ManifestEntry } from './interfaces/download-outcome.interface';
+import { TIER_DEFINITIONS } from './tier-definitions';
 
 const LOG_HEADER = 'citation,subdir,filename,http_code,bytes';
 
@@ -12,11 +20,98 @@ function csvField(value: string): string {
 }
 
 @Injectable()
-export class LawManifestService {
+export class LawManifestService implements OnModuleInit {
   constructor(
     @Inject(lawDownloadConfig.KEY)
     private readonly config: ConfigType<typeof lawDownloadConfig>,
   ) {}
+
+  /**
+   * Scaffolds LAWS_DOWNLOAD_DIR on startup: the 14 tier folders (tier 2's
+   * known luat/luat-het-hieu-luc/luat-sua-doi-bo-sung/nghi-quyet-quoc-hoi
+   * split included), manifest.json, download-log.csv, and a dataset README.
+   * Every step only fills in what's missing — pointing this at the existing
+   * ../laws/ dataset is a no-op, not a resync.
+   */
+  async onModuleInit(): Promise<void> {
+    await mkdir(this.config.dir, { recursive: true });
+
+    for (const tier of TIER_DEFINITIONS) {
+      const tierDir = join(this.config.dir, tier.subdir);
+      await mkdir(tierDir, { recursive: true });
+      for (const child of tier.children ?? []) {
+        await mkdir(join(tierDir, child), { recursive: true });
+      }
+      await this.ensureTierReadme(tier.subdir, tier.description);
+    }
+
+    await this.ensureManifestFile();
+    await this.ensureLogFile();
+    await this.ensureDatasetReadme();
+  }
+
+  private async ensureTierReadme(
+    subdir: string,
+    description: string,
+  ): Promise<void> {
+    const tierDir = join(this.config.dir, subdir);
+    const entries = await readdir(tierDir);
+    if (entries.length > 0) return; // real docs, known sub-folders, or an existing README — leave it alone
+
+    const tierNumber = parseInt(subdir.split('-')[0], 10);
+    const content = `# Tier ${tierNumber}\n\n${description}\n\nNguồn: Điều 4 Luật Ban hành văn bản quy phạm pháp luật - số 64/2025/QH15 (xem [docs/vn-legal-document-structure.md](../../docs/vn-legal-document-structure.md)).\n\nNo documents downloaded for this tier yet.\n`;
+    await writeFile(join(tierDir, 'README.md'), content);
+  }
+
+  private async ensureManifestFile(): Promise<void> {
+    try {
+      await access(this.manifestPath);
+    } catch {
+      await writeFile(this.manifestPath, '[]\n');
+    }
+  }
+
+  private async ensureLogFile(): Promise<void> {
+    try {
+      await access(this.logPath);
+    } catch {
+      await writeFile(this.logPath, LOG_HEADER + '\n');
+    }
+  }
+
+  private async ensureDatasetReadme(): Promise<void> {
+    const readmePath = join(this.config.dir, 'README.md');
+    try {
+      await access(readmePath);
+      return; // never overwrite a hand-written one (e.g. the real laws/README.md)
+    } catch {
+      // fall through and create it
+    }
+
+    const tierRows = TIER_DEFINITIONS.map(
+      (tier) =>
+        `| \`${tier.subdir}/\` | ${parseInt(tier.subdir.split('-')[0], 10)}. ${tier.description.replace(/\.$/, '')} |`,
+    ).join('\n');
+
+    const content = `# Downloaded laws
+
+Populated by \`server/src/law-download/\` (see [server/README.md](../server/README.md#law-document-downloads)) from [vanban.chinhphu.vn](https://vanban.chinhphu.vn/).
+
+## Structure
+
+Top-level folders correspond to the 14 tiers of the "Hệ thống văn bản quy phạm pháp luật" (Điều 4, Luật 64/2025/QH15 — see [docs/vn-legal-document-structure.md](../docs/vn-legal-document-structure.md)). Only tiers with downloaded documents have content; the rest contain a \`README.md\` placeholder describing the tier.
+
+| Folder | Tier |
+| - | - |
+${tierRows}
+
+## Files
+
+- \`manifest.json\` — tracking list of every downloaded file: citation, title, date, source URL, subdir, filename. Reflects current state — one row per file on disk.
+- \`download-log.csv\` — append-only HTTP status and byte size per download attempt, for verifying nothing is truncated/corrupt. Distinct from \`manifest.json\`: a re-download adds a new row here but only updates the one existing manifest entry.
+`;
+    await writeFile(readmePath, content);
+  }
 
   get dir(): string {
     return this.config.dir;
