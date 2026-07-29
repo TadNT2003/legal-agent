@@ -15,6 +15,10 @@ export const REQUEST_USER_AGENT = 'legal-agent-law-downloader/1.0';
 export const REQUEST_DELAY_MS = 400;
 
 export const ALLOWED_RECORDS_PER_PAGE = [50, 100, 200, 500] as const;
-export const DEFAULT_RECORDS_PER_PAGE = 50;
+// The site always renders ~50 rows per response regardless of this value,
+// but a larger value makes its reported total-results count accurate rather
+// than clamped to 50 (see law-download.service.ts downloadBySearch) — so
+// default to the max the dropdown supports rather than its smallest option.
+export const DEFAULT_RECORDS_PER_PAGE = 500;
 export const DEFAULT_MAX_RESULTS = 50;
 export const MAX_ALLOWED_RESULTS = 500;

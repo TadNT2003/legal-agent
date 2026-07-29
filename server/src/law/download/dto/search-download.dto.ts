@@ -12,6 +12,7 @@ import {
 import {
   ALLOWED_RECORDS_PER_PAGE,
   DEFAULT_MAX_RESULTS,
+  DEFAULT_RECORDS_PER_PAGE,
   MAX_ALLOWED_RESULTS,
 } from '../constants';
 
@@ -50,14 +51,17 @@ export class SearchDownloadDto {
 
   @ApiPropertyOptional({
     description:
-      'Results per page requested from vanban.chinhphu.vn while paginating.',
+      'Results per page requested from vanban.chinhphu.vn while paginating. ' +
+      'The site always renders ~50 rows per response regardless of this ' +
+      'value, but a larger value makes its reported total-results count ' +
+      'accurate instead of clamped to 50 — so higher is strictly better.',
     enum: ALLOWED_RECORDS_PER_PAGE,
-    default: ALLOWED_RECORDS_PER_PAGE[0],
+    default: DEFAULT_RECORDS_PER_PAGE,
   })
   @IsOptional()
   @Type(() => Number)
   @IsIn(ALLOWED_RECORDS_PER_PAGE)
-  recordsPerPage?: number = ALLOWED_RECORDS_PER_PAGE[0];
+  recordsPerPage?: number = DEFAULT_RECORDS_PER_PAGE;
 
   /** Upper bound on how many matching documents to download in this call. */
   @ApiPropertyOptional({
