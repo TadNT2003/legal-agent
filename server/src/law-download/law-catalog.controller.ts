@@ -1,12 +1,7 @@
-import {
-  BadRequestException,
-  Controller,
-  Get,
-  Query,
-  Res,
-  StreamableFile,
-} from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, Res } from '@nestjs/common';
+import archiver from 'archiver';
 import { createReadStream } from 'fs';
+import { stat } from 'fs/promises';
 import type { Response } from 'express';
 import { FindDocumentDto } from './dto/find-document.dto';
 import { buildContentDisposition, mimeTypeForFilename } from './http-file.util';
@@ -23,32 +18,58 @@ export class LawCatalogController {
   }
 
   /**
-   * Serves a single already-downloaded document — by exact citation, or by
-   * closest title match — optionally narrowed to a real date range.
+   * Serves every file belonging to one already-downloaded document — by exact
+   * citation, or by closest title match — optionally narrowed to a real date
+   * range. A single-file document streams back as-is; a document with phụ lục
+   * attachments streams back as a zip of every file (main text + annexes).
    */
   @Get('documents')
   async serveDocument(
     @Query() query: FindDocumentDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+    @Res() res: Response,
+  ): Promise<void> {
     if (!query.citation && !query.title) {
       throw new BadRequestException(
         'Provide at least one of "citation" or "title".',
       );
     }
 
-    const { entry, score, absolutePath } =
-      await this.catalog.findDocument(query);
+    const { citation, title, score, files } =
+      await this.catalog.findDocumentGroup(query);
 
     res.set({
-      'X-Document-Citation': entry.citation,
-      'X-Document-Title': encodeURIComponent(entry.title),
+      'X-Document-Citation': citation,
+      'X-Document-Title': encodeURIComponent(title),
       'X-Match-Score': String(score),
-      'Content-Disposition': buildContentDisposition(entry.filename),
+      'X-Document-File-Count': String(files.length),
     });
 
-    return new StreamableFile(createReadStream(absolutePath), {
-      type: mimeTypeForFilename(entry.filename),
+    if (files.length === 1) {
+      const [{ entry, absolutePath }] = files;
+      const { size } = await stat(absolutePath);
+      res.set({
+        'Content-Type': mimeTypeForFilename(entry.filename),
+        'Content-Disposition': buildContentDisposition(entry.filename),
+        'Content-Length': String(size),
+      });
+      createReadStream(absolutePath).pipe(res);
+      return;
+    }
+
+    // Every entry sharing a citation was written with the same `folder`
+    // (see law-download.service.ts) — safe to read it off any one of them.
+    const zipFilename = `${files[0].entry.folder}.zip`;
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': buildContentDisposition(zipFilename),
     });
+
+    const archive = archiver('zip');
+    archive.on('error', (err) => res.destroy(err));
+    archive.pipe(res);
+    for (const { entry, absolutePath } of files) {
+      archive.file(absolutePath, { name: entry.filename });
+    }
+    await archive.finalize();
   }
 }

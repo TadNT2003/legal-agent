@@ -1,7 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { access, readdir, stat } from 'fs/promises';
 import { join } from 'path';
-import { resolveBestMatch, type DocumentQuery } from './document-matcher';
+import {
+  findByCitation,
+  resolveBestMatch,
+  type DocumentQuery,
+} from './document-matcher';
 import type { ManifestEntry } from './interfaces/download-outcome.interface';
 import { LawManifestService } from './law-manifest.service';
 
@@ -14,10 +18,17 @@ export interface FolderStats {
   children?: FolderStats[];
 }
 
-export interface DocumentLookupResult {
+export interface DocumentFile {
   entry: ManifestEntry;
-  score: number;
   absolutePath: string;
+}
+
+export interface DocumentGroupLookupResult {
+  citation: string;
+  title: string;
+  score: number;
+  /** Every file sharing the matched document's citation — main text and phụ lục alike. */
+  files: DocumentFile[];
 }
 
 @Injectable()
@@ -47,27 +58,49 @@ export class LawCatalogService {
     );
   }
 
-  async findDocument(query: DocumentQuery): Promise<DocumentLookupResult> {
-    const manifest = await this.manifest.readManifest();
-    const match = resolveBestMatch(manifest, query);
+  /**
+   * Resolves the query to one document (by citation, or closest title match)
+   * the same way `findDocument` used to, then returns every file sharing that
+   * document's citation — a law with phụ lục attachments comes back as the
+   * main text plus every annex, not just whichever file matched first.
+   */
+  async findDocumentGroup(
+    query: DocumentQuery,
+  ): Promise<DocumentGroupLookupResult> {
+    const manifestEntries = await this.manifest.readManifest();
+    const match = resolveBestMatch(manifestEntries, query);
     if (!match) {
       throw new NotFoundException('No matching document found.');
     }
 
+    const siblings = findByCitation(manifestEntries, match.entry.citation);
+    const files = await Promise.all(
+      siblings.map((entry) => this.resolveOnDisk(entry)),
+    );
+
+    return {
+      citation: match.entry.citation,
+      title: match.entry.title,
+      score: match.score,
+      files,
+    };
+  }
+
+  private async resolveOnDisk(entry: ManifestEntry): Promise<DocumentFile> {
     const absolutePath = join(
       this.manifest.dir,
-      match.entry.subdir,
-      match.entry.filename,
+      entry.subdir,
+      entry.folder,
+      entry.filename,
     );
     try {
       await access(absolutePath);
     } catch {
       throw new NotFoundException(
-        `"${match.entry.filename}" is listed in manifest.json but is missing on disk.`,
+        `"${entry.filename}" is listed in manifest.json but is missing on disk.`,
       );
     }
-
-    return { entry: match.entry, score: match.score, absolutePath };
+    return { entry, absolutePath };
   }
 
   private async scanDirectory(

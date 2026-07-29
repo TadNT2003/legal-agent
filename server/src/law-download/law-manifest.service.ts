@@ -125,17 +125,19 @@ ${tierRows}
     return join(this.config.dir, 'download-log.csv');
   }
 
-  async fileExists(subdir: string, filename: string): Promise<boolean> {
+  /** `relativeDir` is a path relative to `this.dir` — typically `join(subdir, folder)`. */
+  async fileExists(relativeDir: string, filename: string): Promise<boolean> {
     try {
-      await access(join(this.config.dir, subdir, filename));
+      await access(join(this.config.dir, relativeDir, filename));
       return true;
     } catch {
       return false;
     }
   }
 
-  async ensureTargetDir(subdir: string): Promise<string> {
-    const dir = join(this.config.dir, subdir);
+  /** `relativeDir` is a path relative to `this.dir` — typically `join(subdir, folder)`. */
+  async ensureTargetDir(relativeDir: string): Promise<string> {
+    const dir = join(this.config.dir, relativeDir);
     await mkdir(dir, { recursive: true });
     return dir;
   }
@@ -153,7 +155,10 @@ ${tierRows}
   async upsertEntry(entry: ManifestEntry): Promise<void> {
     const manifest = await this.readManifest();
     const idx = manifest.findIndex(
-      (e) => e.subdir === entry.subdir && e.filename === entry.filename,
+      (e) =>
+        e.subdir === entry.subdir &&
+        e.folder === entry.folder &&
+        e.filename === entry.filename,
     );
     if (idx >= 0) {
       manifest[idx] = entry;
@@ -166,15 +171,17 @@ ${tierRows}
     );
   }
 
-  /** Repoints an existing entry to a new subdir in place — the caller is responsible for moving the file itself. */
+  /** Repoints an existing entry to a new subdir in place (folder name is unchanged) — the caller is responsible for moving the file itself. */
   async moveEntry(
     oldSubdir: string,
+    folder: string,
     filename: string,
     newSubdir: string,
   ): Promise<void> {
     const manifest = await this.readManifest();
     const idx = manifest.findIndex(
-      (e) => e.subdir === oldSubdir && e.filename === filename,
+      (e) =>
+        e.subdir === oldSubdir && e.folder === folder && e.filename === filename,
     );
     if (idx === -1) return;
     manifest[idx] = { ...manifest[idx], subdir: newSubdir };

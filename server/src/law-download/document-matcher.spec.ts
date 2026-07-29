@@ -15,6 +15,7 @@ const ENTRIES: ManifestEntry[] = [
     date: '20/11/2019',
     pdf: 'https://datafiles.chinhphu.vn/x/bldd.pdf',
     subdir: '02-luat-nghi-quyet-quoc-hoi/luat',
+    folder: '45-2019-QH14_bo-luat-lao-dong',
     filename: '45-2019-QH14_bo-luat-lao-dong.pdf',
   },
   {
@@ -23,6 +24,7 @@ const ENTRIES: ManifestEntry[] = [
     date: '24/11/2015',
     pdf: 'https://datafiles.chinhphu.vn/x/bldds.pdf',
     subdir: '02-luat-nghi-quyet-quoc-hoi/luat',
+    folder: '91-2015-QH13_bo-luat-dan-su',
     filename: '91-2015-QH13_bo-luat-dan-su.pdf',
   },
   {
@@ -31,6 +33,7 @@ const ENTRIES: ManifestEntry[] = [
     date: '01/04/2025',
     pdf: 'https://datafiles.chinhphu.vn/x/78ndcp-1.pdf',
     subdir: '05-nghi-dinh-nghi-quyet-chinh-phu',
+    folder: '78-2025-NĐ-CP_quy-dinh-chi-tiet-mot-so-dieu',
     filename: '78-2025-NĐ-CP_quy-dinh-chi-tiet-mot-so-dieu-1.pdf',
   },
   {
@@ -39,6 +42,7 @@ const ENTRIES: ManifestEntry[] = [
     date: '01/04/2025',
     pdf: 'https://datafiles.chinhphu.vn/x/pl2.pdf',
     subdir: '05-nghi-dinh-nghi-quyet-chinh-phu',
+    folder: '78-2025-NĐ-CP_quy-dinh-chi-tiet-mot-so-dieu',
     filename: '78-2025-NĐ-CP_quy-dinh-chi-tiet-mot-so-dieu-2.pdf',
   },
 ];
@@ -114,6 +118,7 @@ describe('findSupersededConflict', () => {
       date: '26/11/2003',
       pdf: 'https://datafiles.chinhphu.vn/x/dd2003.pdf',
       subdir: LUAT_SUBDIR,
+      folder: '13-2003-QH11_luat-dat-dai',
       filename: '13-2003-QH11_luat-dat-dai.pdf',
     };
     const conflict = findSupersededConflict(
@@ -132,6 +137,7 @@ describe('findSupersededConflict', () => {
       date: '26/11/2003',
       pdf: 'https://datafiles.chinhphu.vn/x/dd2003.pdf',
       subdir: LUAT_SUBDIR,
+      folder: '13-2003-QH11_luat-dat-dai',
       filename: '13-2003-QH11_luat-dat-dai.pdf',
     };
     expect(
@@ -162,6 +168,7 @@ describe('findSupersededConflict', () => {
       date: '10/01/2010',
       pdf: 'https://datafiles.chinhphu.vn/x/x.pdf',
       subdir: '02-luat-nghi-quyet-quoc-hoi/luat-het-hieu-luc',
+      folder: '99-2010-QH12_bo-luat-lao-dong',
       filename: 'x.pdf',
     };
     expect(

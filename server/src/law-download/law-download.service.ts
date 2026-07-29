@@ -8,7 +8,7 @@ import { DEFAULT_MAX_RESULTS, DEFAULT_RECORDS_PER_PAGE } from './constants';
 import { DownloadByUrlDto } from './dto/download-by-url.dto';
 import { SearchDownloadDto } from './dto/search-download.dto';
 import { findSupersededConflict, parseManifestDate } from './document-matcher';
-import { buildFilename } from './filename.util';
+import { buildFilename, buildLawFolderName } from './filename.util';
 import type {
   DownloadOutcome,
   ManifestEntry,
@@ -38,6 +38,7 @@ export interface SearchDownloadResult {
 export interface UrlStatusFile {
   fileUrl: string;
   subdir: string;
+  folder: string;
   filename: string;
   /** Where this file would land (or already lives), regardless of `downloaded`. */
   absolutePath: string;
@@ -59,7 +60,8 @@ interface DownloadTarget {
 }
 
 type ClassifiedTargets =
-  { subdir: string; targets: DownloadTarget[] } | { error: string };
+  | { subdir: string; folder: string; targets: DownloadTarget[] }
+  | { error: string };
 
 @Injectable()
 export class LawDownloadService {
@@ -77,7 +79,9 @@ export class LawDownloadService {
 
     if ('error' in resolved) {
       return [
-        this.buildOutcome(parsed, null, null, null, { error: resolved.error }),
+        this.buildOutcome(parsed, null, null, null, null, {
+          error: resolved.error,
+        }),
       ];
     }
 
@@ -87,6 +91,7 @@ export class LawDownloadService {
         await this.persistFile(
           parsed,
           resolved.subdir,
+          resolved.folder,
           target.fileUrl,
           target.filename,
           dto.force,
@@ -119,10 +124,16 @@ export class LawDownloadService {
       resolved.targets.map(async (target) => ({
         fileUrl: target.fileUrl,
         subdir: resolved.subdir,
+        folder: resolved.folder,
         filename: target.filename,
-        absolutePath: join(this.manifest.dir, resolved.subdir, target.filename),
-        downloaded: await this.manifest.fileExists(
+        absolutePath: join(
+          this.manifest.dir,
           resolved.subdir,
+          resolved.folder,
+          target.filename,
+        ),
+        downloaded: await this.manifest.fileExists(
+          join(resolved.subdir, resolved.folder),
           target.filename,
         ),
       })),
@@ -152,6 +163,7 @@ export class LawDownloadService {
           sourceUrl: doc.url,
           fileUrl: null,
           subdir: null,
+          folder: null,
           filename: null,
           httpStatus: null,
           bytes: null,
@@ -228,6 +240,7 @@ export class LawDownloadService {
           sourceUrl: '',
           fileUrl: null,
           subdir: null,
+          folder: null,
           filename: null,
           httpStatus: null,
           bytes: null,
@@ -250,6 +263,7 @@ export class LawDownloadService {
           sourceUrl: doc.docUrl,
           fileUrl: null,
           subdir: null,
+          folder: null,
           filename: null,
           httpStatus: null,
           bytes: null,
@@ -286,6 +300,7 @@ export class LawDownloadService {
       ? classification.subdir
       : await this.resolveLuatSupersession(parsed, classification.subdir);
 
+    const folder = buildLawFolderName(parsed.citation, parsed.title);
     const targets = parsed.fileUrls.map((fileUrl, index) => ({
       fileUrl,
       filename: buildFilename(
@@ -297,7 +312,7 @@ export class LawDownloadService {
       ),
     }));
 
-    return { subdir, targets };
+    return { subdir, folder, targets };
   }
 
   /**
@@ -337,14 +352,20 @@ export class LawDownloadService {
   }
 
   private async moveToSuperseded(entry: ManifestEntry): Promise<void> {
-    const oldPath = join(this.manifest.dir, entry.subdir, entry.filename);
+    const oldPath = join(
+      this.manifest.dir,
+      entry.subdir,
+      entry.folder,
+      entry.filename,
+    );
     const newDir = await this.manifest.ensureTargetDir(
-      LUAT_HET_HIEU_LUC_SUBDIR,
+      join(LUAT_HET_HIEU_LUC_SUBDIR, entry.folder),
     );
     const newPath = join(newDir, entry.filename);
     await rename(oldPath, newPath);
     await this.manifest.moveEntry(
       entry.subdir,
+      entry.folder,
       entry.filename,
       LUAT_HET_HIEU_LUC_SUBDIR,
     );
@@ -365,6 +386,7 @@ export class LawDownloadService {
     parsed: ParsedLawDocument,
     fileUrl: string | null,
     subdir: string | null,
+    folder: string | null,
     filename: string | null,
     extra: Partial<DownloadOutcome> = {},
   ): DownloadOutcome {
@@ -374,6 +396,7 @@ export class LawDownloadService {
       sourceUrl: parsed.sourceUrl,
       fileUrl,
       subdir,
+      folder,
       filename,
       httpStatus: null,
       bytes: null,
@@ -386,18 +409,21 @@ export class LawDownloadService {
   private async persistFile(
     parsed: ParsedLawDocument,
     subdir: string,
+    folder: string,
     fileUrl: string,
     filename: string,
     force: boolean | undefined,
   ): Promise<DownloadOutcome> {
-    if (!force && (await this.manifest.fileExists(subdir, filename))) {
-      return this.buildOutcome(parsed, fileUrl, subdir, filename, {
+    const relativeDir = join(subdir, folder);
+
+    if (!force && (await this.manifest.fileExists(relativeDir, filename))) {
+      return this.buildOutcome(parsed, fileUrl, subdir, folder, filename, {
         skipped: true,
       });
     }
 
     try {
-      const targetDir = await this.manifest.ensureTargetDir(subdir);
+      const targetDir = await this.manifest.ensureTargetDir(relativeDir);
       const targetPath = join(targetDir, filename);
       const tmpPath = `${targetPath}.part`;
 
@@ -417,6 +443,7 @@ export class LawDownloadService {
         date: parsed.date,
         pdf: fileUrl,
         subdir,
+        folder,
         filename,
       });
       await this.manifest.appendLogEntry({
@@ -427,15 +454,15 @@ export class LawDownloadService {
         bytes: size,
       });
 
-      return this.buildOutcome(parsed, fileUrl, subdir, filename, {
+      return this.buildOutcome(parsed, fileUrl, subdir, folder, filename, {
         httpStatus: response.status,
         bytes: size,
       });
     } catch (err) {
-      await rm(join(this.manifest.dir, subdir, `${filename}.part`), {
+      await rm(join(this.manifest.dir, relativeDir, `${filename}.part`), {
         force: true,
       });
-      return this.buildOutcome(parsed, fileUrl, subdir, filename, {
+      return this.buildOutcome(parsed, fileUrl, subdir, folder, filename, {
         error: err instanceof Error ? err.message : String(err),
       });
     }

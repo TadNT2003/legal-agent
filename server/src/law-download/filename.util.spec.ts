@@ -1,4 +1,4 @@
-import { buildFilename } from './filename.util';
+import { buildFilename, buildLawFolderName } from './filename.util';
 
 describe('buildFilename', () => {
   it('slugifies diacritics and joins citation with title, matching the existing manifest convention', () => {
@@ -65,5 +65,26 @@ describe('buildFilename', () => {
     );
     const titleSlug = filename.split('_')[1].replace('.doc', '');
     expect(titleSlug.length).toBeLessThanOrEqual(80);
+  });
+});
+
+describe('buildLawFolderName', () => {
+  it('matches the citation+title slug, with no extension and no attachment suffix', () => {
+    expect(buildLawFolderName('45/2019/QH14', 'Bộ luật Lao động')).toBe(
+      '45-2019-QH14_bo-luat-lao-dong',
+    );
+  });
+
+  it('is the same for every attachment of a multi-file document — the whole point is grouping them', () => {
+    const citation = '78/2025/NĐ-CP';
+    const title = 'Quy định chi tiết một số điều';
+    const urls = [
+      'https://datafiles.chinhphu.vn/cpp/files/vbpq/2025/4/78ndcp-1.signed.pdf',
+      'https://datafiles.chinhphu.vn/cpp/files/vbpq/2025/4/78-pl1.pdf',
+      'https://datafiles.chinhphu.vn/cpp/files/vbpq/2025/4/pl2.pdf',
+    ];
+    const folders = urls.map(() => buildLawFolderName(citation, title));
+    expect(new Set(folders).size).toBe(1);
+    expect(folders[0]).toBe('78-2025-NĐ-CP_quy-dinh-chi-tiet-mot-so-dieu');
   });
 });
