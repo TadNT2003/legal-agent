@@ -1,4 +1,4 @@
-import { LUAT_SUBDIR } from '../utils/tier-definitions';
+import { LUAT_BO_LUAT_SUBDIR } from '../utils/tier-definitions';
 
 export interface TierClassification {
   tier: number;
@@ -37,11 +37,9 @@ function isDistrict(issuingBody: string): boolean {
 export function classifyTier(
   docTypeRaw: string | null,
   issuingBodyRaw: string | null,
-  titleRaw: string | null,
 ): TierClassification | null {
   const docType = normalize(docTypeRaw);
   const issuingBody = normalize(issuingBodyRaw);
-  const title = normalize(titleRaw);
 
   if (!docType) return null;
 
@@ -50,14 +48,7 @@ export function classifyTier(
   }
 
   if (docType.includes('bộ luật') || docType.includes('luật')) {
-    const isAmendment =
-      title.includes('sửa đổi, bổ sung') || title.includes('sửa đổi bổ sung');
-    return {
-      tier: 2,
-      subdir: isAmendment
-        ? '02-luat-nghi-quyet-quoc-hoi/luat-sua-doi-bo-sung'
-        : LUAT_SUBDIR,
-    };
+    return { tier: 2, subdir: LUAT_BO_LUAT_SUBDIR };
   }
 
   if (docType.includes('nghị quyết')) {

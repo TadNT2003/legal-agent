@@ -3,20 +3,26 @@ import { classifyTier } from './law-tier-classifier';
 describe('classifyTier', () => {
   it.each([
     ['Hiến pháp', null, null, 1, '01-hien-phap'],
-    ['Luật', 'Quốc hội', 'Luật Đất đai', 2, '02-luat-nghi-quyet-quoc-hoi/luat'],
+    [
+      'Luật',
+      'Quốc hội',
+      'Luật Đất đai',
+      2,
+      '02-luat-nghi-quyet-quoc-hoi/luat-bo-luat',
+    ],
     [
       'Bộ luật',
       'Quốc hội',
       'Bộ luật Lao động',
       2,
-      '02-luat-nghi-quyet-quoc-hoi/luat',
+      '02-luat-nghi-quyet-quoc-hoi/luat-bo-luat',
     ],
     [
       'Luật',
       'Quốc hội',
       'Luật sửa đổi, bổ sung một số điều của Luật Đất đai',
       2,
-      '02-luat-nghi-quyet-quoc-hoi/luat-sua-doi-bo-sung',
+      '02-luat-nghi-quyet-quoc-hoi/luat-bo-luat',
     ],
     [
       'Nghị quyết',
@@ -125,8 +131,8 @@ describe('classifyTier', () => {
     ],
   ])(
     'classifies %s / %s as tier %i (%s)',
-    (docType, issuingBody, title, tier, subdir) => {
-      expect(classifyTier(docType, issuingBody, title)).toEqual({
+    (docType, issuingBody, _title, tier, subdir) => {
+      expect(classifyTier(docType, issuingBody)).toEqual({
         tier,
         subdir,
       });
@@ -135,21 +141,15 @@ describe('classifyTier', () => {
 
   it('returns null for a "Văn bản hợp nhất" (not one of the 14 tiers)', () => {
     expect(
-      classifyTier(
-        'Văn bản hợp nhất',
-        'Bộ Nông nghiệp và Môi trường',
-        'Hợp nhất',
-      ),
+      classifyTier('Văn bản hợp nhất', 'Bộ Nông nghiệp và Môi trường'),
     ).toBeNull();
   });
 
   it('returns null when docType is missing', () => {
-    expect(classifyTier(null, 'Chính phủ', 'Một văn bản')).toBeNull();
+    expect(classifyTier(null, 'Chính phủ')).toBeNull();
   });
 
   it('returns null for an unrecognized "Quyết định" issuing body', () => {
-    expect(
-      classifyTier('Quyết định', 'Tổng công ty XYZ', 'Quyết định nội bộ'),
-    ).toBeNull();
+    expect(classifyTier('Quyết định', 'Tổng công ty XYZ')).toBeNull();
   });
 });

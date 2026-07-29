@@ -1,10 +1,8 @@
-// Referenced by law-tier-classifier.ts for supersession resolution — the
-// only two tier-2 subfolders that hold standalone Luật/Bộ luật (not
-// amendments, not Quốc hội resolutions), so the only ones a newer document
-// can legitimately bump an older one out of.
-export const LUAT_SUBDIR = '02-luat-nghi-quyet-quoc-hoi/luat';
-export const LUAT_HET_HIEU_LUC_SUBDIR =
-  '02-luat-nghi-quyet-quoc-hoi/luat-het-hieu-luc';
+// Referenced by law-tier-classifier.ts — the one tier-2 subfolder that holds
+// every Bộ luật/luật (base laws, amendments, and superseded versions alike).
+// The dataset is a flat text corpus, not a "current law" database, so there's
+// no need to route by amendment/validity status — see laws/README.md.
+export const LUAT_BO_LUAT_SUBDIR = '02-luat-nghi-quyet-quoc-hoi/luat-bo-luat';
 
 export interface TierDefinition {
   subdir: string;
@@ -21,12 +19,7 @@ export const TIER_DEFINITIONS: TierDefinition[] = [
   {
     subdir: '02-luat-nghi-quyet-quoc-hoi',
     description: 'Bộ luật, luật, nghị quyết của Quốc hội.',
-    children: [
-      LUAT_SUBDIR.split('/')[1],
-      LUAT_HET_HIEU_LUC_SUBDIR.split('/')[1],
-      'luat-sua-doi-bo-sung',
-      'nghi-quyet-quoc-hoi',
-    ],
+    children: [LUAT_BO_LUAT_SUBDIR.split('/')[1], 'nghi-quyet-quoc-hoi'],
   },
   {
     subdir: '03-phap-lenh-nghi-quyet-ubtvqh',

@@ -25,18 +25,18 @@ export class LawCatalogController {
   @ApiOperation({
     summary: 'All-tier overview',
     description:
-      "Document count and total size for every tier folder under laws/ (and their sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung).",
+      "Document count and total size for every tier folder under laws/ (and their sub-folders, e.g. tier 2's luat-bo-luat/nghi-quyet-quoc-hoi).",
   })
   @Get('overview')
   getOverview() {
     return this.catalog.getTierOverview();
   }
 
-  /** Document count and total size for one tier only (and its sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung). */
+  /** Document count and total size for one tier only (and its sub-folders, e.g. tier 2's luat-bo-luat/nghi-quyet-quoc-hoi). */
   @ApiOperation({
     summary: 'Single-tier stats',
     description:
-      "Document count and total size for one tier (and its sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung) — per Điều 4, Luật 64/2025/QH15.",
+      "Document count and total size for one tier (and its sub-folders, e.g. tier 2's luat-bo-luat/nghi-quyet-quoc-hoi) — per Điều 4, Luật 64/2025/QH15.",
   })
   @ApiParam({ name: 'tier', description: 'Tier number, 1-14.', example: 2 })
   @Get('tiers/:tier')
