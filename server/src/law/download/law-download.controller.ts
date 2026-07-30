@@ -15,9 +15,9 @@ export class LawDownloadController {
   @ApiOperation({
     summary: 'Download one document',
     description:
-      'Fetches every attached file (main text + phụ lục) from a vanban.chinhphu.vn document detail page URL and saves them into laws/.',
+      'Fetches every attached file (main text + phụ lục) from a vanban.chinhphu.vn document detail page URL and saves them into laws/. The `url` field must be a vanban.chinhphu.vn detail page URL.',
   })
-  @Post()
+  @Post('url')
   downloadOne(@Body() dto: DownloadByUrlDto) {
     return this.downloadService.downloadFromUrl(dto);
   }
