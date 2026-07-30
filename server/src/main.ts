@@ -22,6 +22,10 @@ async function bootstrap() {
     .setVersion('0.1')
     .addTag('law-downloads', 'Fetch documents from vanban.chinhphu.vn')
     .addTag('law-catalog', 'Browse and serve already-downloaded documents')
+    .addTag(
+      'law-index',
+      'Scrape vbpl.vn (Trung ương only) and index documents into Postgres',
+    )
     .build();
   const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api', app, swaggerDocument);
