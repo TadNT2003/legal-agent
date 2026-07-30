@@ -96,8 +96,7 @@ export class LawCatalogController {
       await this.catalog.findDocumentGroup(query);
 
     res.set({
-      'X-Document-Citation': citation,
-      'X-Document-Title': encodeURIComponent(title),
+      'X-Document-Citation': encodeURIComponent(citation),
       'X-Match-Score': String(score),
       'X-Document-File-Count': String(files.length),
     });
