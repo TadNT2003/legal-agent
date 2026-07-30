@@ -45,7 +45,10 @@ export interface ParsedVbplAttributes {
   issuedDateRaw: string | null;
   effectiveDateRaw: string | null;
   expiryDateRaw: string | null;
-  validityStatusRaw: string;
+  /** Null when vbpl.vn's own attributes tab has no "Tình trạng hiệu lực" row
+   * at all — confirmed live on some very-recently-issued documents (an
+   * upstream data gap, not a scrape failure). */
+  validityStatusRaw: string | null;
 }
 
 /** Canonical reference_type values this module writes — see law-index plan's Persistence section. */

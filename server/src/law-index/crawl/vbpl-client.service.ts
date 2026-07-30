@@ -265,7 +265,10 @@ export class VbplClientService implements OnModuleDestroy {
       .last()
       .click();
 
-    let bodyText = await this.waitForSettledResponse(getLatestBody, getLatestAt);
+    let bodyText = await this.waitForSettledResponse(
+      getLatestBody,
+      getLatestAt,
+    );
 
     if (filters.page && filters.page > 1) {
       const jumpInput = page.locator(
@@ -298,7 +301,7 @@ export class VbplClientService implements OnModuleDestroy {
   private async waitForSettledResponse(
     getLatestBody: () => string | null,
     getLatestAt: () => number,
-    timeoutMs = 20000,
+    timeoutMs = 30000,
     quietMs = 800,
   ): Promise<string> {
     const deadline = Date.now() + timeoutMs;

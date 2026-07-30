@@ -38,7 +38,7 @@ function computeContentVersion(parsed: ParsedVbplDocument): string {
   hash.update(parsed.fullText);
   hash.update(parsed.attributes.citation);
   hash.update(parsed.title);
-  hash.update(parsed.attributes.validityStatusRaw);
+  hash.update(parsed.attributes.validityStatusRaw ?? '');
   hash.update(parsed.attributes.effectiveDateRaw ?? '');
   hash.update(parsed.attributes.expiryDateRaw ?? '');
   return hash.digest('hex');
@@ -63,12 +63,17 @@ const VALIDITY_STATUS_MAP: Record<
  * other 4 mappings are the best-guess Vietnamese phrasing for
  * docs/schema/legal-agent.dbml's validity_status enum values, not yet
  * cross-checked against real documents. Throws rather than guessing further
- * on an unrecognized string, matching this codebase's existing
- * fail-loud-on-unclassifiable convention (see law-tier-classifier.ts).
+ * on an unrecognized (but present) string, matching this codebase's existing
+ * fail-loud-on-unclassifiable convention (see law-tier-classifier.ts) — but
+ * `raw === null` (vbpl.vn's attributes tab has no "Tình trạng hiệu lực" row
+ * at all, confirmed live on some very-recently-issued documents) maps to
+ * `null` rather than throwing, since that's a known upstream data gap, not
+ * an unrecognized value.
  */
 function mapValidityStatus(
-  raw: string,
+  raw: string | null,
 ): (typeof document.$inferInsert)['status'] {
+  if (raw === null) return null;
   const normalized = raw.trim().toLowerCase();
   const mapped = VALIDITY_STATUS_MAP[normalized];
   if (!mapped) {

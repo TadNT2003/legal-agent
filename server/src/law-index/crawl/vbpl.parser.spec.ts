@@ -2,6 +2,7 @@ import {
   buildSearchResultUrl,
   extractCitationFromTitle,
   extractRscJsonPayload,
+  normalizeCitation,
   parseAttributes,
   parseRelations,
   parseVbplDate,
@@ -96,13 +97,51 @@ describe('parseAttributes', () => {
     expect(parsed.signerName).toBeNull();
   });
 
-  it('throws when a required field is missing', () => {
+  it('throws when a required field (citation/documentType/issuingBody) is missing', () => {
+    const missingIssuingBody = ATTRIBUTES.filter(
+      (e) => e.label !== 'Cơ quan ban hành',
+    );
+    expect(() => parseAttributes(missingIssuingBody)).toThrow(
+      /missing a required field/,
+    );
+  });
+
+  it('leaves validityStatusRaw null instead of throwing when "Tình trạng hiệu lực" is absent', () => {
+    // Confirmed live on some very-recently-issued documents (e.g. Luật Trí
+    // tuệ nhân tạo số 134/2025/QH15) — vbpl.vn's own attributes tab has no
+    // such row at all, an upstream data gap rather than a scrape failure.
     const missingStatus = ATTRIBUTES.filter(
       (e) => e.label !== 'Tình trạng hiệu lực',
     );
-    expect(() => parseAttributes(missingStatus)).toThrow(
-      /missing a required field/,
-    );
+    const parsed = parseAttributes(missingStatus);
+    expect(parsed.validityStatusRaw).toBeNull();
+    expect(parsed.citation).toBe('05/2026/TT-BNG');
+  });
+});
+
+describe('normalizeCitation', () => {
+  it('leaves an already-clean citation untouched', () => {
+    expect(normalizeCitation('51/2024/QH15')).toBe('51/2024/QH15');
+  });
+
+  it('strips a redundant "<Loại văn bản> số " prefix', () => {
+    expect(normalizeCitation('Luật số 51/2024/QH15')).toBe('51/2024/QH15');
+  });
+
+  it('strips a "số: " prefix with a colon', () => {
+    expect(normalizeCitation('số: 34/2024/QH15')).toBe('34/2024/QH15');
+  });
+
+  it('collapses a doubled "số số " typo', () => {
+    expect(normalizeCitation('số số 99/2025/QH15')).toBe('99/2025/QH15');
+  });
+
+  it('strips a "Số hiệu: " prefix (the field\'s own label duplicated into its value)', () => {
+    expect(normalizeCitation('Số hiệu: 51/LCT')).toBe('51/LCT');
+  });
+
+  it('leaves "Không số" (genuinely no citation number) untouched', () => {
+    expect(normalizeCitation('Không số')).toBe('Không số');
   });
 });
 

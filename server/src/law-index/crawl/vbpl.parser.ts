@@ -211,6 +211,33 @@ export function parseVbplDate(raw: string | null | undefined): string | null {
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 }
 
+/**
+ * vbpl.vn's own "Số hiệu" attribute value is normally already just the bare
+ * citation (e.g. "51/2024/QH15"), but it sometimes carries a redundant
+ * "<Loại văn bản> số " / "số: " / "Số hiệu: " prefix (the field's own label,
+ * duplicated into its value), or even a doubled "số số " typo — confirmed
+ * live on vbpl.vn itself (not introduced by scraping): the exact same law
+ * appears twice in search results, once with a clean citation and once with
+ * one of these dirty variants. Left unstripped, that would fracture one real
+ * document into two rows under document.citation_id's uniqueness
+ * constraint. Old (pre-1960s) documents citationed as "Không số" ("no
+ * number") are deliberately left as-is — those don't start with "số" so
+ * this pattern doesn't touch them, and their citation collisions are a
+ * separate, accepted issue (see law-index plan).
+ */
+export function normalizeCitation(raw: string): string {
+  const prefixPattern =
+    /^(?:(?:bộ\s+)?luật|nghị\s+định|nghị\s+quyết|thông\s+tư(?:\s+liên\s+tịch)?|pháp\s+lệnh|quyết\s+định|chỉ\s+thị|lệnh)?\s*số(?:\s+hiệu)?\s*:?\s*/i;
+
+  let value = raw.trim();
+  for (;;) {
+    const stripped = value.replace(prefixPattern, '').trim();
+    if (stripped === value) break;
+    value = stripped;
+  }
+  return value || raw.trim();
+}
+
 export function parseAttributes(
   raw: RawAttributeEntry[],
 ): ParsedVbplAttributes {
@@ -220,15 +247,14 @@ export function parseAttributes(
   const citation = get('Số hiệu');
   const documentType = get('Loại văn bản');
   const issuingBody = get('Cơ quan ban hành');
-  const validityStatusRaw = get('Tình trạng hiệu lực');
-  if (!citation || !documentType || !issuingBody || !validityStatusRaw) {
+  if (!citation || !documentType || !issuingBody) {
     throw new Error(
-      `vbpl.vn attributes tab missing a required field (citation/documentType/issuingBody/validityStatus) — got labels: ${raw.map((e) => e.label).join(', ')}`,
+      `vbpl.vn attributes tab missing a required field (citation/documentType/issuingBody) — got labels: ${raw.map((e) => e.label).join(', ')}`,
     );
   }
 
   return {
-    citation,
+    citation: normalizeCitation(citation),
     documentType,
     industry: get('Ngành'),
     field: get('Lĩnh vực'),
@@ -238,7 +264,7 @@ export function parseAttributes(
     issuedDateRaw: get('Ngày ban hành'),
     effectiveDateRaw: get('Ngày có hiệu lực'),
     expiryDateRaw: get('Ngày hết hiệu lực'),
-    validityStatusRaw,
+    validityStatusRaw: get('Tình trạng hiệu lực'),
   };
 }
 

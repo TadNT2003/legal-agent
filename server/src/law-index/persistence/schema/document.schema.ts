@@ -52,7 +52,12 @@ export const document = pgTable('document', {
   enactedDate: date('enacted_date', { mode: 'string' }).notNull(),
   effectiveDate: date('effective_date', { mode: 'string' }),
   gazettePublishedDate: date('gazette_published_date', { mode: 'string' }),
-  status: validityStatusEnum('status').notNull(),
+  // Nullable: a handful of very-recently-issued documents (confirmed live,
+  // e.g. Luật Trí tuệ nhân tạo số 134/2025/QH15) have no "Tình trạng hiệu
+  // lực" row on vbpl.vn's own attributes tab at all yet — an upstream data
+  // gap, not a scrape failure, so this is stored as null rather than
+  // blocking the whole document from being persisted.
+  status: validityStatusEnum('status'),
   indexScope: indexScopeEnum('index_scope').notNull().default('full'),
   isConsolidated: boolean('is_consolidated').notNull().default(false),
   // Single FK, same as DBML — lossy for a hợp nhất document that merges more

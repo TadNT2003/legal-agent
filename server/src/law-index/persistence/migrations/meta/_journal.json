@@ -15,6 +15,13 @@
       "when": 1785314941557,
       "tag": "0001_closed_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785394177438,
+      "tag": "0002_salty_titania",
+      "breakpoints": true
     }
   ]
 }
