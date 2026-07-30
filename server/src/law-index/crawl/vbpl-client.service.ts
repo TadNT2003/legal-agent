@@ -123,26 +123,73 @@ export class VbplClientService implements OnModuleDestroy {
     await this.throttle();
 
     const searchUrl = `${this.config.vbplBaseUrl}/van-ban/trung-uong`;
-    const response = await page
-      .goto(searchUrl, { waitUntil: 'domcontentloaded' })
-      .catch((err) => {
-        throw new BadGatewayException(
-          `Failed to load ${searchUrl}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
-    if (!response || !response.ok()) {
-      throw new BadGatewayException(
-        `Failed to load ${searchUrl}: HTTP ${response?.status() ?? 'unknown'}`,
-      );
-    }
-    await page
-      .waitForSelector('.ant-collapse-item', { timeout: 15000 })
-      .catch((err) => {
-        throw new BadGatewayException(
-          `Loaded ${searchUrl} but its filter panel never rendered: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+    const isSearchResponse = (res: Response) =>
+      res.url() === searchUrl && res.request().method() === 'POST';
 
+    // Tracks the most recent matching response body rather than tying a
+    // single `waitForResponse` to a single click: vbpl.vn dedupes/caches
+    // identical successive queries (confirmed live — clicking the advanced
+    // panel's submit button right after a sidebar checkbox already fired the
+    // same query produces *no* new network request at all), so demanding a
+    // response caused by one specific action hangs forever whenever an
+    // earlier action already settled the same state. Attached before
+    // navigation so the page's own initial (unfiltered) load is captured too.
+    let latestBody: string | null = null;
+    let latestAt = 0;
+    const onResponse = (res: Response) => {
+      if (!isSearchResponse(res)) return;
+      res
+        .text()
+        .then((text) => {
+          latestBody = text;
+          latestAt = Date.now();
+        })
+        .catch(() => undefined);
+    };
+    page.on('response', onResponse);
+
+    try {
+      const response = await page
+        .goto(searchUrl, { waitUntil: 'domcontentloaded' })
+        .catch((err) => {
+          throw new BadGatewayException(
+            `Failed to load ${searchUrl}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+      if (!response || !response.ok()) {
+        throw new BadGatewayException(
+          `Failed to load ${searchUrl}: HTTP ${response?.status() ?? 'unknown'}`,
+        );
+      }
+      await page
+        .waitForSelector('.ant-collapse-item', { timeout: 15000 })
+        .catch((err) => {
+          throw new BadGatewayException(
+            `Loaded ${searchUrl} but its filter panel never rendered: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+
+      return await this.applyFiltersAndCollect(
+        page,
+        filters,
+        () => latestBody,
+        () => latestAt,
+        () => {
+          latestBody = null;
+        },
+      );
+    } finally {
+      page.off('response', onResponse);
+    }
+  }
+
+  private async applyFiltersAndCollect(
+    page: Page,
+    filters: VbplSearchFilters,
+    getLatestBody: () => string | null,
+    getLatestAt: () => number,
+    resetLatest: () => void,
+  ): Promise<string> {
     if (filters.keyword) {
       await page
         .getByPlaceholder('Nhập từ khóa tìm kiếm')
@@ -182,12 +229,11 @@ export class VbplClientService implements OnModuleDestroy {
       await this.selectPageSize(page, filters.pageSize);
     }
 
-    // Always open the advanced panel to reach its submit button — the one
+    // Always open the advanced panel to reach its submit button — a
     // deterministic "apply everything now" trigger regardless of which
-    // filters above were actually set (sidebar checkboxes eagerly fire their
-    // own intermediate searches, but React state — not a settled response —
-    // is what each new request reflects, so only the *last* submission
-    // matters).
+    // filters above were actually set. Its click may or may not itself
+    // produce a new network request (see the dedupe/caching note above);
+    // waitForSettledResponse below tolerates either outcome.
     await page.getByRole('button', { name: 'Tìm kiếm nâng cao' }).click();
     if (filters.validityStatus) {
       await this.selectAdvancedDropdown(
@@ -214,39 +260,68 @@ export class VbplClientService implements OnModuleDestroy {
       filters.expiredFrom,
       filters.expiredTo,
     );
+    await page
+      .getByRole('button', { name: 'Tìm kiếm', exact: true })
+      .last()
+      .click();
 
-    const isSearchResponse = (res: Response) =>
-      res.url() === searchUrl && res.request().method() === 'POST';
-
-    const [searchResponse] = await Promise.all([
-      page.waitForResponse(isSearchResponse, { timeout: 15000 }),
-      page
-        .getByRole('button', { name: 'Tìm kiếm', exact: true })
-        .last()
-        .click(),
-    ]);
-    let bodyText = await searchResponse.text();
+    let bodyText = await this.waitForSettledResponse(getLatestBody, getLatestAt);
 
     if (filters.page && filters.page > 1) {
       const jumpInput = page.locator(
         '.ant-input-affix-wrapper[class*="jumperInput"] input',
       );
-      const [pageResponse] = await Promise.all([
-        page.waitForResponse(isSearchResponse, { timeout: 15000 }),
-        (async () => {
-          await jumpInput.fill(String(filters.page));
-          await jumpInput.press('Enter');
-        })(),
-      ]);
-      bodyText = await pageResponse.text();
+      try {
+        // Short timeout: this control isn't rendered at all when the result
+        // set fits on a single page — i.e. filters.page can't legitimately
+        // be > 1 in that state, so this is a real "no such page" error.
+        await jumpInput.waitFor({ state: 'visible', timeout: 5000 });
+      } catch {
+        throw new BadRequestException(
+          `page=${filters.page} was requested but this search's results fit on a single page.`,
+        );
+      }
+      resetLatest();
+      await jumpInput.fill(String(filters.page));
+      await jumpInput.press('Enter');
+      bodyText = await this.waitForSettledResponse(getLatestBody, getLatestAt);
     }
 
     return bodyText;
   }
 
+  /** Polls the response-listener state captured by searchDocuments until it
+   * has been quiet for `quietMs` — i.e. no newer matching response has come
+   * in for a moment — rather than awaiting one specific network event, since
+   * which action (if any) actually produces a fresh request is not
+   * predictable (see searchDocuments' dedupe/caching note). */
+  private async waitForSettledResponse(
+    getLatestBody: () => string | null,
+    getLatestAt: () => number,
+    timeoutMs = 20000,
+    quietMs = 800,
+  ): Promise<string> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const body = getLatestBody();
+      if (body !== null && Date.now() - getLatestAt() > quietMs) {
+        return body;
+      }
+      await sleep(150);
+    }
+    throw new BadGatewayException(
+      'vbpl.vn never returned a search result payload in time.',
+    );
+  }
+
   /** Checks each requested label within a "Bộ lọc" sidebar section (e.g.
    * "Hình thức văn bản"), scoped to that section since a few labels — e.g.
-   * "Văn bản hợp nhất" — appear in more than one section. */
+   * "Văn bản hợp nhất" — appear in more than one section. Each section's
+   * checkbox list is populated by its own async fetch (confirmed live — same
+   * pattern as the "Cơ quan ban hành" agency list), so this waits for the
+   * specific label to render rather than snapshotting the DOM immediately:
+   * `.count()` doesn't auto-wait the way an action like `.click()` does, and
+   * checking it right after page load raced the fetch and always lost. */
   private async applySidebarCheckboxes(
     page: Page,
     sectionTitle: string,
@@ -257,13 +332,14 @@ export class VbplClientService implements OnModuleDestroy {
       has: page.locator('.ant-collapse-header-text', { hasText: sectionTitle }),
     });
     for (const label of labels) {
-      const checkboxLabel = section.getByText(label, { exact: true });
-      if ((await checkboxLabel.count()) === 0) {
+      const checkboxLabel = section.getByText(label, { exact: true }).first();
+      try {
+        await checkboxLabel.click({ timeout: 15000 });
+      } catch {
         throw new BadRequestException(
           `"${label}" is not a recognized "${sectionTitle}" filter option on vbpl.vn.`,
         );
       }
-      await checkboxLabel.first().click();
     }
   }
 
@@ -276,13 +352,16 @@ export class VbplClientService implements OnModuleDestroy {
   ): Promise<void> {
     const label = page.getByText(fieldLabel, { exact: true });
     await label.locator('xpath=following-sibling::*[1]').click();
-    const option = page.getByRole('option', { name: optionLabel, exact: true });
-    if ((await option.count()) === 0) {
+    const option = page
+      .getByRole('option', { name: optionLabel, exact: true })
+      .first();
+    try {
+      await option.click({ timeout: 15000 });
+    } catch {
       throw new BadRequestException(
         `"${optionLabel}" is not a recognized "${fieldLabel}" option on vbpl.vn.`,
       );
     }
-    await option.first().click();
   }
 
   /** Fills a "dd/mm/yyyy - dd/mm/yyyy" range pair in the advanced panel,
@@ -303,18 +382,33 @@ export class VbplClientService implements OnModuleDestroy {
   }
 
   private async selectPageSize(page: Page, pageSize: number): Promise<void> {
-    const combo = page.getByRole('combobox', { name: 'kích thước trang' });
-    await combo.click();
-    const option = page.getByRole('option', {
-      name: `${pageSize} / trang`,
-      exact: true,
-    });
-    if ((await option.count()) === 0) {
+    // Deliberately not getByRole('combobox', ...): that resolves to the
+    // AntD Select's inner search <input>, which the visible "10 / trang"
+    // selection-item span sits on top of and blocks pointer events for
+    // (confirmed live) — .ant-select-selector is the actual visible/
+    // clickable trigger that opens the dropdown.
+    const combo = page.locator(
+      '.ant-pagination-options-size-changer .ant-select-selector',
+    );
+    try {
+      // A short timeout here: this control simply isn't rendered when the
+      // current result set already fits on one page (confirmed live — e.g.
+      // filtering down to "Hiến pháp" leaves too few matches for pagination
+      // controls to appear at all), which isn't an error to surface.
+      await combo.click({ timeout: 5000 });
+    } catch {
+      return;
+    }
+    const option = page
+      .getByRole('option', { name: `${pageSize} / trang`, exact: true })
+      .first();
+    try {
+      await option.click({ timeout: 15000 });
+    } catch {
       throw new BadRequestException(
         `pageSize=${pageSize} is not one of vbpl.vn's supported page sizes (typically 10/20/50/100).`,
       );
     }
-    await option.first().click();
   }
 
   private async getPage(): Promise<Page> {

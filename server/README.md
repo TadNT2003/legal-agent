@@ -81,10 +81,11 @@ npm run db:generate          # generate a migration from src/law-index/persisten
 npm run db:migrate           # apply it (needs postgres up — docker compose up -d postgres)
 ```
 
-Endpoints, under `/law-index`:
+Endpoints, under `/laws/index`:
 
-- `POST /law-index/sync/document` — scrape and upsert one document from its vbpl.vn detail page URL.
-- `POST /law-index/sync` — crawl the trung-ương sitemap block and sync every document found. Pass `limit` for a smoke test — an unbounded crawl is one very long-running request (no resumable cursor/job-queue yet).
+- `POST /laws/index/document` — scrape and upsert one document from its vbpl.vn detail page URL.
+- `POST /laws/index/crawl` — crawl the trung-ương sitemap block and sync every document found. Pass `limit` for a smoke test — an unbounded crawl is one very long-running request (no resumable cursor/job-queue yet).
+- `POST /laws/index/search` — targeted/filtered search against vbpl.vn/van-ban/trung-uong (keyword, Nhóm văn bản / Cơ quan ban hành / Hình thức văn bản checkboxes, Tình trạng hiệu lực, date ranges). Read-only — returns matches with a `sourceUrl` usable as `document`'s `url`, doesn't sync anything itself.
 
 Document-level only for now — the Điều/Khoản/Điểm hierarchy (`document_node`) and everything downstream of Postgres (OpenSearch/ChromaDB/Neo4j projectors, CDC) are later, separately-planned phases.
 

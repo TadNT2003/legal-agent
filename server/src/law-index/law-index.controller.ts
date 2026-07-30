@@ -14,7 +14,7 @@ import { SyncSummaryResponseDto } from './dto/sync-summary-response.dto';
 import { LawIndexService } from './law-index.service';
 
 @ApiTags('law-index')
-@Controller('law/index')
+@Controller('laws/index')
 export class LawIndexController {
   constructor(private readonly service: LawIndexService) {}
 
