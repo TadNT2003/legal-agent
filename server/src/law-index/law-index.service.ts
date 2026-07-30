@@ -7,6 +7,7 @@ import type {
   VbplSearchResult,
 } from './crawl/vbpl-document.interface';
 import { DocumentRepository } from './persistence/document.repository';
+import { DocumentNodeRepository } from './persistence/document-node.repository';
 
 export interface SyncDocumentResult {
   documentId: string | null;
@@ -30,6 +31,7 @@ export class LawIndexService {
     private readonly sitemap: VbplSitemapService,
     private readonly client: VbplClientService,
     private readonly repo: DocumentRepository,
+    private readonly nodeRepo: DocumentNodeRepository,
   ) {}
 
   async syncDocument(url: string): Promise<SyncDocumentResult> {
@@ -53,6 +55,16 @@ export class LawIndexService {
 
     const { documentId, changed } = await this.repo.upsertDocument(parsed);
     await this.repo.upsertRelations(documentId, parsed);
+    try {
+      await this.nodeRepo.syncNodes(documentId, parsed, changed);
+    } catch (err) {
+      // A malformed body shouldn't roll back the already-successful
+      // document upsert — same per-document resilience as syncAll's
+      // try/catch below, just scoped to the node-tree step.
+      this.logger.warn(
+        `Failed to build document_node tree for ${url}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     return { documentId, changed };
   }
 

@@ -7,6 +7,7 @@ import {
   real,
 } from 'drizzle-orm/pg-core';
 import { document } from './document.schema';
+import { documentNode } from './document-node.schema';
 
 // Extended beyond docs/schema/legal-agent.dbml's 8 values — see the
 // law-index plan's Context section for the full vbpl.vn-vs-DBML gap
@@ -49,11 +50,17 @@ export const extractionMethodEnum = pgEnum('extraction_method', [
 
 export const documentReference = pgTable('document_reference', {
   id: uuid('id').primaryKey().defaultRandom(),
-  // source_node_id / target_node_id from the DBML are omitted — they'd
-  // reference document_node, which is deferred (see plan). Re-add once
-  // that table exists.
   sourceDocumentId: uuid('source_document_id').references(() => document.id),
   targetDocumentId: uuid('target_document_id').references(() => document.id),
+  // Re-added now that document_node exists (was previously omitted per this
+  // file's own comment — "re-add once that table exists"). Schema-only:
+  // no logic populates these yet. Citation-to-specific-node resolution
+  // (parsing "khoản 2 Điều 5 của ..." out of relation raw text down to an
+  // exact document_node row, not just the whole document) is a separate,
+  // larger feature than the document_node tree itself — see the law-index
+  // plan's document_node follow-up section.
+  sourceNodeId: uuid('source_node_id').references(() => documentNode.id),
+  targetNodeId: uuid('target_node_id').references(() => documentNode.id),
   referenceType: referenceTypeEnum('reference_type').notNull(),
   changeType: changeTypeEnum('change_type'),
   rawCitationText: text('raw_citation_text').notNull(),

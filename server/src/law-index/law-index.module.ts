@@ -3,6 +3,7 @@ import { VbplClientService } from './crawl/vbpl-client.service';
 import { VbplSitemapService } from './crawl/vbpl-sitemap.service';
 import { DbModule } from './persistence/db.module';
 import { DocumentRepository } from './persistence/document.repository';
+import { DocumentNodeRepository } from './persistence/document-node.repository';
 import { LawIndexController } from './law-index.controller';
 import { LawIndexService } from './law-index.service';
 
@@ -19,6 +20,7 @@ import { LawIndexService } from './law-index.service';
     VbplClientService,
     VbplSitemapService,
     DocumentRepository,
+    DocumentNodeRepository,
     LawIndexService,
   ],
   exports: [LawIndexService],
