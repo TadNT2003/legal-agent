@@ -92,3 +92,84 @@ export interface ParsedVbplDocument {
   relations: VbplRelation[];
   consolidation: VbplConsolidation;
 }
+
+// ---- Search (targeted/filtered search against /van-ban/trung-uong) ----
+
+export type VbplSearchScope = 'noi-dung' | 'tieu-de' | 'so-hieu';
+
+/**
+ * Sidebar/advanced-panel filter labels are passed through verbatim as the
+ * exact strings vbpl.vn's own checkboxes/dropdown render (e.g. "Luật",
+ * "Bộ Tư pháp", "Còn hiệu lực") rather than mapped to an enum — the "Cơ quan
+ * ban hành" list alone has 90+ entries that change as the site adds
+ * agencies. An unrecognized label fails fast with a clear error instead of
+ * silently matching nothing (see vbpl-client.service.ts).
+ */
+export interface VbplSearchFilters {
+  keyword?: string;
+  searchScope?: VbplSearchScope;
+  exactPhrase?: boolean;
+  /** "Nhóm văn bản" sidebar checkboxes, e.g. "Văn bản quy phạm pháp luật". */
+  documentGroups?: string[];
+  /** "Cơ quan ban hành" sidebar checkboxes, e.g. "Bộ Tư pháp". */
+  issuingBodies?: string[];
+  /** "Hình thức văn bản" sidebar checkboxes, e.g. "Luật", "Nghị định". */
+  documentTypes?: string[];
+  /** "Tình trạng hiệu lực" advanced-panel dropdown, e.g. "Còn hiệu lực". */
+  validityStatus?: string;
+  /** dd/mm/yyyy */
+  issuedFrom?: string;
+  issuedTo?: string;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  expiredFrom?: string;
+  expiredTo?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * One item from the search endpoint's underlying JSON payload — a Next.js
+ * Server Action response the real browser triggers by submitting the filter
+ * form. Read via the resulting network response rather than DOM-scraped:
+ * result cards render with no href/id in the DOM, only a client-side click
+ * handler (confirmed live — see vbpl-client.service.ts's searchDocuments).
+ * Field names/casing match the wire payload as-is.
+ */
+export interface RawVbplSearchItem {
+  id: string;
+  title: string;
+  docNum: string;
+  docType: { name: string } | null;
+  issueDate: string | null;
+  effFrom: string | null;
+  effTo: string | null;
+  effStatus: { name: string } | null;
+  agencyName: string;
+}
+
+export interface RawVbplSearchResponse {
+  total: number;
+  pageNumber: number;
+  pageSize: number;
+  items: RawVbplSearchItem[];
+}
+
+export interface VbplSearchResultItem {
+  sourceUrl: string;
+  citation: string;
+  title: string;
+  documentType: string;
+  issuingBody: string;
+  issuedDate: string | null;
+  effectiveDate: string | null;
+  expiryDate: string | null;
+  validityStatus: string;
+}
+
+export interface VbplSearchResult {
+  total: number;
+  page: number;
+  pageSize: number;
+  items: VbplSearchResultItem[];
+}

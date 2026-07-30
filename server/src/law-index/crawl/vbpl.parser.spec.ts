@@ -1,14 +1,19 @@
 import {
+  buildSearchResultUrl,
   extractCitationFromTitle,
+  extractRscJsonPayload,
   parseAttributes,
   parseRelations,
   parseVbplDate,
   parseVbplPage,
+  parseVbplSearchPage,
+  parseVbplSearchResponse,
 } from './vbpl.parser';
 import type {
   RawAttributeEntry,
   RawRelationSection,
   RawVbplPage,
+  RawVbplSearchResponse,
 } from './vbpl-document.interface';
 
 const ATTRIBUTES: RawAttributeEntry[] = [
@@ -194,6 +199,111 @@ describe('parseVbplPage', () => {
     expect(parsed.consolidation).toEqual({
       consolidatesRawTitles: [],
       consolidatedIntoRawTitles: [],
+    });
+  });
+});
+
+describe('extractRscJsonPayload', () => {
+  it('extracts the JSON object line from an RSC Flight-protocol stream', () => {
+    const body = '0:["$@1",["abc123",null]]\n1:{"total":1,"items":[]}\n';
+    expect(extractRscJsonPayload(body)).toEqual({ total: 1, items: [] });
+  });
+
+  it('throws when no line has a parseable JSON object payload', () => {
+    const body = '0:["$@1",["abc123",null]]\n';
+    expect(() => extractRscJsonPayload(body)).toThrow(
+      /no parseable JSON object line/,
+    );
+  });
+});
+
+describe('buildSearchResultUrl', () => {
+  it('builds a vbpl.vn detail URL from just the id', () => {
+    expect(buildSearchResultUrl('32833')).toBe(
+      'https://vbpl.vn/van-ban/chi-tiet/van-ban--32833',
+    );
+  });
+});
+
+describe('parseVbplSearchResponse', () => {
+  const raw: RawVbplSearchResponse = {
+    total: 52,
+    pageNumber: 1,
+    pageSize: 20,
+    items: [
+      {
+        id: '32833',
+        title: 'Luật Đất đai số 45/2013/QH13',
+        docNum: '45/2013/QH13',
+        docType: { name: 'Luật' },
+        issueDate: '2013-11-29T00:00:00',
+        effFrom: '2014-07-01T00:00:00',
+        effTo: '2025-01-01T00:00:00',
+        effStatus: { name: 'Hết hiệu lực toàn bộ' },
+        agencyName: 'Quốc hội',
+      },
+    ],
+  };
+
+  it('maps total/page/pageSize and each item, converting datetimes to dates', () => {
+    expect(parseVbplSearchResponse(raw)).toEqual({
+      total: 52,
+      page: 1,
+      pageSize: 20,
+      items: [
+        {
+          sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/van-ban--32833',
+          citation: '45/2013/QH13',
+          title: 'Luật Đất đai số 45/2013/QH13',
+          documentType: 'Luật',
+          issuingBody: 'Quốc hội',
+          issuedDate: '2013-11-29',
+          effectiveDate: '2014-07-01',
+          expiryDate: '2025-01-01',
+          validityStatus: 'Hết hiệu lực toàn bộ',
+        },
+      ],
+    });
+  });
+
+  it('tolerates a null effTo (still in effect) and null docType/effStatus', () => {
+    const result = parseVbplSearchResponse({
+      total: 1,
+      pageNumber: 1,
+      pageSize: 10,
+      items: [
+        {
+          id: 'x',
+          title: 'X',
+          docNum: '1/2024',
+          docType: null,
+          issueDate: null,
+          effFrom: null,
+          effTo: null,
+          effStatus: null,
+          agencyName: 'Chính phủ',
+        },
+      ],
+    });
+    expect(result.items[0]).toMatchObject({
+      documentType: '',
+      validityStatus: '',
+      issuedDate: null,
+      effectiveDate: null,
+      expiryDate: null,
+    });
+  });
+});
+
+describe('parseVbplSearchPage', () => {
+  it('combines RSC extraction and search-response parsing', () => {
+    const body =
+      '0:["$@1",["abc123",null]]\n1:{"total":1,"pageNumber":1,"pageSize":10,"items":[]}\n';
+    expect(parseVbplSearchPage(body)).toEqual({
+      total: 1,
+      page: 1,
+      pageSize: 10,
+      items: [],
     });
   });
 });

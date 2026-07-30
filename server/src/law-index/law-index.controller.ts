@@ -5,6 +5,8 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { SearchDocumentsDto } from './dto/search-documents.dto';
+import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
 import { SyncAllDto } from './dto/sync-all.dto';
 import { SyncDocumentDto } from './dto/sync-document.dto';
 import { SyncDocumentResponseDto } from './dto/sync-document-response.dto';
@@ -12,7 +14,7 @@ import { SyncSummaryResponseDto } from './dto/sync-summary-response.dto';
 import { LawIndexService } from './law-index.service';
 
 @ApiTags('law-index')
-@Controller('law-index')
+@Controller('law/index')
 export class LawIndexController {
   constructor(private readonly service: LawIndexService) {}
 
@@ -30,7 +32,7 @@ export class LawIndexController {
     description:
       'vbpl.vn failed to load or render the page (network error, timeout, or unexpected DOM shape).',
   })
-  @Post('sync/document')
+  @Post('document')
   syncDocument(@Body() dto: SyncDocumentDto) {
     return this.service.syncDocument(dto.url);
   }
@@ -45,8 +47,29 @@ export class LawIndexController {
       'is one very long-running request with no resumable cursor yet (see docs/law-index-plan.md).',
   })
   @ApiCreatedResponse({ type: SyncSummaryResponseDto })
-  @Post('sync')
-  syncAll(@Body() dto: SyncAllDto) {
+  @Post('crawl')
+  crawl(@Body() dto: SyncAllDto) {
     return this.service.syncAll({ limit: dto.limit });
+  }
+
+  @ApiOperation({
+    summary:
+      'Targeted/filtered search against vbpl.vn/van-ban/trung-uong — read-only, does not sync',
+    description:
+      'Mirrors vbpl.vn\'s own "Bộ lọc" sidebar (Nhóm văn bản / Cơ quan ban hành / Hình thức văn bản ' +
+      'checkboxes) and "Tìm kiếm nâng cao" advanced panel (Tình trạng hiệu lực + date ranges) by driving ' +
+      'the real filter UI via a headless browser, then reads the resulting matches off the network response ' +
+      "the site's own search action produces (result cards have no href/id in the DOM to scrape). Returns " +
+      "each match's metadata plus a sourceUrl directly usable as the document-sync endpoint's `url` — this " +
+      'endpoint itself only searches, it never persists anything.',
+  })
+  @ApiCreatedResponse({ type: SearchDocumentsResponseDto })
+  @ApiBadGatewayResponse({
+    description:
+      'vbpl.vn failed to load or render the search page (network error, timeout, or unexpected DOM shape).',
+  })
+  @Post('search')
+  search(@Body() dto: SearchDocumentsDto) {
+    return this.service.searchDocuments(dto);
   }
 }

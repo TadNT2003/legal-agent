@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { VbplClientService } from './crawl/vbpl-client.service';
 import { VbplSitemapService } from './crawl/vbpl-sitemap.service';
-import { parseVbplPage } from './crawl/vbpl.parser';
+import { parseVbplPage, parseVbplSearchPage } from './crawl/vbpl.parser';
+import type {
+  VbplSearchFilters,
+  VbplSearchResult,
+} from './crawl/vbpl-document.interface';
 import { DocumentRepository } from './persistence/document.repository';
 
 export interface SyncDocumentResult {
@@ -94,5 +98,16 @@ export class LawIndexService {
 
     summary.healedReferences = await this.repo.healDanglingReferences();
     return summary;
+  }
+
+  /**
+   * Targeted/filtered search against vbpl.vn/van-ban/trung-uong — mirrors the
+   * site's own "Bộ lọc" sidebar + "Tìm kiếm nâng cao" advanced panel. Purely
+   * read-only: returns matched documents' metadata + sourceUrl for the
+   * caller to inspect or feed into syncDocument, without syncing them itself.
+   */
+  async searchDocuments(filters: VbplSearchFilters): Promise<VbplSearchResult> {
+    const raw = await this.client.searchDocuments(filters);
+    return parseVbplSearchPage(raw);
   }
 }

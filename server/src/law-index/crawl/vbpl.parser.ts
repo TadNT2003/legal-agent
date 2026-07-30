@@ -1,13 +1,18 @@
+import { VBPL_HOST } from './constants';
 import type {
   ParsedVbplAttributes,
   ParsedVbplDocument,
   RawAttributeEntry,
   RawRelationSection,
   RawVbplPage,
+  RawVbplSearchItem,
+  RawVbplSearchResponse,
   VbplChangeType,
   VbplConsolidation,
   VbplReferenceType,
   VbplRelation,
+  VbplSearchResult,
+  VbplSearchResultItem,
 } from './vbpl-document.interface';
 
 /**
@@ -298,4 +303,84 @@ export function parseVbplPage(raw: RawVbplPage): ParsedVbplDocument {
     relations,
     consolidation,
   };
+}
+
+// ---- Search (targeted/filtered search against /van-ban/trung-uong) ----
+
+/**
+ * vbpl.vn's search POST responses are Next.js RSC ("React Server Components")
+ * Flight-protocol streams, not plain JSON: each line is `<id>:<payload>`, and
+ * exactly one line's payload is the JSON object carrying the actual search
+ * result (the other lines carry framework-internal references). This just
+ * extracts and parses that one line — it is not a reimplementation of the
+ * Server Action wire protocol (see constants.ts's DISALLOWED_PATH_PREFIXES
+ * comment on why that's deliberately avoided elsewhere in this module): the
+ * real browser still performs the actual request, this only reads the body
+ * it already produced.
+ */
+export function extractRscJsonPayload(body: string): unknown {
+  for (const line of body.split('\n')) {
+    const colonIndex = line.indexOf(':');
+    if (colonIndex === -1) continue;
+    const payload = line.slice(colonIndex + 1).trim();
+    if (!payload.startsWith('{')) continue;
+    try {
+      return JSON.parse(payload);
+    } catch {
+      continue;
+    }
+  }
+  throw new Error(
+    'vbpl.vn search response had no parseable JSON object line — the RSC payload shape may have changed.',
+  );
+}
+
+/**
+ * Search result cards carry no href/id in the DOM (confirmed live — title
+ * clicks are a React handler, not a real link), so the detail URL is built
+ * from the item's id rather than read off the page. The human-readable slug
+ * segment vbpl.vn puts before "--<id>" is purely cosmetic — confirmed live
+ * that any placeholder slug resolves the same document — so a fixed segment
+ * is used instead of replicating vbpl.vn's exact slugify rules.
+ */
+export function buildSearchResultUrl(id: string): string {
+  return `https://${VBPL_HOST}/van-ban/chi-tiet/van-ban--${id}`;
+}
+
+/** "2024-01-18T00:00:00" -> "2024-01-18"; null/empty -> null. */
+function toDateOnly(raw: string | null | undefined): string | null {
+  return raw ? raw.slice(0, 10) : null;
+}
+
+function parseSearchItem(raw: RawVbplSearchItem): VbplSearchResultItem {
+  return {
+    sourceUrl: buildSearchResultUrl(raw.id),
+    citation: raw.docNum,
+    title: raw.title,
+    documentType: raw.docType?.name ?? '',
+    issuingBody: raw.agencyName,
+    issuedDate: toDateOnly(raw.issueDate),
+    effectiveDate: toDateOnly(raw.effFrom),
+    expiryDate: toDateOnly(raw.effTo),
+    validityStatus: raw.effStatus?.name ?? '',
+  };
+}
+
+export function parseVbplSearchResponse(
+  raw: RawVbplSearchResponse,
+): VbplSearchResult {
+  return {
+    total: raw.total,
+    page: raw.pageNumber,
+    pageSize: raw.pageSize,
+    items: raw.items.map(parseSearchItem),
+  };
+}
+
+/** Combines extractRscJsonPayload + parseVbplSearchResponse — the one entry
+ * point vbpl-client.service.ts's raw response body is turned into by
+ * law-index.service.ts. */
+export function parseVbplSearchPage(body: string): VbplSearchResult {
+  const payload = extractRscJsonPayload(body) as RawVbplSearchResponse;
+  return parseVbplSearchResponse(payload);
 }

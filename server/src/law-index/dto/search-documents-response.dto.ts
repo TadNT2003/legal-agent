@@ -1,0 +1,49 @@
+import { ApiProperty } from '@nestjs/swagger';
+
+export class SearchDocumentItemDto {
+  @ApiProperty({
+    description:
+      'A vbpl.vn document detail page URL, directly usable as syncDocument\'s `url`. The human-readable slug segment is a fixed placeholder, not vbpl.vn\'s real one — confirmed live that vbpl.vn resolves the document by the trailing "--<id>" alone.',
+    example: 'https://vbpl.vn/van-ban/chi-tiet/van-ban--32833',
+  })
+  sourceUrl: string;
+
+  @ApiProperty({ description: '"Số hiệu" — the document\'s citation number.' })
+  citation: string;
+
+  title: string;
+
+  @ApiProperty({ description: '"Loại văn bản".' })
+  documentType: string;
+
+  @ApiProperty({ description: '"Cơ quan ban hành".' })
+  issuingBody: string;
+
+  @ApiProperty({ nullable: true, example: '2024-01-18' })
+  issuedDate: string | null;
+
+  @ApiProperty({ nullable: true, example: '2025-01-01' })
+  effectiveDate: string | null;
+
+  @ApiProperty({ nullable: true, example: null })
+  expiryDate: string | null;
+
+  @ApiProperty({ description: '"Tình trạng hiệu lực".' })
+  validityStatus: string;
+}
+
+export class SearchDocumentsResponseDto {
+  @ApiProperty({
+    description: 'Total matches across all pages, as reported by vbpl.vn.',
+  })
+  total: number;
+
+  @ApiProperty()
+  page: number;
+
+  @ApiProperty()
+  pageSize: number;
+
+  @ApiProperty({ type: [SearchDocumentItemDto] })
+  items: SearchDocumentItemDto[];
+}
