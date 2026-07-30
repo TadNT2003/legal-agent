@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import {
   ApiBadGatewayResponse,
   ApiCreatedResponse,
@@ -32,7 +32,7 @@ export class LawIndexController {
     description:
       'vbpl.vn failed to load or render the page (network error, timeout, or unexpected DOM shape).',
   })
-  @Post('document')
+  @Post('crawl/url')
   syncDocument(@Body() dto: SyncDocumentDto) {
     return this.service.syncDocument(dto.url);
   }
@@ -47,7 +47,7 @@ export class LawIndexController {
       'is one very long-running request with no resumable cursor yet (see docs/law-index-plan.md).',
   })
   @ApiCreatedResponse({ type: SyncSummaryResponseDto })
-  @Post('crawl')
+  @Post('crawl/all')
   crawl(@Body() dto: SyncAllDto) {
     return this.service.syncAll({ limit: dto.limit });
   }
@@ -68,8 +68,22 @@ export class LawIndexController {
     description:
       'vbpl.vn failed to load or render the search page (network error, timeout, or unexpected DOM shape).',
   })
-  @Post('search')
-  search(@Body() dto: SearchDocumentsDto) {
+  @Get('crawl/search')
+  search(@Query() dto: SearchDocumentsDto) {
     return this.service.searchDocuments(dto);
+  }
+
+  @ApiOperation({
+    summary:
+      'Search locally synced documents in the Postgres database — read-only, searches stored records',
+    description:
+      'Same filter parameters as the crawl search endpoint (keyword, document types, issuing bodies, ' +
+      'validity status, date ranges, pagination) but queries the local database instead of scraping vbpl.vn. ' +
+      'Only returns documents that have already been synced via POST /laws/index/crawl/url or POST /laws/index/crawl/all.',
+  })
+  @ApiCreatedResponse({ type: SearchDocumentsResponseDto })
+  @Get('search')
+  searchLocal(@Query() dto: SearchDocumentsDto) {
+    return this.service.searchLocalDocuments(dto);
   }
 }

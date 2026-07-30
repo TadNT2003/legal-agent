@@ -1,11 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, gte, ilike, isNull, lte, or, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type {
   ParsedVbplDocument,
   VbplChangeType,
   VbplReferenceType,
+  VbplSearchFilters,
+  VbplSearchResult,
 } from '../crawl/vbpl-document.interface';
 import { extractCitationFromTitle, parseVbplDate } from '../crawl/vbpl.parser';
 import { DRIZZLE, type DrizzleDb } from './db.module';
@@ -310,4 +312,150 @@ export class DocumentRepository {
       rawCitationText: params.rawCitationText,
     });
   }
+
+  /**
+   * Search locally synced documents in Postgres using the same filter
+   * parameters as the vbpl.vn crawl search endpoint. Converts dd/mm/yyyy
+   * date strings to yyyy-MM-dd for DB comparison.
+   */
+  async searchLocalDocuments(
+    filters: VbplSearchFilters,
+  ): Promise<VbplSearchResult> {
+    const conditions: AnyPgColumn[] = [];
+
+    if (filters.keyword) {
+      conditions.push(
+        or(
+          ilike(document.title, `%${filters.keyword}%`),
+          ilike(document.citationId, `%${filters.keyword}%`),
+        ),
+      );
+    }
+
+    if (filters.documentTypes?.length) {
+      conditions.push(
+        sql`${document.documentType} = ANY(${filters.documentTypes}::text[])`,
+      );
+    }
+
+    if (filters.issuingBodies?.length) {
+      conditions.push(
+        sql`${issuingBody.name} = ANY(${filters.issuingBodies}::text[])`,
+      );
+    }
+
+    if (filters.validityStatus) {
+      const mappedStatus = VALIDITY_STATUS_MAP[filters.validityStatus.toLowerCase()];
+      if (mappedStatus) {
+        conditions.push(eq(document.status, mappedStatus));
+      }
+    }
+
+    if (filters.issuedFrom) {
+      const date = parseVbplDate(filters.issuedFrom);
+      if (date) conditions.push(gte(document.enactedDate, date));
+    }
+    if (filters.issuedTo) {
+      const date = parseVbplDate(filters.issuedTo);
+      if (date) conditions.push(lte(document.enactedDate, date));
+    }
+    if (filters.effectiveFrom) {
+      const date = parseVbplDate(filters.effectiveFrom);
+      if (date) conditions.push(gte(document.effectiveDate, date));
+    }
+    if (filters.effectiveTo) {
+      const date = parseVbplDate(filters.effectiveTo);
+      if (date) conditions.push(lte(document.effectiveDate, date));
+    }
+
+    const where = conditions.length ? and(...conditions) : undefined;
+    const pageSize = filters.pageSize ?? 10;
+    const page = filters.page ?? 1;
+    const offset = (page - 1) * pageSize;
+
+    const [rows, total] = await Promise.all([
+      this.db
+        .select({
+          id: document.id,
+          citationId: document.citationId,
+          title: document.title,
+          documentType: document.documentType,
+          issuingBody: issuingBody.name,
+          enactedDate: document.enactedDate,
+          effectiveDate: document.effectiveDate,
+          status: document.status,
+          rawSource: document.rawSource,
+        })
+        .from(document)
+        .innerJoin(issuingBody, eq(document.issuingBodyId, issuingBody.id))
+        .where(where)
+        .orderBy(sql`${document.enactedDate} DESC`)
+        .limit(pageSize)
+        .offset(offset),
+      (async () => {
+        const result = await this.db
+          .select({ count: sql<number>`count(*)` })
+          .from(document)
+          .innerJoin(issuingBody, eq(document.issuingBodyId, issuingBody.id))
+          .where(where);
+        return Number(result[0].count);
+      })(),
+    ]);
+
+    const VBPL_HOST = 'https://vbpl.vn';
+
+    return {
+      total,
+      page,
+      pageSize,
+      items: rows.map((row: typeof rows[number]) => {
+        const sourceUrl =
+          (row.rawSource as any)?.sourceUrl ??
+          `${VBPL_HOST}/van-ban/chi-tiet/van-ban--${row.citationId}`;
+        const expiryDate =
+          (row.rawSource as any)?.expiryDateRaw ??
+          (row.rawSource as any)?.effTo ??
+          null;
+
+        return {
+          sourceUrl,
+          citation: row.citationId,
+          title: row.title,
+          documentType: row.documentType,
+          issuingBody: row.issuingBody,
+          issuedDate: row.enactedDate
+            ? formatDateFromYYYYMMDD(row.enactedDate)
+            : null,
+          effectiveDate: row.effectiveDate
+            ? formatDateFromYYYYMMDD(row.effectiveDate)
+            : null,
+          expiryDate:
+            typeof expiryDate === 'string' && expiryDate
+              ? expiryDate
+              : null,
+          validityStatus: mapDbStatusToDisplay(row.status),
+        };
+      }),
+    };
+  }
+}
+
+/** Convert yyyy-MM-dd (DB date string mode) to dd/mm/yyyy display format. */
+function formatDateFromYYYYMMDD(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-');
+  return `${day}/${month}/${year}`;
+}
+
+/** Map DB enum value back to Vietnamese display label. */
+function mapDbStatusToDisplay(
+  status: (typeof document.$inferSelect)['status'],
+): string {
+  const reverseMap: Record<string, string> = {
+    chua_co_hieu_luc: 'Chưa có hiệu lực',
+    con_hieu_luc: 'Còn hiệu lực',
+    het_hieu_luc: 'Hết hiệu lực',
+    het_hieu_luc_mot_phan: 'Hết hiệu lực một phần',
+    ngung_hieu_luc: 'Ngưng hiệu lực',
+  };
+  return status ? (reverseMap[status] ?? status) : 'Chưa xác định';
 }
