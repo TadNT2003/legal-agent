@@ -4,6 +4,7 @@ import { BatchDownloadDto } from './dto/batch-download.dto';
 import { CheckStatusDto } from './dto/check-status.dto';
 import { DownloadByUrlDto } from './dto/download-by-url.dto';
 import { SearchDownloadDto } from './dto/search-download.dto';
+import { SearchQueryDto } from './dto/search-query.dto';
 import { LawDownloadService } from './law-download.service';
 
 @ApiTags('law-downloads')
@@ -44,6 +45,16 @@ export class LawDownloadController {
   @Post('batch')
   downloadBatch(@Body() dto: BatchDownloadDto) {
     return this.downloadService.downloadBatch(dto.documents);
+  }
+
+  @ApiOperation({
+    summary: 'Search documents',
+    description:
+      'Runs the vanban.chinhphu.vn "TÌM KIẾM VĂN BẢN" filter search (keyword/category/org/year) and returns the list of matching document detail URLs without downloading anything.',
+  })
+  @Get('search')
+  search(@Query() dto: SearchQueryDto) {
+    return this.downloadService.search(dto as SearchDownloadDto);
   }
 
   /** Run the vanban.chinhphu.vn "TÌM KIẾM VĂN BẢN" filter search and download matches. */

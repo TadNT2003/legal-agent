@@ -164,73 +164,18 @@ export class LawDownloadService {
     return outcomes;
   }
 
+  async search(
+    dto: SearchDownloadDto,
+  ): Promise<SearchResultRow[]> {
+    const { documents } = await this.fetchSearchResults(dto);
+    return documents;
+  }
+
   async downloadBySearch(
     dto: SearchDownloadDto,
   ): Promise<SearchDownloadResult> {
-    const recordsPerPage = dto.recordsPerPage ?? DEFAULT_RECORDS_PER_PAGE;
-    const maxResults = dto.maxResults ?? DEFAULT_MAX_RESULTS;
-
-    const searchHtml = await this.client.fetchSearchPage();
-    const initial = parseSearchPage(searchHtml);
-    if (!initial.controls) {
-      throw new BadGatewayException(
-        'Could not find the expected search form controls on vanban.chinhphu.vn — the page structure may have changed.',
-      );
-    }
-    const { controls } = initial;
-
-    const searchFields: Record<string, string> = {
-      ...initial.hiddenFields,
-      [controls.category]: dto.categoryId ?? '0',
-      [controls.org]: dto.orgId ?? '0',
-      [controls.year]: dto.year ?? '0',
-      [controls.recordsPerPage]: String(recordsPerPage),
-      [controls.keyword]: dto.keyword ?? '',
-      [controls.searchButton]: 'Tìm kiếm',
-    };
-    delete searchFields['__EVENTTARGET'];
-    delete searchFields['__EVENTARGUMENT'];
-
-    let page = parseSearchPage(await this.client.postSearch(searchFields));
-    const collected: SearchResultRow[] = [...page.rows];
-    const totalAvailable = page.totalCount ?? page.rows.length;
-    const targetCount = Math.min(maxResults, totalAvailable);
-    // vanban.chinhphu.vn always renders at most this many rows per response,
-    // regardless of the requested drdRecordPerPage value — confirmed by
-    // requesting recordsPerPage 50/100/200/500 for the same query and always
-    // getting back a first page of the same length. Pagination math must be
-    // based on that real, observed page size, not the requested one.
-    const realPageSize = page.rows.length || recordsPerPage;
-    const pageCap = Math.min(Math.ceil(maxResults / realPageSize) + 1, 50);
-
-    let pageNum = 2;
-    while (
-      collected.length < targetCount &&
-      page.rows.length > 0 &&
-      pageNum <= pageCap
-    ) {
-      // The grid's own paging postback (__doPostBack on grvDocument) only
-      // returns results if the filter controls (category/org/year/
-      // recordsPerPage/keyword) are resent alongside the hidden ASP.NET
-      // fields — omitting them makes the server process the postback as if
-      // every filter had been reset, and it comes back with zero rows.
-      const pageFields: Record<string, string> = {
-        ...page.hiddenFields,
-        [controls.category]: dto.categoryId ?? '0',
-        [controls.org]: dto.orgId ?? '0',
-        [controls.year]: dto.year ?? '0',
-        [controls.recordsPerPage]: String(recordsPerPage),
-        [controls.keyword]: dto.keyword ?? '',
-        __EVENTTARGET: controls.gridView,
-        __EVENTARGUMENT: `Page$${pageNum}`,
-      };
-      delete pageFields[controls.searchButton];
-      page = parseSearchPage(await this.client.postSearch(pageFields));
-      collected.push(...page.rows);
-      pageNum += 1;
-    }
-
-    const documents = collected.slice(0, maxResults);
+    const { collected, totalAvailable, documents } =
+      await this.fetchSearchResults(dto);
 
     if (dto.dryRun) {
       return { totalMatched: totalAvailable, documents, downloaded: [] };
@@ -279,6 +224,65 @@ export class LawDownloadService {
     }
 
     return { totalMatched: totalAvailable, documents, downloaded };
+  }
+
+  private async fetchSearchResults(dto: SearchDownloadDto) {
+    const recordsPerPage = dto.recordsPerPage ?? DEFAULT_RECORDS_PER_PAGE;
+    const maxResults = dto.maxResults ?? DEFAULT_MAX_RESULTS;
+
+    const searchHtml = await this.client.fetchSearchPage();
+    const initial = parseSearchPage(searchHtml);
+    if (!initial.controls) {
+      throw new BadGatewayException(
+        'Could not find the expected search form controls on vanban.chinhphu.vn — the page structure may have changed.',
+      );
+    }
+    const { controls } = initial;
+
+    const searchFields: Record<string, string> = {
+      ...initial.hiddenFields,
+      [controls.category]: dto.categoryId ?? '0',
+      [controls.org]: dto.orgId ?? '0',
+      [controls.year]: dto.year ?? '0',
+      [controls.recordsPerPage]: String(recordsPerPage),
+      [controls.keyword]: dto.keyword ?? '',
+      [controls.searchButton]: 'Tìm kiếm',
+    };
+    delete searchFields['__EVENTTARGET'];
+    delete searchFields['__EVENTARGUMENT'];
+
+    let page = parseSearchPage(await this.client.postSearch(searchFields));
+    const collected: SearchResultRow[] = [...page.rows];
+    const totalAvailable = page.totalCount ?? page.rows.length;
+    const targetCount = Math.min(maxResults, totalAvailable);
+    const realPageSize = page.rows.length || recordsPerPage;
+    const pageCap = Math.min(Math.ceil(maxResults / realPageSize) + 1, 50);
+
+    let pageNum = 2;
+    while (
+      collected.length < targetCount &&
+      page.rows.length > 0 &&
+      pageNum <= pageCap
+    ) {
+      const pageFields: Record<string, string> = {
+        ...page.hiddenFields,
+        [controls.category]: dto.categoryId ?? '0',
+        [controls.org]: dto.orgId ?? '0',
+        [controls.year]: dto.year ?? '0',
+        [controls.recordsPerPage]: String(recordsPerPage),
+        [controls.keyword]: dto.keyword ?? '',
+        __EVENTTARGET: controls.gridView,
+        __EVENTARGUMENT: `Page$${pageNum}`,
+      };
+      delete pageFields[controls.searchButton];
+      page = parseSearchPage(await this.client.postSearch(pageFields));
+      collected.push(...page.rows);
+      pageNum += 1;
+    }
+
+    const documents = collected.slice(0, maxResults);
+
+    return { collected, totalAvailable, documents };
   }
 
   private classifyAndBuildTargets(
