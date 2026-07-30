@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import {
   ApiBadGatewayResponse,
   ApiCreatedResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
@@ -63,7 +64,7 @@ export class LawIndexController {
       "each match's metadata plus a sourceUrl directly usable as the document-sync endpoint's `url` — this " +
       'endpoint itself only searches, it never persists anything.',
   })
-  @ApiCreatedResponse({ type: SearchDocumentsResponseDto })
+  @ApiOkResponse({ type: SearchDocumentsResponseDto })
   @ApiBadGatewayResponse({
     description:
       'vbpl.vn failed to load or render the search page (network error, timeout, or unexpected DOM shape).',
@@ -77,11 +78,18 @@ export class LawIndexController {
     summary:
       'Search locally synced documents in the Postgres database — read-only, searches stored records',
     description:
-      'Same filter parameters as the crawl search endpoint (keyword, document types, issuing bodies, ' +
-      'validity status, date ranges, pagination) but queries the local database instead of scraping vbpl.vn. ' +
-      'Only returns documents that have already been synced via POST /laws/index/crawl/url or POST /laws/index/crawl/all.',
+      "A subset of the crawl-search endpoint's filters, applied to already-synced rows instead of live " +
+      'vbpl.vn results: keyword (matches title or citation), documentTypes, issuingBodies, validityStatus, ' +
+      'and the issued/effective date ranges. `documentGroups`, `searchScope`, `exactPhrase`, and the ' +
+      '`expiredFrom`/`expiredTo` range are accepted (same shared DTO as the crawl endpoint) but silently ' +
+      "ignored here — there's no persisted equivalent of vbpl.vn's document-group categorization or " +
+      'expiry date to filter on yet, and keyword search always matches title+citation regardless of ' +
+      'searchScope/exactPhrase. An unrecognized `validityStatus` value is also silently ignored (matches ' +
+      'every status) rather than an error or zero results — confirmed live, worth knowing before relying on ' +
+      "it. The response's `expiryDate` field is always null for the same reason. Only returns documents " +
+      'that have already been synced via POST /laws/index/crawl/url or POST /laws/index/crawl/all.',
   })
-  @ApiCreatedResponse({ type: SearchDocumentsResponseDto })
+  @ApiOkResponse({ type: SearchDocumentsResponseDto })
   @Get('search')
   searchLocal(@Query() dto: SearchDocumentsDto) {
     return this.service.searchLocalDocuments(dto);

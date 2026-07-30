@@ -83,9 +83,12 @@ npm run db:migrate           # apply it (needs postgres up — docker compose up
 
 Endpoints, under `/laws/index`:
 
-- `POST /laws/index/document` — scrape and upsert one document from its vbpl.vn detail page URL.
-- `POST /laws/index/crawl` — crawl the trung-ương sitemap block and sync every document found. Pass `limit` for a smoke test — an unbounded crawl is one very long-running request (no resumable cursor/job-queue yet).
-- `POST /laws/index/search` — targeted/filtered search against vbpl.vn/van-ban/trung-uong (keyword, Nhóm văn bản / Cơ quan ban hành / Hình thức văn bản checkboxes, Tình trạng hiệu lực, date ranges). Read-only — returns matches with a `sourceUrl` usable as `document`'s `url`, doesn't sync anything itself.
+- `POST /laws/index/crawl/url` — scrape and upsert one document from its vbpl.vn detail page URL.
+- `POST /laws/index/crawl/all` — crawl the trung-ương sitemap block and sync every document found. Pass `limit` for a smoke test — an unbounded crawl is one very long-running request (no resumable cursor/job-queue yet).
+- `GET /laws/index/crawl/search` — targeted/filtered search against vbpl.vn/van-ban/trung-uong (keyword, Nhóm văn bản / Cơ quan ban hành / Hình thức văn bản checkboxes, Tình trạng hiệu lực, date ranges). Read-only, hits the live site — returns matches with a `sourceUrl` usable as `crawl/url`'s `url`, doesn't sync anything itself.
+- `GET /laws/index/search` — same filter shape, but queries already-synced rows in Postgres instead of scraping vbpl.vn. Only a subset of the filters is actually honored against local data: keyword (title or citation), `documentTypes`, `issuingBodies`, `validityStatus`, and the issued/effective date ranges. `documentGroups`, `searchScope`, `exactPhrase`, and `expiredFrom`/`expiredTo` are accepted (same DTO) but silently ignored — there's no persisted document-group or expiry-date field to filter on yet — and an unrecognized `validityStatus` is also silently ignored (matches everything) rather than erroring. `expiryDate` in the response is always `null` for the same reason.
+
+  Array-valued filters (`documentTypes`, `issuingBodies`, `documentGroups`) work as either a single query param (`?documentTypes=Luật`) or a repeated one for multiple values (`?documentTypes=Luật&documentTypes=Bộ+luật`) — both endpoints being `@Query()`-bound now (not `@Body()`), a lone occurrence would otherwise arrive as a bare string and fail `IsArray()` validation; the DTO coerces it into a one-element array first.
 
 Document-level only for now — the Điều/Khoản/Điểm hierarchy (`document_node`) and everything downstream of Postgres (OpenSearch/ChromaDB/Neo4j projectors, CDC) are later, separately-planned phases.
 

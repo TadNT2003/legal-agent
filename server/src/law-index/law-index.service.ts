@@ -116,7 +116,9 @@ export class LawIndexService {
    * filter parameters as the vbpl.vn crawl search. Returns paginated results
    * from already-scraped records only.
    */
-  async searchLocalDocuments(filters: VbplSearchFilters): Promise<VbplSearchResult> {
+  async searchLocalDocuments(
+    filters: VbplSearchFilters,
+  ): Promise<VbplSearchResult> {
     return this.repo.searchLocalDocuments(filters);
   }
 }

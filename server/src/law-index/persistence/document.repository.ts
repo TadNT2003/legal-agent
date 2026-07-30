@@ -1,6 +1,17 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { and, eq, gte, ilike, isNull, lte, or, sql } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNull,
+  lte,
+  or,
+  sql,
+  SQL,
+} from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type {
   ParsedVbplDocument,
@@ -89,6 +100,21 @@ function mapValidityStatus(
 export interface UpsertResult {
   documentId: string;
   changed: boolean;
+}
+
+/** Shape written into document.rawSource on every upsert (see upsertDocument
+ * below) — kept here so searchLocalDocuments can read it back without an
+ * `any` cast. Note there is no expiry-date field: vbpl.vn's "Ngày hết hiệu
+ * lực" is parsed (ParsedVbplAttributes.expiryDateRaw) and folded into
+ * content_version's hash, but isn't persisted as its own document column or
+ * raw_source key yet — searchLocalDocuments's expiryDate is always null
+ * until that's added. */
+interface DocumentRawSource {
+  fullText: string;
+  scrapedAt: string;
+  sourceUrl: string;
+  consolidatesRawTitles: string[];
+  consolidatedIntoRawTitles: string[];
 }
 
 @Injectable()
@@ -321,31 +347,35 @@ export class DocumentRepository {
   async searchLocalDocuments(
     filters: VbplSearchFilters,
   ): Promise<VbplSearchResult> {
-    const conditions: AnyPgColumn[] = [];
+    const conditions: SQL[] = [];
 
     if (filters.keyword) {
-      conditions.push(
-        or(
-          ilike(document.title, `%${filters.keyword}%`),
-          ilike(document.citationId, `%${filters.keyword}%`),
-        ),
+      // or() is typed as SQL | undefined generically (empty-args case) — always
+      // defined here since exactly 2 conditions are always passed.
+      const keywordCondition = or(
+        ilike(document.title, `%${filters.keyword}%`),
+        ilike(document.citationId, `%${filters.keyword}%`),
       );
+      if (keywordCondition) conditions.push(keywordCondition);
     }
 
     if (filters.documentTypes?.length) {
-      conditions.push(
-        sql`${document.documentType} = ANY(${filters.documentTypes}::text[])`,
-      );
+      // Not sql`${col} = ANY(${array}::text[])` — drizzle's sql template
+      // spreads a JS array into multiple bind params (`($1, $2)`), which
+      // Postgres parses as a record literal, not an array; casting that to
+      // text[] fails with "cannot cast type record to text[]" (confirmed
+      // live, reproducible with any array length). inArray() generates a
+      // correct `IN ($1, $2, ...)` instead.
+      conditions.push(inArray(document.documentType, filters.documentTypes));
     }
 
     if (filters.issuingBodies?.length) {
-      conditions.push(
-        sql`${issuingBody.name} = ANY(${filters.issuingBodies}::text[])`,
-      );
+      conditions.push(inArray(issuingBody.name, filters.issuingBodies));
     }
 
     if (filters.validityStatus) {
-      const mappedStatus = VALIDITY_STATUS_MAP[filters.validityStatus.toLowerCase()];
+      const mappedStatus =
+        VALIDITY_STATUS_MAP[filters.validityStatus.toLowerCase()];
       if (mappedStatus) {
         conditions.push(eq(document.status, mappedStatus));
       }
@@ -402,23 +432,26 @@ export class DocumentRepository {
       })(),
     ]);
 
-    const VBPL_HOST = 'https://vbpl.vn';
-
     return {
       total,
       page,
       pageSize,
-      items: rows.map((row: typeof rows[number]) => {
-        const sourceUrl =
-          (row.rawSource as any)?.sourceUrl ??
-          `${VBPL_HOST}/van-ban/chi-tiet/van-ban--${row.citationId}`;
-        const expiryDate =
-          (row.rawSource as any)?.expiryDateRaw ??
-          (row.rawSource as any)?.effTo ??
-          null;
+      items: rows.map((row: (typeof rows)[number]) => {
+        const rawSource = row.rawSource as DocumentRawSource | null;
+        // rawSource.sourceUrl is written unconditionally by upsertDocument —
+        // a missing one means a corrupted/pre-dating row, not a case to
+        // paper over with a guess: citation_id (e.g. "51/2024/QH15") is not
+        // interchangeable with vbpl.vn's internal document id that its URLs
+        // actually key on (confirmed live — see vbpl.parser.ts's
+        // buildSearchResultUrl), so fabricating one from it would be wrong.
+        if (!rawSource?.sourceUrl) {
+          throw new Error(
+            `document ${row.id} (citation ${row.citationId}) has no rawSource.sourceUrl`,
+          );
+        }
 
         return {
-          sourceUrl,
+          sourceUrl: rawSource.sourceUrl,
           citation: row.citationId,
           title: row.title,
           documentType: row.documentType,
@@ -429,10 +462,8 @@ export class DocumentRepository {
           effectiveDate: row.effectiveDate
             ? formatDateFromYYYYMMDD(row.effectiveDate)
             : null,
-          expiryDate:
-            typeof expiryDate === 'string' && expiryDate
-              ? expiryDate
-              : null,
+          // Not persisted anywhere yet — see DocumentRawSource's comment.
+          expiryDate: null,
           validityStatus: mapDbStatusToDisplay(row.status),
         };
       }),

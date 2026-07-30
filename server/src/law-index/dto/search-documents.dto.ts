@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -15,6 +15,17 @@ import type { VbplSearchScope } from '../crawl/vbpl-document.interface';
 const SEARCH_SCOPES: VbplSearchScope[] = ['noi-dung', 'tieu-de', 'so-hieu'];
 const DATE_PATTERN = /^\d{2}\/\d{2}\/\d{4}$/;
 const DATE_MESSAGE = 'must be a dd/mm/yyyy date';
+
+/** This DTO is bound via both @Body() (JSON — an array is always unambiguous)
+ * and @Query() (querystring — Express/qs collapses a *single* occurrence of
+ * a repeatable key, e.g. "?documentTypes=Luật", down to a bare string, only
+ * producing an array when the key repeats). Without this, filtering by
+ * exactly one value over the GET endpoints fails IsArray() validation
+ * entirely (confirmed live). Applied before @IsArray() on every array field. */
+function toArray({ value }: { value: unknown }): unknown {
+  if (value === undefined) return value;
+  return Array.isArray(value) ? value : [value];
+}
 
 export class SearchDocumentsDto {
   @ApiPropertyOptional({
@@ -47,6 +58,7 @@ export class SearchDocumentsDto {
     type: [String],
   })
   @IsOptional()
+  @Transform(toArray)
   @IsArray()
   @IsString({ each: true })
   documentGroups?: string[];
@@ -57,6 +69,7 @@ export class SearchDocumentsDto {
     type: [String],
   })
   @IsOptional()
+  @Transform(toArray)
   @IsArray()
   @IsString({ each: true })
   issuingBodies?: string[];
@@ -67,6 +80,7 @@ export class SearchDocumentsDto {
     type: [String],
   })
   @IsOptional()
+  @Transform(toArray)
   @IsArray()
   @IsString({ each: true })
   documentTypes?: string[];
