@@ -1,9 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type {
-  VbplSearchFilters,
-  VbplSearchResult,
-} from '../crawl/vbpl-document.interface';
+import type { VbplSearchResult } from '../crawl/vbpl-document.interface';
 import { RetrieveNodeDto } from '../dto/retrieve-node.dto';
+import { RetrieveSearchDto } from '../dto/retrieve-search.dto';
 import type {
   RetrieveNodeItemDto,
   RetrieveNodeResponseDto,
@@ -21,12 +19,7 @@ export class RetrieveService {
     private readonly nodeRepo: DocumentNodeRepository,
   ) {}
 
-  /**
-   * Search locally synced documents in the Postgres database using the same
-   * filter parameters as the vbpl.vn crawl search. Returns paginated results
-   * from already-scraped records only.
-   */
-  async search(filters: VbplSearchFilters): Promise<VbplSearchResult> {
+  async search(filters: RetrieveSearchDto): Promise<VbplSearchResult> {
     return this.repo.searchLocalDocuments(filters);
   }
 

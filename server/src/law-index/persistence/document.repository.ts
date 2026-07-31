@@ -340,23 +340,40 @@ export class DocumentRepository {
   }
 
   /**
-   * Search locally synced documents in Postgres using the same filter
-   * parameters as the vbpl.vn crawl search endpoint. Converts dd/mm/yyyy
-   * date strings to yyyy-MM-dd for DB comparison.
+   * Search locally synced documents in Postgres. Converts dd/mm/yyyy date
+   * strings to yyyy-MM-dd for DB comparison.
    */
   async searchLocalDocuments(
-    filters: VbplSearchFilters,
+    filters: Omit<VbplSearchFilters, 'documentGroups' | 'expiredFrom' | 'expiredTo'>,
   ): Promise<VbplSearchResult> {
+
     const conditions: SQL[] = [];
 
     if (filters.keyword) {
-      // or() is typed as SQL | undefined generically (empty-args case) — always
-      // defined here since exactly 2 conditions are always passed.
-      const keywordCondition = or(
-        ilike(document.title, `%${filters.keyword}%`),
-        ilike(document.citationId, `%${filters.keyword}%`),
-      );
-      if (keywordCondition) conditions.push(keywordCondition);
+      const wildcard = filters.exactPhrase ? '' : '%';
+      const keywordLike = `${wildcard}${filters.keyword}${wildcard}`;
+      // searchScope determines which fields the keyword is matched against.
+      // Default (tieu-de) matches title + citation. noi-dung searches the full
+      // text stored in raw_source. so-hieu searches citation only.
+      const scope = filters.searchScope ?? 'tieu-de';
+      const matches: SQL[] = [];
+      if (scope === 'noi-dung') {
+        matches.push(
+          sql`raw_source->>'fullText' ILIKE ${keywordLike}`,
+        );
+      }
+      if (scope === 'tieu-de') {
+        matches.push(ilike(document.title, keywordLike));
+        matches.push(ilike(document.citationId, keywordLike));
+      }
+      if (scope === 'so-hieu') {
+        matches.push(ilike(document.citationId, keywordLike));
+      }
+      if (matches.length > 0) {
+        // or() is typed as SQL | undefined generically (empty-args case).
+        const keywordCondition = or(...matches);
+        if (keywordCondition) conditions.push(keywordCondition);
+      }
     }
 
     if (filters.documentTypes?.length) {

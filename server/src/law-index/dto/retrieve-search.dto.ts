@@ -16,18 +16,20 @@ const SEARCH_SCOPES: VbplSearchScope[] = ['noi-dung', 'tieu-de', 'so-hieu'];
 const DATE_PATTERN = /^\d{2}\/\d{2}\/\d{4}$/;
 const DATE_MESSAGE = 'must be a dd/mm/yyyy date';
 
-/** This DTO is bound via both @Body() (JSON — an array is always unambiguous)
- * and @Query() (querystring — Express/qs collapses a *single* occurrence of
- * a repeatable key, e.g. "?documentTypes=Luật", down to a bare string, only
- * producing an array when the key repeats). Without this, filtering by
- * exactly one value over the GET endpoints fails IsArray() validation
- * entirely (confirmed live). Applied before @IsArray() on every array field. */
+/** Same as {@link toArray} in search-documents.dto.ts — querystring binding
+ * collapses single repeatable keys to bare strings. */
 function toArray({ value }: { value: unknown }): unknown {
   if (value === undefined) return value;
   return Array.isArray(value) ? value : [value];
 }
 
-export class SearchDocumentsDto {
+/**
+ * Filter DTO for local DB search only. Omits `documentGroups` and
+ * `expiredFrom`/`expiredTo` which have no persisted data to filter against.
+ * Use {@link SearchDocumentsDto} for the crawl endpoint which passes all
+ * parameters through to vbpl.vn.
+ */
+export class RetrieveSearchDto {
   @ApiPropertyOptional({
     description: 'Free-text keyword ("Nhập từ khóa tìm kiếm").',
   })
@@ -37,8 +39,8 @@ export class SearchDocumentsDto {
 
   @ApiPropertyOptional({
     description:
-      'Which field the keyword is matched against ("Tìm kiếm trong:"). Defaults to vbpl.vn\'s own default, "tieu-de" (Tiêu đề). ' +
-      'For local DB search, "tieu-de" matches title+citation, "so-hieu" matches citation only, "noi-dung" matches full text.',
+      'Which field the keyword is matched against. ' +
+      '"tieu-de" (default) matches title+citation, "so-hieu" matches citation only, "noi-dung" matches full text.',
     enum: SEARCH_SCOPES,
   })
   @IsOptional()
@@ -47,7 +49,7 @@ export class SearchDocumentsDto {
 
   @ApiPropertyOptional({
     description:
-      '"Chính xác cụm từ trên" — match the keyword as an exact phrase instead of a substring. Works for both crawl and local DB search.',
+      '"Chính xác cụm từ trên" — match the keyword as an exact phrase instead of a substring.',
   })
   @IsOptional()
   @Type(() => Boolean)
@@ -56,18 +58,7 @@ export class SearchDocumentsDto {
 
   @ApiPropertyOptional({
     description:
-      '"Nhóm văn bản" sidebar checkboxes, e.g. ["Văn bản quy phạm pháp luật"]. Must match vbpl.vn\'s current option labels exactly.',
-    type: [String],
-  })
-  @IsOptional()
-  @Transform(toArray)
-  @IsArray()
-  @IsString({ each: true })
-  documentGroups?: string[];
-
-  @ApiPropertyOptional({
-    description:
-      '"Cơ quan ban hành" sidebar checkboxes, e.g. ["Bộ Tư pháp"]. Must match vbpl.vn\'s current option labels exactly.',
+      '"Cơ quan ban hành" filter, e.g. ["Bộ Tư pháp"].',
     type: [String],
   })
   @IsOptional()
@@ -78,7 +69,7 @@ export class SearchDocumentsDto {
 
   @ApiPropertyOptional({
     description:
-      '"Hình thức văn bản" sidebar checkboxes, e.g. ["Luật", "Nghị định"]. Must match vbpl.vn\'s current option labels exactly.',
+      '"Hình thức văn bản" filter, e.g. ["Luật", "Nghị định"].',
     type: [String],
   })
   @IsOptional()
@@ -89,7 +80,7 @@ export class SearchDocumentsDto {
 
   @ApiPropertyOptional({
     description:
-      '"Tình trạng hiệu lực" advanced-panel dropdown, e.g. "Còn hiệu lực", "Hết hiệu lực toàn bộ".',
+      '"Tình trạng hiệu lực" filter, e.g. "Còn hiệu lực", "Hết hiệu lực toàn bộ".',
   })
   @IsOptional()
   @IsString()
@@ -124,22 +115,7 @@ export class SearchDocumentsDto {
   effectiveTo?: string;
 
   @ApiPropertyOptional({
-    description: '"Ngày hết hiệu lực" range start, dd/mm/yyyy.',
-  })
-  @IsOptional()
-  @Matches(DATE_PATTERN, { message: DATE_MESSAGE })
-  expiredFrom?: string;
-
-  @ApiPropertyOptional({
-    description: '"Ngày hết hiệu lực" range end, dd/mm/yyyy.',
-  })
-  @IsOptional()
-  @Matches(DATE_PATTERN, { message: DATE_MESSAGE })
-  expiredTo?: string;
-
-  @ApiPropertyOptional({
-    description:
-      "Page number to jump to via the results list's page-jump input.",
+    description: 'Page number.',
     default: 1,
   })
   @IsOptional()
@@ -149,8 +125,7 @@ export class SearchDocumentsDto {
   page?: number;
 
   @ApiPropertyOptional({
-    description:
-      "Results per page, selected from vbpl.vn's own page-size dropdown (typically 10/20/50/100 — an unsupported value fails with a clear error).",
+    description: 'Results per page.',
     default: 10,
   })
   @IsOptional()
