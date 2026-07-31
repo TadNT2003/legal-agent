@@ -14,11 +14,15 @@ import { SyncDocumentDto } from './dto/sync-document.dto';
 import { SyncDocumentResponseDto } from './dto/sync-document-response.dto';
 import { SyncSummaryResponseDto } from './dto/sync-summary-response.dto';
 import { LawIndexService } from './law-index.service';
+import { RetrieveService } from './retrieve/retrieve.service';
 
 @ApiTags('law-index')
 @Controller('laws/index')
 export class LawIndexController {
-  constructor(private readonly service: LawIndexService) {}
+  constructor(
+    private readonly service: LawIndexService,
+    private readonly retrieve: RetrieveService,
+  ) {}
 
   @ApiOperation({
     summary: 'Sync one document from vbpl.vn into Postgres',
@@ -107,6 +111,6 @@ export class LawIndexController {
   @ApiOkResponse({ type: SearchDocumentsResponseDto })
   @Get('search')
   searchLocal(@Query() dto: SearchDocumentsDto) {
-    return this.service.searchLocalDocuments(dto);
+    return this.retrieve.search(dto);
   }
 }

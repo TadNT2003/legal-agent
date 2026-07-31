@@ -157,15 +157,4 @@ export class LawIndexService {
     const raw = await this.client.searchDocuments(filters);
     return parseVbplSearchPage(raw);
   }
-
-  /**
-   * Search locally synced documents in the Postgres database using the same
-   * filter parameters as the vbpl.vn crawl search. Returns paginated results
-   * from already-scraped records only.
-   */
-  async searchLocalDocuments(
-    filters: VbplSearchFilters,
-  ): Promise<VbplSearchResult> {
-    return this.repo.searchLocalDocuments(filters);
-  }
 }
