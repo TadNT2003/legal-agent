@@ -1,14 +1,10 @@
 # law-index: flagged documents log
 
-**Status: manually maintained.** Nothing in `server/src/law-index/` writes to this file automatically — there is no automated flagging/logging mechanism in the codebase yet (see "Not yet automated" below). This is a running log of specific documents found to have scraping or `document_node` indexing problems during manual verification passes, kept so findings don't only live in chat history. Append to it (don't overwrite) whenever a future verification pass finds something new.
+**Status: manually maintained.** Nothing in `server/src/law-index/` writes to this file (or the CSV below) automatically — there is no automated flagging/logging mechanism in the codebase yet (see "Not yet automated" below).
 
-**Columns:**
-- **Citation** — `document.citation_id`
-- **Title** — `document.title`
-- **Enacted** — `document.enacted_date`
-- **Status** — `document.status` (validity) at time of flagging
-- **Issue** — what's wrong
-- **Resolution** — `Resolved` (with the fix and commit/change that landed it) or `Unresolved` (with what's needed)
+This file is the **issue narrative only** — what went wrong, root cause, the fix, and any still-open follow-up. Per-document records (every citation/title/date this investigation touched) live in **[`law-index-flagged-documents.csv`](law-index-flagged-documents.csv)** instead, one row per document, tagged with the section number below it belongs to (`section` column). Append to both (don't overwrite) whenever a future verification pass finds something new: prose + root cause here, the affected documents' rows in the CSV.
+
+**CSV columns:** `section` (matches the `###` section number here) · `section_title` · `status` (`Resolved` / `Unresolved` / `Won't fix` / `Info — no action needed`) · `internal_id` (vbpl.vn's own document id, where relevant — e.g. citation-collision rows) · `citation` (`document.citation_id`) · `title` (`document.title`) · `enacted_date` (`document.enacted_date`) · `validity_status` (`document.status` at time of flagging, or vbpl.vn's own label where the document was never persisted) · `issue` (what's wrong with this specific row) · `resolution` (what fixed it, or why it won't be).
 
 ---
 
@@ -20,10 +16,7 @@ Found during the first 50-document `document_node` reindex (2026-07-30). An atta
 
 **Fix:** generalized the footer-escape trigger (`ANNEX_RESTART_PATTERN` in `document-node.parser.ts`) to also recognize a re-stated Quốc hiệu header ("CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM") or a standalone "Biểu số/Mẫu số/QCVN/TCVN `<code>`" title line. Regression tests added; both documents' `document_node` trees rebuilt from stored `fullText`.
 
-| Citation | Title | Enacted | Status | Issue | Resolution |
-|---|---|---|---|---|---|
-| 46/2026/TT-BXD | Thông tư số 46/2026/TT-BXD Ban hành QCVN 01:2026/BXD Quy chuẩn kỹ thuật quốc gia về quy hoạch đô thị và nông thôn | 2026-06-30 | chua_co_hieu_luc | QCVN annex (~145KB) captured 0% — entirely dropped | Resolved — annex now captured at 96% |
-| 102/2026/TT-BTC | Thông tư số 102/2026/TT-BTC Hướng dẫn một số nội dung về giám sát, kiểm tra, đánh giá, xếp loại, báo cáo và công khai thông tin trong quản lý và đầu tư vốn nhà nước tại doanh nghiệp | 2026-07-17 | con_hieu_luc | "Biểu số" report-form annexes captured 32% | Resolved — now captured at 75% |
+Affected documents: 2 rows, `law-index-flagged-documents.csv` (`section=1`).
 
 ### 2. Điều header missing punctuation — period-only regex matched nothing
 
@@ -31,25 +24,7 @@ Found while backfilling `document_node` for all Luật/Bộ luật documents (20
 
 **Fix:** made the separator after the Điều number optional (`[.:]?` instead of a mandatory `.`) in `DIEU_KHOAN_PATTERN`. Regression tests added for all three punctuation variants; all 17 documents' trees rebuilt from stored `fullText`.
 
-| Citation | Title | Enacted | Status | Resolution |
-|---|---|---|---|---|
-| 04/1998/QH10 | Luật Sửa đổi, bổ sung một số điều của Luật thuế xuất khẩu, thuế nhập khẩu số 04/1998/QH10 | 1998-05-20 | het_hieu_luc | Resolved — 37 nodes built |
-| 06/1998/QH10 | Luật Sửa đổi, bổ sung một số điều của Luật Ngân sách Nhà nước số 06/1998/QH10 | 1998-05-20 | het_hieu_luc | Resolved — 112 nodes built |
-| 10/1998/QH10 | Luật Sửa đổi, bổ sung một số điều của Luật Đất đai số 10/1998/QH10 | 1998-12-02 | het_hieu_luc | Resolved — 66 nodes built |
-| 20/2000/QH10 | Luật Sửa đổi, bổ sung một số điều của Bộ luật Tố tụng hình sự số 20/2000/QH10 | 2000-06-09 | het_hieu_luc | Resolved — 103 nodes built |
-| 26/2004/QH11 | Luật Sửa đổi, bổ sung một số điều của Luật Khiếu nại, tố cáo số 26/2004/QH11 | 2004-06-15 | het_hieu_luc | Resolved — 20 nodes built |
-| 31/2013/QH13 | Luật Sửa đổi, bổ sung một số điều của Luật Thuế giá trị gia tăng số 13/2008/QH12 số 31/2013/QH13 | 2013-06-19 | het_hieu_luc | Resolved — 61 nodes built |
-| 32/2013/QH13 | Luật Sửa đổi, bổ sung một số điều của Luật Thuế thu nhập doanh nghiệp số 32/2013/QH13 | 2013-06-19 | het_hieu_luc_mot_phan | Resolved — 95 nodes built |
-| 36/2013/QH13 | Luật Sửa đổi, bổ sung một số điều của Luật Cư trú số 36/2013/QH13 | 2013-06-20 | con_hieu_luc | Resolved — 23 nodes built |
-| 37/2013/QH13 | Luật Sửa đổi, bổ sung Điều 170 của Luật Doanh nghiệp số 37/2013/QH13 | 2013-06-20 | het_hieu_luc | Resolved — 2 nodes built |
-| 41-LCT/HĐNN8 | Luật Sửa đổi, bổ sung một số điều của Luật Đầu tư nước ngoài tại Việt Nam số 41-LCT/HĐNN8 | 1990-06-30 | het_hieu_luc | Resolved — 2 nodes built |
-| 45/LCT | Luật Sửa đổi và bổ sung Luật Nghĩa vụ quân sự số 45/LCT | 1965-04-10 | het_hieu_luc | Resolved — 5 nodes built |
-| 46/2005/QH11 | Luật sửa đổi, bổ sung một số điều của Luật Khoáng sản số 46/2005/QH11 | 2005-06-14 | het_hieu_luc | Resolved — 74 nodes built |
-| 50/LCT | Luật Sửa đổi và bổ sung Luật Nghĩa vụ quân sự số 50/LCT | 1962-10-26 | het_hieu_luc | Resolved — 9 nodes built |
-| 56/2014/QH13 | Luật Sửa đổi, bổ sung một số điều của Luật Quốc tịch Việt Nam số 56/2014/QH13 | 2014-06-24 | het_hieu_luc_mot_phan | Resolved — 6 nodes built |
-| 61/2014/QH13 | Luật Sửa đổi, bổ sung một số điều của Luật Hàng không dân dụng Việt Nam số 61/2014/QH13 | 2014-11-21 | het_hieu_luc_mot_phan | Resolved — 177 nodes built (see known limitation #4 below — this document's tree has a separate, unresolved shape issue) |
-| 63/2010/QH12 | Luật Sửa đổi, bổ sung một số điều của Luật Bầu cử đại biểu Quốc hội và Luật Bầu cử đại biểu Hội đồng nhân dân số 63/2010/QH12 | 2010-11-24 | het_hieu_luc | Resolved — 137 nodes built |
-| 72/2014/QH13 | Luật Sửa đổi, bổ sung một số điều của Luật Sĩ quan Quân đội nhân dân Việt Nam số 72/2014/QH13 | 2014-11-27 | het_hieu_luc_mot_phan | Resolved — 52 nodes built |
+Affected documents: 17 rows, `law-index-flagged-documents.csv` (`section=2`). Note: `61/2014/QH13`'s tree has a separate, unresolved shape issue — see §4 below.
 
 ---
 
@@ -63,16 +38,7 @@ Found during the same Luật/Bộ luật backfill (2026-07-31). These 6 document
 
 **Recurred in the tier-3 (Pháp lệnh) 100-document batch (2026-07-31):** same signature (short `fullText`, 0 `document_node` rows), confirming this isn't confined to Luật/Bộ luật. `15/2004/PL-UBTVQH11` was re-synced (`POST /laws/index/crawl/url`) as part of fixing its `issuing_body` mismatch (see §8) and the attributes-leak reproduced identically on the fresh scrape — the underlying Nội dung-tab render-timing bug is still live, not a one-off.
 
-| Citation | Title | Enacted | Status | fullText length |
-|---|---|---|---|---|
-| 35/2002/QH10 | Luật Sửa đổi, bổ sung một số điều của Bộ luật Lao động số 35/2002/QH10 | 2002-04-02 | het_hieu_luc | 362 |
-| 50/2019/QH14 | Luật sửa đổi, bổ sung một số điều của Luật quản lý, sử dụng vũ khí, vật liệu nổ và công cụ hỗ trợ số 50/2019/QH14 | 2019-11-25 | het_hieu_luc | 411 |
-| 52/2019/QH14 | Luật sửa đổi, bổ sung một số điều của Luật cán bộ, công chức và Luật viên chức số 52/2019/QH14 | 2019-11-25 | het_hieu_luc | 384 |
-| 106/2016/QH13 | Luật Sửa đổi, bổ sung một số điều của Luật Thuế giá trị gia tăng, Luật Thuế tiêu thụ đặc biệt và Luật Quản lý thuế số 106/2016/QH13 | 2016-04-06 | het_hieu_luc | 440 |
-| 105/2025/QH15 | Luật Giám định tư pháp số 105/2025/QH15 | 2025-12-05 | con_hieu_luc | 305 |
-| 141/2025/QH15 | Luật Sửa đổi, bổ sung một số điều của Luật Quản lý nợ công số 141/2025/QH15 | 2025-12-10 | con_hieu_luc | 418 |
-| 11/2003/PL-UBTVQH11 | Pháp lệnh số 11/2003/PL-UBTVQH11 Sửa đổi, bổ sung một số điều của Pháp lệnh Cán bộ, công chức | 2003-04-29 | het_hieu_luc | 415 |
-| 15/2004/PL-UBTVQH11 | Pháp lệnh số 15/2004/PL-UBTVQH11 Giống cây trồng | 2004-03-24 | null (no "Tình trạng hiệu lực" on vbpl.vn) | 297 |
+Affected documents: 8 rows, `law-index-flagged-documents.csv` (`section=3`).
 
 ### 4. Quoted multi-item replacement text mis-nested as top-level siblings
 
@@ -97,74 +63,7 @@ Found while rechecking vbpl.vn for Luật/Bộ luật coverage gaps (2026-08-01)
 
 **Decision (2026-08-01): the remaining 66 confirmed-expired documents are out of scope for this corpus — won't fix.** Rationale: (1) direct precedent — `server/src/law/` already made this exact call for the same "Không số" pattern, for the same reason (see the `d441189` commit message: "ignore those laws completely because they're now irrelevant to the current legal system"); (2) the real fix (loosening/replacing the `citation_id UNIQUE` constraint) has to be re-validated against every citation-keyed lookup in `document.repository.ts` — reference resolution, forward-reference healing, consolidation matching — a disproportionate cost for content with no bearing on "what does current law say," this system's stated purpose; (3) it's a small, now fully-enumerated, and *documented* boundary rather than a silent gap — revisit if the corpus's scope ever grows to include historical/repealed-law research.
 
-| Internal id | Citation | Title | Enacted | Currently occupying that citation |
-|---|---|---|---|---|
-| 887 | Không số | Luật Hôn nhân và gia đình | 1959-12-29 | Luật Cải cách ruộng đất (1953) |
-| 888 | Không số | Luật Bầu cử Đại biểu Quốc hội | 1959-12-31 | Luật Cải cách ruộng đất (1953) |
-| 886 | Không số | Luật Nghĩa vụ quân sự | 1960-04-15 | Luật Cải cách ruộng đất (1953) |
-| 884 | Không số | Luật Tổ chức Hội đồng Chính phủ | 1960-07-14 | Luật Cải cách ruộng đất (1953) |
-| 883 | Không số | Luật Tổ chức Quốc hội | 1960-07-14 | Luật Cải cách ruộng đất (1953) |
-| 882 | Không số | Luật Tổ chức Tòa án nhân dân | 1960-07-14 | Luật Cải cách ruộng đất (1953) |
-| 1533 | Không số | Luật Bầu cử Đại biểu Quốc hội | 1980-12-18 | Luật Cải cách ruộng đất (1953) |
-| 4090 | 3-LCT/HĐNN7 | Luật Tổ chức Viện kiểm sát nhân dân | 1981-07-04 | Luật Tổ chức Tòa án nhân dân (id 4091, same citation) |
-| 3871 | Không số | Luật Nghĩa vụ quân sự | 1981-12-30 | Luật Cải cách ruộng đất (1953) |
-| 3637 | Không số | Luật Tổ chức Hội đồng nhân dân và Uỷ ban nhân dân | 1983-06-30 | Luật Cải cách ruộng đất (1953) |
-| 3483 | Không số | Luật Bầu cử đại biểu Hội đồng nhân dân | 1983-12-26 | Luật Cải cách ruộng đất (1953) |
-| 3274 | Không số | Bộ luật Hình sự | 1985-06-27 | Luật Cải cách ruộng đất (1953) |
-| 2798 | Không số | Luật Hôn nhân và gia đình | 1986-12-29 | Luật Cải cách ruộng đất (1953) |
-| 2565 | Không số | Luật Đầu tư nước ngoài tại Việt Nam | 1987-12-29 | Luật Cải cách ruộng đất (1953) |
-| 2566 | Không số | Luật Đất đai | 1987-12-29 | Luật Cải cách ruộng đất (1953) |
-| 2564 | Không số | Luật Thuế xuất khẩu, thuế nhập khẩu hàng mậu dịch | 1987-12-29 | Luật Cải cách ruộng đất (1953) |
-| 2558 | Không số | Luật Quốc tịch Việt Nam | 1988-06-28 | Luật Cải cách ruộng đất (1953) |
-| 2559 | Không số | Bộ luật Tố tụng hình sự | 1988-06-28 | Luật Cải cách ruộng đất (1953) |
-| 2325 | Không số | Luật Sửa đổi, bổ sung Luật Tổ chức Tòa án nhân dân | 1988-12-22 | Luật Cải cách ruộng đất (1953) |
-| 2324 | Không số | Luật Sửa đổi, bổ sung Luật Tổ chức Viện kiểm sát nhân dân | 1988-12-22 | Luật Cải cách ruộng đất (1953) |
-| 2064 | 270B-NQ/HĐNN8 | Luật Thuế Doanh thu | 1990-06-30 | Luật Thuế Tiêu thụ đặc biệt (id 2062, same citation) |
-| 1816 | Không số | Luật Doanh nghiệp tư nhân | 1990-12-21 | Luật Cải cách ruộng đất (1953) |
-| 1814 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật về Sỹ quan Quân đội nhân dân Việt Nam | 1990-12-21 | Luật Cải cách ruộng đất (1953) |
-| 1817 | Không số | Luật Công ty | 1990-12-21 | Luật Cải cách ruộng đất (1953) |
-| 1815 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Nghĩa vụ quân sự | 1990-12-21 | Luật Cải cách ruộng đất (1953) |
-| 11596 | Không số | Luật Bảo vệ, chăm sóc và giáo dục trẻ em | 1991-08-12 | Luật Cải cách ruộng đất (1953) |
-| 11593 | Không số | Luật Bảo vệ và phát triển rừng | 1991-08-12 | Luật Cải cách ruộng đất (1953) |
-| 11595 | Không số | Luật Phổ cập giáo dục tiểu học | 1991-08-12 | Luật Cải cách ruộng đất (1953) |
-| 11594 | Không số | Luật Sửa đổi, bổ sung một số điều của Bộ luật Hình sự | 1991-08-12 | Luật Cải cách ruộng đất (1953) |
-| 11226 | Không số | Luật Tổ chức Chính phủ | 1992-09-30 | Luật Cải cách ruộng đất (1953) |
-| 11225 | Không số | Luật Tổ chức Tòa án nhân dân | 1992-10-06 | Luật Cải cách ruộng đất (1953) |
-| 11224 | Không số | Luật Tổ chức Viện kiểm sát nhân dân | 1992-10-08 | Luật Cải cách ruộng đất (1953) |
-| 10821 | Không số | Luật Sửa đổi, bổ sung một số điều của Bộ luật Tố tụng hình sự | 1992-12-22 | Luật Cải cách ruộng đất (1953) |
-| 10822 | Không số | Luật Sửa đổi, bổ sung một số điều của Bộ luật Hình sự | 1992-12-22 | Luật Cải cách ruộng đất (1953) |
-| 10820 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Đầu tư nước ngoài tại Việt Nam | 1992-12-23 | Luật Cải cách ruộng đất (1953) |
-| 10805 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Xuất khẩu, thuế Nhập khẩu | 1993-07-05 | Luật Cải cách ruộng đất (1953) |
-| 10806 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Tiêu thụ đặc biệt | 1993-07-05 | Luật Cải cách ruộng đất (1953) |
-| 10808 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Doanh thu | 1993-07-05 | Luật Cải cách ruộng đất (1953) |
-| 10807 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Lợi tức | 1993-07-06 | Luật Cải cách ruộng đất (1953) |
-| 10804 | Không số | Luật Xuất bản | 1993-07-07 | Luật Cải cách ruộng đất (1953) |
-| 10802 | Không số | Luật Đất đai | 1993-07-14 | Luật Cải cách ruộng đất (1953) |
-| 10435 | Không số | Luật Bảo vệ môi trường | 1993-12-27 | Luật Cải cách ruộng đất (1953) |
-| 10433 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Tổ chức Tòa án nhân dân | 1993-12-28 | Luật Cải cách ruộng đất (1953) |
-| 10434 | Không số | Luật Phá sản doanh nghiệp | 1993-12-30 | Luật Cải cách ruộng đất (1953) |
-| 10426 | Không số | Luật Bầu cử đại biểu Hội đồng nhân dân | 1994-06-21 | Luật Cải cách ruộng đất (1953) |
-| 10420 | Không số | Luật Tổ chức Hội đồng nhân dân và Uỷ ban nhân dân | 1994-06-21 | Luật Cải cách ruộng đất (1953) |
-| 10422 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Nghĩa vụ quân sự | 1994-06-22 | Luật Cải cách ruộng đất (1953) |
-| 10421 | Không số | Luật Thuế Chuyển quyền sử dụng đất | 1994-06-22 | Luật Cải cách ruộng đất (1953) |
-| 10423 | Không số | Luật Sửa đổi một số điều của Luật Doanh nghiệp tư nhân | 1994-06-22 | Luật Cải cách ruộng đất (1953) |
-| 10425 | Không số | Luật Khuyến khích đầu tư trong nước | 1994-06-22 | Luật Cải cách ruộng đất (1953) |
-| 10424 | Không số | Luật Sửa đổi một số điều của Luật Công ty | 1994-06-22 | Luật Cải cách ruộng đất (1953) |
-| 10427 | Không số | Bộ luật Lao động | 1994-06-23 | Luật Cải cách ruộng đất (1953) |
-| 9954 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Hàng không dân dụng Việt Nam | 1995-04-20 | Luật Cải cách ruộng đất (1953) |
-| 9955 | Không số | Luật Doanh nghiệp Nhà nước | 1995-04-20 | Luật Cải cách ruộng đất (1953) |
-| 9702 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Tổ chức Tòa án nhân dân | 1995-10-28 | Luật Cải cách ruộng đất (1953) |
-| 9684 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Tiêu thụ đặc biệt | 1995-10-28 | Luật Cải cách ruộng đất (1953) |
-| 9703 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Doanh thu | 1995-10-28 | Luật Cải cách ruộng đất (1953) |
-| 9683 | Không số | Bộ luật Dân sự | 1995-10-28 | Luật Cải cách ruộng đất (1953) |
-| 9414 | Không số | Luật Hợp tác xã | 1996-03-20 | Luật Cải cách ruộng đất (1953) |
-| 9413 | Không số | Luật Khoáng sản | 1996-03-20 | Luật Cải cách ruộng đất (1953) |
-| 9412 | Không số | Luật Ngân sách Nhà nước | 1996-03-20 | Luật Cải cách ruộng đất (1953) |
-| 9028 | Không số | Luật Ban hành Văn bản quy phạm pháp luật | 1996-11-12 | Luật Cải cách ruộng đất (1953) |
-| 8532 | Không số | Luật Thương mại | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
-| 8533 | Không số | Luật Sửa đổi, bổ sung một số điều của Bộ luật Hình sự | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
-| 8535 | Không số | Luật Thuế thu nhập doanh nghiệp | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
-| 8534 | Không số | Luật Thuế giá trị gia tăng | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
+Affected documents: 66 rows, `law-index-flagged-documents.csv` (`section=5`).
 
 ### 6. Fix for the still-valid documents pulled out of §5, now a permanent mechanism
 
@@ -176,84 +75,9 @@ The 3 documents identified in §5 as "Còn hiệu lực" (still in force) were f
 - If a different document already occupies the citation (a real collision): documents that are **not** "còn hiệu lực" are skipped entirely (`upsertDocument` returns `{ documentId: null, skippedReason }`, surfaced through `syncDocument`/`syncAll` the same way the existing scope-mismatch skip already is) rather than silently overwriting whatever's there. Documents that **are** "còn hiệu lực" get disambiguated by appending vbpl.vn's own internal document id (`extractVbplInternalId`, `vbpl.parser.ts`) to the citation — `"<citation> (vbpl-<id>)"` — and inserted as their own row.
 - Verified live end-to-end (2026-08-01): re-sync-recognizes-itself (both a normally-synced and a manually-SQL-renamed document), the skip path (`3-LCT/HĐNN7`'s expired collision, id 4090 vs the existing id 4091 occupant), and the disambiguate path (a synthetic collision against a real never-before-seen document, cleaned up after). Unit tests added for `extractVbplInternalId`; no repository-level test added, matching this module's existing no-DB-mocking precedent (§ "Not yet automated" below) — verified against live Postgres instead.
 
-| Citation (as stored) | Title | Enacted | Status | Resolution |
-|---|---|---|---|---|
-| Không số (vbpl-1105) | Luật Cải cách ruộng đất | 1953-12-04 | con_hieu_luc | Resolved — renamed for consistency; original occupant, never actually lost |
-| Không số (vbpl-25506) | Luật Bảo vệ sức khỏe nhân dân | 1989-06-30 | con_hieu_luc | Resolved — 66 nodes built |
-| Không số (vbpl-10803) | Luật Thuế sử dụng đất nông nghiệp | 1993-07-10 | con_hieu_luc | Resolved — 80 nodes built |
-| Không số (vbpl-8611) | Luật Bầu cử Đại biểu Quốc hội | 1997-04-15 | con_hieu_luc | Resolved — 117 nodes built |
+Affected documents: 4 rows, `law-index-flagged-documents.csv` (`section=6`).
 
-| Internal id | Citation | Title | Enacted | Currently occupying that citation |
-|---|---|---|---|---|
-| 887 | Không số | Luật Hôn nhân và gia đình | 1959-12-29 | Luật Cải cách ruộng đất (1953) |
-| 888 | Không số | Luật Bầu cử Đại biểu Quốc hội | 1959-12-31 | Luật Cải cách ruộng đất (1953) |
-| 886 | Không số | Luật Nghĩa vụ quân sự | 1960-04-15 | Luật Cải cách ruộng đất (1953) |
-| 884 | Không số | Luật Tổ chức Hội đồng Chính phủ | 1960-07-14 | Luật Cải cách ruộng đất (1953) |
-| 883 | Không số | Luật Tổ chức Quốc hội | 1960-07-14 | Luật Cải cách ruộng đất (1953) |
-| 882 | Không số | Luật Tổ chức Tòa án nhân dân | 1960-07-14 | Luật Cải cách ruộng đất (1953) |
-| 1533 | Không số | Luật Bầu cử Đại biểu Quốc hội | 1980-12-18 | Luật Cải cách ruộng đất (1953) |
-| 4090 | 3-LCT/HĐNN7 | Luật Tổ chức Viện kiểm sát nhân dân | 1981-07-04 | Luật Tổ chức Tòa án nhân dân (id 4091, same citation) |
-| 3871 | Không số | Luật Nghĩa vụ quân sự | 1981-12-30 | Luật Cải cách ruộng đất (1953) |
-| 3637 | Không số | Luật Tổ chức Hội đồng nhân dân và Uỷ ban nhân dân | 1983-06-30 | Luật Cải cách ruộng đất (1953) |
-| 3483 | Không số | Luật Bầu cử đại biểu Hội đồng nhân dân | 1983-12-26 | Luật Cải cách ruộng đất (1953) |
-| 3274 | Không số | Bộ luật Hình sự | 1985-06-27 | Luật Cải cách ruộng đất (1953) |
-| 2798 | Không số | Luật Hôn nhân và gia đình | 1986-12-29 | Luật Cải cách ruộng đất (1953) |
-| 2565 | Không số | Luật Đầu tư nước ngoài tại Việt Nam | 1987-12-29 | Luật Cải cách ruộng đất (1953) |
-| 2566 | Không số | Luật Đất đai | 1987-12-29 | Luật Cải cách ruộng đất (1953) |
-| 2564 | Không số | Luật Thuế xuất khẩu, thuế nhập khẩu hàng mậu dịch | 1987-12-29 | Luật Cải cách ruộng đất (1953) |
-| 2558 | Không số | Luật Quốc tịch Việt Nam | 1988-06-28 | Luật Cải cách ruộng đất (1953) |
-| 2559 | Không số | Bộ luật Tố tụng hình sự | 1988-06-28 | Luật Cải cách ruộng đất (1953) |
-| 2325 | Không số | Luật Sửa đổi, bổ sung Luật Tổ chức Tòa án nhân dân | 1988-12-22 | Luật Cải cách ruộng đất (1953) |
-| 2324 | Không số | Luật Sửa đổi, bổ sung Luật Tổ chức Viện kiểm sát nhân dân | 1988-12-22 | Luật Cải cách ruộng đất (1953) |
-| 25506 | Không số | Luật Bảo vệ sức khỏe nhân dân | 1989-06-30 | Luật Cải cách ruộng đất (1953) |
-| 2064 | 270B-NQ/HĐNN8 | Luật Thuế Doanh thu | 1990-06-30 | Luật Thuế Tiêu thụ đặc biệt (id 2062, same citation) |
-| 1816 | Không số | Luật Doanh nghiệp tư nhân | 1990-12-21 | Luật Cải cách ruộng đất (1953) |
-| 1814 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật về Sỹ quan Quân đội nhân dân Việt Nam | 1990-12-21 | Luật Cải cách ruộng đất (1953) |
-| 1817 | Không số | Luật Công ty | 1990-12-21 | Luật Cải cách ruộng đất (1953) |
-| 1815 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Nghĩa vụ quân sự | 1990-12-21 | Luật Cải cách ruộng đất (1953) |
-| 11596 | Không số | Luật Bảo vệ, chăm sóc và giáo dục trẻ em | 1991-08-12 | Luật Cải cách ruộng đất (1953) |
-| 11593 | Không số | Luật Bảo vệ và phát triển rừng | 1991-08-12 | Luật Cải cách ruộng đất (1953) |
-| 11595 | Không số | Luật Phổ cập giáo dục tiểu học | 1991-08-12 | Luật Cải cách ruộng đất (1953) |
-| 11594 | Không số | Luật Sửa đổi, bổ sung một số điều của Bộ luật Hình sự | 1991-08-12 | Luật Cải cách ruộng đất (1953) |
-| 11226 | Không số | Luật Tổ chức Chính phủ | 1992-09-30 | Luật Cải cách ruộng đất (1953) |
-| 11225 | Không số | Luật Tổ chức Tòa án nhân dân | 1992-10-06 | Luật Cải cách ruộng đất (1953) |
-| 11224 | Không số | Luật Tổ chức Viện kiểm sát nhân dân | 1992-10-08 | Luật Cải cách ruộng đất (1953) |
-| 10821 | Không số | Luật Sửa đổi, bổ sung một số điều của Bộ luật Tố tụng hình sự | 1992-12-22 | Luật Cải cách ruộng đất (1953) |
-| 10822 | Không số | Luật Sửa đổi, bổ sung một số điều của Bộ luật Hình sự | 1992-12-22 | Luật Cải cách ruộng đất (1953) |
-| 10820 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Đầu tư nước ngoài tại Việt Nam | 1992-12-23 | Luật Cải cách ruộng đất (1953) |
-| 10805 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Xuất khẩu, thuế Nhập khẩu | 1993-07-05 | Luật Cải cách ruộng đất (1953) |
-| 10806 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Tiêu thụ đặc biệt | 1993-07-05 | Luật Cải cách ruộng đất (1953) |
-| 10808 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Doanh thu | 1993-07-05 | Luật Cải cách ruộng đất (1953) |
-| 10807 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Lợi tức | 1993-07-06 | Luật Cải cách ruộng đất (1953) |
-| 10804 | Không số | Luật Xuất bản | 1993-07-07 | Luật Cải cách ruộng đất (1953) |
-| 10803 | Không số | Luật Thuế sử dụng đất nông nghiệp | 1993-07-10 | Luật Cải cách ruộng đất (1953) |
-| 10802 | Không số | Luật Đất đai | 1993-07-14 | Luật Cải cách ruộng đất (1953) |
-| 10435 | Không số | Luật Bảo vệ môi trường | 1993-12-27 | Luật Cải cách ruộng đất (1953) |
-| 10433 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Tổ chức Tòa án nhân dân | 1993-12-28 | Luật Cải cách ruộng đất (1953) |
-| 10434 | Không số | Luật Phá sản doanh nghiệp | 1993-12-30 | Luật Cải cách ruộng đất (1953) |
-| 10426 | Không số | Luật Bầu cử đại biểu Hội đồng nhân dân | 1994-06-21 | Luật Cải cách ruộng đất (1953) |
-| 10420 | Không số | Luật Tổ chức Hội đồng nhân dân và Uỷ ban nhân dân | 1994-06-21 | Luật Cải cách ruộng đất (1953) |
-| 10422 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Nghĩa vụ quân sự | 1994-06-22 | Luật Cải cách ruộng đất (1953) |
-| 10421 | Không số | Luật Thuế Chuyển quyền sử dụng đất | 1994-06-22 | Luật Cải cách ruộng đất (1953) |
-| 10423 | Không số | Luật Sửa đổi một số điều của Luật Doanh nghiệp tư nhân | 1994-06-22 | Luật Cải cách ruộng đất (1953) |
-| 10425 | Không số | Luật Khuyến khích đầu tư trong nước | 1994-06-22 | Luật Cải cách ruộng đất (1953) |
-| 10424 | Không số | Luật Sửa đổi một số điều của Luật Công ty | 1994-06-22 | Luật Cải cách ruộng đất (1953) |
-| 10427 | Không số | Bộ luật Lao động | 1994-06-23 | Luật Cải cách ruộng đất (1953) |
-| 9954 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Hàng không dân dụng Việt Nam | 1995-04-20 | Luật Cải cách ruộng đất (1953) |
-| 9955 | Không số | Luật Doanh nghiệp Nhà nước | 1995-04-20 | Luật Cải cách ruộng đất (1953) |
-| 9702 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Tổ chức Tòa án nhân dân | 1995-10-28 | Luật Cải cách ruộng đất (1953) |
-| 9684 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Tiêu thụ đặc biệt | 1995-10-28 | Luật Cải cách ruộng đất (1953) |
-| 9703 | Không số | Luật Sửa đổi, bổ sung một số điều của Luật Thuế Doanh thu | 1995-10-28 | Luật Cải cách ruộng đất (1953) |
-| 9683 | Không số | Bộ luật Dân sự | 1995-10-28 | Luật Cải cách ruộng đất (1953) |
-| 9414 | Không số | Luật Hợp tác xã | 1996-03-20 | Luật Cải cách ruộng đất (1953) |
-| 9413 | Không số | Luật Khoáng sản | 1996-03-20 | Luật Cải cách ruộng đất (1953) |
-| 9412 | Không số | Luật Ngân sách Nhà nước | 1996-03-20 | Luật Cải cách ruộng đất (1953) |
-| 9028 | Không số | Luật Ban hành Văn bản quy phạm pháp luật | 1996-11-12 | Luật Cải cách ruộng đất (1953) |
-| 8611 | Không số | Luật Bầu cử Đại biểu Quốc hội | 1997-04-15 | Luật Cải cách ruộng đất (1953) |
-| 8532 | Không số | Luật Thương mại | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
-| 8533 | Không số | Luật Sửa đổi, bổ sung một số điều của Bộ luật Hình sự | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
-| 8535 | Không số | Luật Thuế thu nhập doanh nghiệp | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
-| 8534 | Không số | Luật Thuế giá trị gia tăng | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
+(The full 69-document verification snapshot — §5's 66 plus the 3 fixed above — is not duplicated here; it's exactly the union of `section=5` and `section=6` in the CSV.)
 
 ### 7. "Luật"/"Bộ luật" mis-attributed to the drafting ministry instead of Quốc hội
 
@@ -263,11 +87,7 @@ Found via a Postgres tier audit (2026-07-31): 3 documents with `document_type = 
 
 Re-syncing the 3 already-stored documents (`POST /laws/index/crawl/url`) initially had no effect: `document.repository.ts`'s `computeContentVersion` hashed `fullText`/`citation`/`title`/`validityStatusRaw`/`effectiveDateRaw`/`expiryDateRaw` but not `issuingBody`, so an otherwise-unchanged document short-circuited the upsert (`changed: false`) before the corrected `issuing_body` was ever written — confirmed live (re-sync of `149/2025/QH15` returned `changed: false` and the DB row was untouched). Added `issuingBody` to the hash so this class of correction (an attribute-only change with no `fullText`/date/status delta) is no longer silently swallowed on re-sync; all 3 documents re-synced successfully afterward.
 
-| Citation | Title | Was | Now |
-|---|---|---|---|
-| 149/2025/QH15 | Luật sửa đổi, bổ sung một số điều của Luật Thuê giá trị gia tăng số 149/2025/QH15 | Bộ Tài chính | Quốc hội |
-| 135/2025/QH15 | Luật Xây dựng số 135/2025/QH15 | Bộ Xây dựng | Quốc hội |
-| 118/2025/QH15 | Luật sửa đổi, bổ sung một số điều của 10 luật có liên quan đến an ninh, trật tự số 118/2025/QH15 | Bộ Công an | Quốc hội |
+Affected documents: 3 rows, `law-index-flagged-documents.csv` (`section=7`).
 
 ### 8. Same mis-attribution bug also hits "Pháp lệnh" (tier 3) — guard extended, latent regex bug fixed proactively
 
@@ -281,10 +101,7 @@ Exact spelling matters here: vbpl.vn (and the existing DB rows) consistently use
 
 Both documents re-synced via `POST /laws/index/crawl/url` (already covered by §7's `computeContentVersion` fix, so the correction actually landed on re-sync).
 
-| Citation | Title | Was | Now |
-|---|---|---|---|
-| 11/2016/UBTVQH13 | Pháp lệnh số 11/2016/UBTVQH13 Quản lý thị trường | Quốc hội | Uỷ ban Thường vụ Quốc hội |
-| 15/2004/PL-UBTVQH11 | Pháp lệnh số 15/2004/PL-UBTVQH11 Giống cây trồng | Bộ Nông nghiệp và Môi trường | Uỷ ban Thường vụ Quốc hội |
+Affected documents: 2 rows, `law-index-flagged-documents.csv` (`section=8`).
 
 ### 9. Tier-3 100-document indexing pass — process findings
 
@@ -293,17 +110,14 @@ Run 2026-07-31 to index the first 100 Pháp lệnh (tier 3) documents and evalua
 - **`GET /laws/index/crawl/search`'s `pageSize` filter was silently ignored.** `VbplClientService.searchDocuments`'s `selectPageSize()` ran *before* the actual filtered search was submitted — against the page's initial, unfiltered result list — so vbpl.vn reset the page size back to its default (10/page) the moment the real search executed. A request for `pageSize=100` came back as a 10-item page with `pageSize: 10` in the response, with no error. **Fixed:** moved the `selectPageSize()` call to after the search submits (and re-waits for the resulting response), before the page-jump step. Verified live: `pageSize=100` now correctly returns 100 items.
 - **A stuck/broken Playwright page required a full server restart to recover from.** The port-3000 dev server was returning bare `500`s for `crawl/search` before any of today's code changes — root cause not fully diagnosed (`VbplClientService` caches its browser `page` indefinitely via `getPage()`, with no health check or recovery path if that page ends up in a bad state after some earlier failure). A process restart cleared it. **Not fixed** — `getPage()` should detect a dead/broken page (e.g. `page.isClosed()`, or a wrapping try/recreate around the navigation calls) and recreate it rather than requiring an operator to notice and restart the whole process.
 
-Batch outcome once both were resolved: 100/100 requests succeeded at the HTTP level (0 errors) — 97 changed, 1 already up to date, 2 skipped as citation collisions with an existing, confirmed-not-`còn hiệu lực` document (the established §5/§6 skip-don't-overwrite guard working as designed, not a new issue). Of the 98 persisted documents, `document_node` build succeeded for 96; the other 2 are the known §3 attributes-leak bug (see the table above) — no new `document_node`-parsing failure modes found in this batch. One document (`01/2018/UBNVQH14`) has what looks like a citation typo on vbpl.vn's own side (`UBNVQH` instead of `UBTVQH`) — left as-is (citations are stored verbatim per this module's existing convention; unlike issuing_body there's no Điều-4-derived ground truth to correct a citation string against), noted here only as an FYI.
+Batch outcome once both were resolved: 100/100 requests succeeded at the HTTP level (0 errors) — 97 changed, 1 already up to date, 2 skipped as citation collisions with an existing, confirmed-not-`còn hiệu lực` document (the established §5/§6 skip-don't-overwrite guard working as designed, not a new issue). Of the 98 persisted documents, `document_node` build succeeded for 96; the other 2 are the known §3 attributes-leak bug (see `section=3` in the CSV) — no new `document_node`-parsing failure modes found in this batch. One document (`01/2018/UBNVQH14`) has what looks like a citation typo on vbpl.vn's own side (`UBNVQH` instead of `UBTVQH`) — left as-is (citations are stored verbatim per this module's existing convention; unlike issuing_body there's no Điều-4-derived ground truth to correct a citation string against), noted here only as an FYI.
 
-**Both citation-collision skips, tracked individually** (per this doc's own convention — see §5 — every document the collision guard filters out gets logged here, not just summarized): checked each skipped candidate's title/enacted date (from the crawl-search result, since a skipped document is never persisted) against whatever already occupies that citation. Both turned out to be §5's already-documented "harmless duplicate" case — vbpl.vn serving the exact same law (identical title, identical enacted date) under two different internal ids/URLs — not a genuine two-different-laws-share-one-citation collision like the historical `Không số`/reused-batch-number cases. No action needed, but recorded so the skip isn't silently unaccounted for.
+**Both citation-collision skips, tracked individually** (per this doc's own convention — see §5 — every document the collision guard filters out gets a row in the CSV, not just a summary): checked each skipped candidate's title/enacted date (from the crawl-search result, since a skipped document is never persisted) against whatever already occupies that citation. Both turned out to be §5's already-documented "harmless duplicate" case — vbpl.vn serving the exact same law (identical title, identical enacted date) under two different internal ids/URLs — not a genuine two-different-laws-share-one-citation collision like the historical `Không số`/reused-batch-number cases. No action needed, but recorded so the skip isn't silently unaccounted for.
 
-| Skipped internal id | Citation | Skipped candidate title | Candidate enacted | Candidate validity (vbpl.vn) | Occupying internal id | Occupant enacted | Verdict |
-|---|---|---|---|---|---|---|---|
-| 14102 | 34/2007/PL-UBTVQH11 | Pháp lệnh số 34/2007/PL-UBTVQH11 Thực hiện dân chủ ở xã, phường, thị trấn | 2007-04-20 | Hết hiệu lực một phần | 113212 | 2007-04-20 | Same document, duplicate URL — harmless |
-| 19407 | 15/2004/PL-UBTVQH11 | Pháp lệnh số 15/2004/PL-UBTVQH11 Giống cây trồng | 2004-03-24 | Hết hiệu lực toàn bộ | 104418 | 2004-03-24 | Same document, duplicate URL — harmless |
+Affected documents: 2 rows, `law-index-flagged-documents.csv` (`section=9`).
 
 ---
 
 ## Not yet automated
 
-Every entry above was found by ad-hoc SQL spot-checks (comparing `document.rawSource.fullText` length against total `document_node.text_content` length, then manually inspecting outliers) run manually after each reindex pass — there is no code in `server/src/law-index/` that detects or records these automatically. If this log is expected to stay current as new documents get synced, that detection needs to become a real step (e.g. a coverage-ratio check the sync flow runs and logs, or a periodic query against the corpus), not a habit of remembering to check by hand.
+Every record in the CSV was found by ad-hoc SQL spot-checks (comparing `document.rawSource.fullText` length against total `document_node.text_content` length, then manually inspecting outliers) run manually after each reindex pass — there is no code in `server/src/law-index/` that detects or records these automatically. If this log is expected to stay current as new documents get synced, that detection needs to become a real step (e.g. a coverage-ratio check the sync flow runs and logs, or a periodic query against the corpus), not a habit of remembering to check by hand.
