@@ -251,6 +251,20 @@ The 3 documents identified in §5 as "Còn hiệu lực" (still in force) were f
 | 8535 | Không số | Luật Thuế thu nhập doanh nghiệp | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
 | 8534 | Không số | Luật Thuế giá trị gia tăng | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
 
+### 7. "Luật"/"Bộ luật" mis-attributed to the drafting ministry instead of Quốc hội
+
+Found via a Postgres tier audit (2026-07-31): 3 documents with `document_type = 'Luật'` had `issuing_body` set to a ministry instead of Quốc hội, even though Điều 4 khoản 2 restricts "Luật"/"Bộ luật" to Quốc hội exclusively and each citation's own `QH<khóa>` numbering confirms it. Confirmed against the live vbpl.vn attributes tab — the drafting ministry is what vbpl.vn itself reports in "Cơ quan ban hành" for these, not a scrape-time misread.
+
+**Fix:** `correctQuocHoiIssuingBody` (`vbpl.parser.ts`), called from `parseAttributes` — a permanent guard, not a one-off patch. "Luật"/"Bộ luật" are corrected to "Quốc hội" unconditionally (no other body can legally issue that document type); "Nghị quyết" is ambiguous by itself (Chính phủ/UBTVQH/HĐTP/HĐND all issue nghị quyết too), so it's only corrected when the citation also carries Quốc hội's own `QH<khóa>` numbering (`QUOC_HOI_CITATION_PATTERN`). Unit tests added in `vbpl.parser.spec.ts`.
+
+Re-syncing the 3 already-stored documents (`POST /laws/index/crawl/url`) initially had no effect: `document.repository.ts`'s `computeContentVersion` hashed `fullText`/`citation`/`title`/`validityStatusRaw`/`effectiveDateRaw`/`expiryDateRaw` but not `issuingBody`, so an otherwise-unchanged document short-circuited the upsert (`changed: false`) before the corrected `issuing_body` was ever written — confirmed live (re-sync of `149/2025/QH15` returned `changed: false` and the DB row was untouched). Added `issuingBody` to the hash so this class of correction (an attribute-only change with no `fullText`/date/status delta) is no longer silently swallowed on re-sync; all 3 documents re-synced successfully afterward.
+
+| Citation | Title | Was | Now |
+|---|---|---|---|
+| 149/2025/QH15 | Luật sửa đổi, bổ sung một số điều của Luật Thuê giá trị gia tăng số 149/2025/QH15 | Bộ Tài chính | Quốc hội |
+| 135/2025/QH15 | Luật Xây dựng số 135/2025/QH15 | Bộ Xây dựng | Quốc hội |
+| 118/2025/QH15 | Luật sửa đổi, bổ sung một số điều của 10 luật có liên quan đến an ninh, trật tự số 118/2025/QH15 | Bộ Công an | Quốc hội |
+
 ---
 
 ## Not yet automated

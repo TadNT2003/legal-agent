@@ -1,5 +1,6 @@
 import {
   buildSearchResultUrl,
+  correctQuocHoiIssuingBody,
   extractCitationFromTitle,
   extractRscJsonPayload,
   extractVbplInternalId,
@@ -107,6 +108,19 @@ describe('parseAttributes', () => {
     );
   });
 
+  it('corrects issuingBody for a "Luật" mis-attributed to a ministry (real vbpl.vn mismatch)', () => {
+    const mismatched: RawAttributeEntry[] = ATTRIBUTES.map((e) =>
+      e.label === 'Số hiệu'
+        ? { ...e, value: '135/2025/QH15' }
+        : e.label === 'Loại văn bản'
+          ? { ...e, value: 'Luật' }
+          : e.label === 'Cơ quan ban hành'
+            ? { ...e, value: 'Bộ Xây dựng' }
+            : e,
+    );
+    expect(parseAttributes(mismatched).issuingBody).toBe('Quốc hội');
+  });
+
   it('leaves validityStatusRaw null instead of throwing when "Tình trạng hiệu lực" is absent', () => {
     // Confirmed live on some very-recently-issued documents (e.g. Luật Trí
     // tuệ nhân tạo số 134/2025/QH15) — vbpl.vn's own attributes tab has no
@@ -117,6 +131,66 @@ describe('parseAttributes', () => {
     const parsed = parseAttributes(missingStatus);
     expect(parsed.validityStatusRaw).toBeNull();
     expect(parsed.citation).toBe('05/2026/TT-BNG');
+  });
+});
+
+describe('correctQuocHoiIssuingBody', () => {
+  it('corrects "Luật" to Quốc hội regardless of the reported issuing body', () => {
+    // Real vbpl.vn mismatch: Luật Xây dựng số 135/2025/QH15 reports "Bộ Xây
+    // dựng" (the drafting ministry) as "Cơ quan ban hành".
+    expect(
+      correctQuocHoiIssuingBody('Luật', '135/2025/QH15', 'Bộ Xây dựng'),
+    ).toBe('Quốc hội');
+  });
+
+  it('corrects "Bộ luật" to Quốc hội regardless of the reported issuing body', () => {
+    expect(
+      correctQuocHoiIssuingBody('Bộ luật', '91/2015/QH13', 'Bộ Tư pháp'),
+    ).toBe('Quốc hội');
+  });
+
+  it('corrects "Nghị quyết" to Quốc hội only when the citation carries Quốc hội\'s own QH<khóa> numbering', () => {
+    expect(
+      correctQuocHoiIssuingBody(
+        'Nghị quyết',
+        '134/2025/QH15',
+        'Văn phòng Quốc hội',
+      ),
+    ).toBe('Quốc hội');
+  });
+
+  it('leaves "Nghị quyết" alone when the citation does not carry QH numbering (e.g. Chính phủ)', () => {
+    expect(
+      correctQuocHoiIssuingBody('Nghị quyết', '178/2025/NQ-CP', 'Chính phủ'),
+    ).toBe('Chính phủ');
+  });
+
+  it('leaves non-tier-2 document types untouched even with a QH-shaped citation', () => {
+    expect(
+      correctQuocHoiIssuingBody('Thông tư', '05/2026/TT-BNG', 'Bộ Ngoại giao'),
+    ).toBe('Bộ Ngoại giao');
+  });
+
+  it('is a no-op when the issuing body is already "Quốc hội"', () => {
+    expect(
+      correctQuocHoiIssuingBody('Luật', '51/2024/QH15', 'Quốc hội'),
+    ).toBe('Quốc hội');
+  });
+
+  it('recognizes older batch-era "Nghị quyết" citations ("QHK<khóa>")', () => {
+    expect(
+      correctQuocHoiIssuingBody(
+        'Nghị quyết',
+        '216-NQ/QHK4',
+        'Ủy ban Thường vụ Quốc hội',
+      ),
+    ).toBe('Quốc hội');
+  });
+
+  it('corrects "Luật" to Quốc hội even for citations with no QH marker at all (pre-1998 numbering)', () => {
+    expect(
+      correctQuocHoiIssuingBody('Luật', '45/LCT', 'Chủ tịch nước'),
+    ).toBe('Quốc hội');
   });
 });
 

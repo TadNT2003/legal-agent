@@ -55,6 +55,7 @@ function computeContentVersion(parsed: ParsedVbplDocument): string {
   hash.update(parsed.fullText);
   hash.update(parsed.attributes.citation);
   hash.update(parsed.title);
+  hash.update(parsed.attributes.issuingBody);
   hash.update(parsed.attributes.validityStatusRaw ?? '');
   hash.update(parsed.attributes.effectiveDateRaw ?? '');
   hash.update(parsed.attributes.expiryDateRaw ?? '');
