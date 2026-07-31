@@ -77,7 +77,7 @@ export class RetrieveNodeResponseDto {
   @ApiProperty({
     type: [RetrieveNodeItemDto],
     description:
-      'Matching root nodes and their complete subtrees. If no nodeType/label/nodeId filter is provided, returns all root nodes (full document structure).',
+      'Matching root nodes and their complete subtrees. If no nodeType/number/nodeId filter is provided, returns all root nodes (full document structure).',
   })
   nodes: RetrieveNodeItemDto[];
 }

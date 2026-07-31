@@ -17,6 +17,7 @@ export class SearchDocumentItemDto {
   @ApiProperty({ description: '"Số hiệu" — the document\'s citation number.' })
   citation: string;
 
+  @ApiProperty({ description: 'Full document title.' })
   title: string;
 
   @ApiProperty({ description: '"Loại văn bản".' })
@@ -40,14 +41,14 @@ export class SearchDocumentItemDto {
 
 export class SearchDocumentsResponseDto {
   @ApiProperty({
-    description: 'Total matches across all pages, as reported by vbpl.vn.',
+    description: 'Total matches across all pages.',
   })
   total: number;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Current page number (1-based).' })
   page: number;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Results per page.' })
   pageSize: number;
 
   @ApiProperty({ type: [SearchDocumentItemDto] })

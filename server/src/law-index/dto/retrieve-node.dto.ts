@@ -14,14 +14,14 @@ export const NODE_TYPE_OPTIONS = [
 
 export class RetrieveNodeDto {
   @ApiProperty({
-    description: 'Document UUID (from /laws/index/search results or crawl).',
+    description: 'Document UUID (from `GET /laws/index/retrieve` results or crawl sync).',
   })
   @IsUUID('4')
   documentId: string;
 
   @ApiPropertyOptional({
     description:
-      'Filter by node type. Omit to return all root nodes (full document tree).',
+      'Filter by node type. Only meaningful when paired with `number`. Omit both to return the full document tree.',
     enum: NODE_TYPE_OPTIONS,
   })
   @IsOptional()
@@ -30,7 +30,7 @@ export class RetrieveNodeDto {
 
   @ApiPropertyOptional({
     description:
-      'Filter by ordinal number (e.g. "31" for "Điều 31", "2" for "Khoản 2", "a" for "Điểm a"). Must be used together with `nodeType`.',
+      'Filter by ordinal (e.g. "31" for "Điều 31", "2" for "Khoản 2", "a" for "Điểm a"). Must be used with `nodeType`.',
     example: '31',
   })
   @IsOptional()
@@ -39,7 +39,7 @@ export class RetrieveNodeDto {
 
   @ApiPropertyOptional({
     description:
-      'Node UUID to retrieve a specific node and its subtree. Overrides nodeType+label filters.',
+      'Node UUID to retrieve a specific node and its subtree. Overrides `nodeType`+`number` filters.',
   })
   @IsOptional()
   @IsUUID('4')
