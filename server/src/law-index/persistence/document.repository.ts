@@ -451,6 +451,7 @@ export class DocumentRepository {
         }
 
         return {
+          documentId: row.id,
           sourceUrl: rawSource.sourceUrl,
           citation: row.citationId,
           title: row.title,

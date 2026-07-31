@@ -14,15 +14,11 @@ import { SyncDocumentDto } from './dto/sync-document.dto';
 import { SyncDocumentResponseDto } from './dto/sync-document-response.dto';
 import { SyncSummaryResponseDto } from './dto/sync-summary-response.dto';
 import { LawIndexService } from './law-index.service';
-import { RetrieveService } from './retrieve/retrieve.service';
 
 @ApiTags('law-index')
 @Controller('laws/index')
 export class LawIndexController {
-  constructor(
-    private readonly service: LawIndexService,
-    private readonly retrieve: RetrieveService,
-  ) {}
+  constructor(private readonly service: LawIndexService) {}
 
   @ApiOperation({
     summary: 'Sync one document from vbpl.vn into Postgres',
@@ -93,24 +89,4 @@ export class LawIndexController {
     return this.service.searchDocuments(dto);
   }
 
-  @ApiOperation({
-    summary:
-      'Search locally synced documents in the Postgres database — read-only, searches stored records',
-    description:
-      "A subset of the crawl-search endpoint's filters, applied to already-synced rows instead of live " +
-      'vbpl.vn results: keyword (matches title or citation), documentTypes, issuingBodies, validityStatus, ' +
-      'and the issued/effective date ranges. `documentGroups`, `searchScope`, `exactPhrase`, and the ' +
-      '`expiredFrom`/`expiredTo` range are accepted (same shared DTO as the crawl endpoint) but silently ' +
-      "ignored here — there's no persisted equivalent of vbpl.vn's document-group categorization or " +
-      'expiry date to filter on yet, and keyword search always matches title+citation regardless of ' +
-      'searchScope/exactPhrase. An unrecognized `validityStatus` value is also silently ignored (matches ' +
-      'every status) rather than an error or zero results — confirmed live, worth knowing before relying on ' +
-      "it. The response's `expiryDate` field is always null for the same reason. Only returns documents " +
-      'that have already been synced via POST /laws/index/crawl/url or POST /laws/index/crawl/all.',
-  })
-  @ApiOkResponse({ type: SearchDocumentsResponseDto })
-  @Get('search')
-  searchLocal(@Query() dto: SearchDocumentsDto) {
-    return this.retrieve.search(dto);
   }
-}
