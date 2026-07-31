@@ -69,6 +69,41 @@ export class LawIndexService {
   }
 
   /**
+   * Syncs a batch of documents from a list of vbpl.vn URLs. Per-URL failures
+   * are collected into `errors` rather than aborting the batch. Returns a
+   * summary with synced/skipped/error counts and a final dangling-reference
+   * heal pass.
+   */
+  async syncDocumentsBatch(urls: string[]): Promise<SyncSummary> {
+    const summary: SyncSummary = {
+      totalUrls: urls.length,
+      synced: 0,
+      skipped: 0,
+      healedReferences: 0,
+      errors: [],
+    };
+
+    for (const url of urls) {
+      try {
+        const result = await this.syncDocument(url);
+        if (result.skippedReason) {
+          summary.skipped += 1;
+        } else {
+          summary.synced += 1;
+        }
+      } catch (err) {
+        summary.errors.push({
+          url,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    summary.healedReferences = await this.repo.healDanglingReferences();
+    return summary;
+  }
+
+  /**
    * Crawls the trung-ương sitemap block and syncs every document URL found,
    * up to `limit` (unset = unbounded — a full crawl currently means one very
    * long-running call; there's no resumable cursor/job-queue yet, so for now

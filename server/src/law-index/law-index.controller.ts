@@ -6,6 +6,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { BatchSyncDocumentDto } from './dto/batch-sync-document.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
 import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
 import { SyncAllDto } from './dto/sync-all.dto';
@@ -36,6 +37,20 @@ export class LawIndexController {
   @Post('crawl/url')
   syncDocument(@Body() dto: SyncDocumentDto) {
     return this.service.syncDocument(dto.url);
+  }
+
+  @ApiOperation({
+    summary: 'Crawl and sync a batch of documents from vbpl.vn URLs',
+    description:
+      'Same as POST /laws/index/crawl/url, for up to 100 vbpl.vn document ' +
+      'detail page URLs at once. Per-URL failures are collected into `errors` ' +
+      'rather than aborting the whole batch. After processing all URLs, a ' +
+      'cleanup pass heals any dangling document_reference rows.',
+  })
+  @ApiCreatedResponse({ type: SyncSummaryResponseDto })
+  @Post('crawl/batch')
+  syncDocumentsBatch(@Body() dto: BatchSyncDocumentDto) {
+    return this.service.syncDocumentsBatch(dto.urls.map((u) => u.url));
   }
 
   @ApiOperation({

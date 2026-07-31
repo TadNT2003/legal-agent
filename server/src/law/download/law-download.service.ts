@@ -164,9 +164,7 @@ export class LawDownloadService {
     return outcomes;
   }
 
-  async search(
-    dto: SearchDownloadDto,
-  ): Promise<SearchResultRow[]> {
+  async search(dto: SearchDownloadDto): Promise<SearchResultRow[]> {
     const { documents } = await this.fetchSearchResults(dto);
     return documents;
   }

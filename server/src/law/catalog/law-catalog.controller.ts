@@ -24,7 +24,7 @@ export class LawCatalogController {
   @ApiOperation({
     summary: 'Tier overview',
     description:
-      "Document count and total size for every tier folder under laws/ (and their sub-folders). Pass an optional `tier` query parameter (1-14) to scope to a single tier with full recursive breakdown.",
+      'Document count and total size for every tier folder under laws/ (and their sub-folders). Pass an optional `tier` query parameter (1-14) to scope to a single tier with full recursive breakdown.',
   })
   @Get('overview')
   getOverview(@Query() query?: OverviewQueryDto) {
@@ -35,10 +35,10 @@ export class LawCatalogController {
   }
 
   /**
-* Same resolution as GET /laws/catalog/documents (citation or closest title match,
-    * optionally date-filtered), but reports manifest.json metadata and
-    * per-file on-disk presence instead of streaming content.
-    */
+   * Same resolution as GET /laws/catalog/documents (citation or closest title match,
+   * optionally date-filtered), but reports manifest.json metadata and
+   * per-file on-disk presence instead of streaming content.
+   */
   @ApiOperation({
     summary: "Check a downloaded document's status",
     description:

@@ -54,7 +54,7 @@ export class LawDownloadController {
   })
   @Get('search')
   search(@Query() dto: SearchQueryDto) {
-    return this.downloadService.search(dto as SearchDownloadDto);
+    return this.downloadService.search(dto);
   }
 
   /** Run the vanban.chinhphu.vn "TÌM KIẾM VĂN BẢN" filter search and download matches. */
