@@ -2,17 +2,16 @@ import {
   BadRequestException,
   Controller,
   Get,
-  Param,
-  ParseIntPipe,
   Query,
   Res,
 } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiProduces, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
 import archiver from 'archiver';
 import { createReadStream } from 'fs';
 import { stat } from 'fs/promises';
 import type { Response } from 'express';
 import { FindDocumentDto } from './dto/find-document.dto';
+import { OverviewQueryDto } from './dto/overview-query.dto';
 import { buildContentDisposition, mimeTypeForFilename } from './http-file.util';
 import { LawCatalogService } from './law-catalog.service';
 
@@ -21,27 +20,18 @@ import { LawCatalogService } from './law-catalog.service';
 export class LawCatalogController {
   constructor(private readonly catalog: LawCatalogService) {}
 
-  /** Document count and total size across every tier folder (and their sub-folders). */
+  /** Document count and total size across every tier folder, or scoped to one tier. */
   @ApiOperation({
-    summary: 'All-tier overview',
+    summary: 'Tier overview',
     description:
-      "Document count and total size for every tier folder under laws/ (and their sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung).",
+      "Document count and total size for every tier folder under laws/ (and their sub-folders). Pass an optional `tier` query parameter (1-14) to scope to a single tier with full recursive breakdown.",
   })
   @Get('overview')
-  getOverview() {
+  getOverview(@Query() query?: OverviewQueryDto) {
+    if (query?.tier) {
+      return this.catalog.getTierStats(query.tier);
+    }
     return this.catalog.getTierOverview();
-  }
-
-  /** Document count and total size for one tier only (and its sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung). */
-  @ApiOperation({
-    summary: 'Single-tier stats',
-    description:
-      "Document count and total size for one tier (and its sub-folders, e.g. tier 2's luat/luat-sua-doi-bo-sung) — per Điều 4, Luật 64/2025/QH15.",
-  })
-  @ApiParam({ name: 'tier', description: 'Tier number, 1-14.', example: 2 })
-  @Get('tiers/:tier')
-  getTierStats(@Param('tier', ParseIntPipe) tier: number) {
-    return this.catalog.getTierStats(tier);
   }
 
   /**
@@ -96,8 +86,7 @@ export class LawCatalogController {
       await this.catalog.findDocumentGroup(query);
 
     res.set({
-      'X-Document-Citation': citation,
-      'X-Document-Title': encodeURIComponent(title),
+      'X-Document-Citation': encodeURIComponent(citation),
       'X-Match-Score': String(score),
       'X-Document-File-Count': String(files.length),
     });

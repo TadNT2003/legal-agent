@@ -35,25 +35,25 @@ Copy `.env.example` to `.env` and fill in real values — see the file for what 
 
 `src/law/` scrapes [vanban.chinhphu.vn](https://vanban.chinhphu.vn/) — the only source this module ever fetches documents from — and files results into `LAWS_DOWNLOAD_DIR` (defaults to the repo-root `../laws/`, see [laws/README.md](../laws/README.md) for the 14-tier folder layout). Every download updates `laws/manifest.json` and `laws/download-log.csv` in place, matching their existing schema. Internally it's split into `src/law/download/` (fetching from vanban.chinhphu.vn), `src/law/catalog/` (browsing/serving what's already downloaded), and `src/law/utils/` (the manifest read-write layer and other plumbing shared by both).
 
-Document type + issuing body (read off vanban.chinhphu.vn's own detail page) are mapped to one of the 14 tiers by `law-tier-classifier.ts`. When a document doesn't fit a recognized tier (e.g. "Văn bản hợp nhất", which isn't one of the 14 Điều 4 categories), the API returns a clear error instead of guessing — pass `subdirOverride` to force a location (this also skips the supersession check below, since an explicit override means the caller has already decided).
-
-**Automatic supersession detection (`luat/` only).** Standalone laws (not amendments, not Quốc hội resolutions) get one more check: if another document with the same subject already sits in `luat/` — matched by title, folding diacritics/case, since Vietnamese replacement laws (thay thế) keep the same title across versions while amendments get "sửa đổi, bổ sung" prepended instead — whichever one is dated later keeps `luat/`, and the older one (moved if it was the existing occupant, routed directly otherwise) goes to `luat-het-hieu-luc/`. This makes `luat/` self-correcting regardless of the order documents arrive in. It's a heuristic on top of a heuristic — same caveat as the original manual dedup in `laws/README.md`'s Known limitations: vanban.chinhphu.vn exposes no authoritative "this replaces that" relationship, only title text.
+Document type + issuing body (read off vanban.chinhphu.vn's own detail page) are mapped to one of the 14 tiers by `law-tier-classifier.ts`. When a document doesn't fit a recognized tier (e.g. "Văn bản hợp nhất", which isn't one of the 14 Điều 4 categories), the API returns a clear error instead of guessing — pass `subdirOverride` to force a location. Every Bộ luật/luật document lands in one flat `02-luat-nghi-quyet-quoc-hoi/luat-bo-luat/` folder regardless of validity status or amendment-vs-base-law distinction — the dataset is a text corpus for retrieval, not a "current law" database, so there's no supersession/validity routing to speak of.
 
 Downloading, all under `/laws/downloads`:
 
-- `POST /laws/downloads` — download one document from its `vanban.chinhphu.vn` detail page URL.
+- `POST /laws/downloads/url` — download one document from its `vanban.chinhphu.vn` detail page URL.
 
   ```json
   { "url": "https://vanban.chinhphu.vn/?pageid=27160&docid=219000" }
   ```
 
-- `GET /laws/downloads/status?url=...` — check whether a `vanban.chinhphu.vn` document URL (same shape as above) is already downloaded, without fetching or writing any file. Fetches only the detail page, classifies it the same way a real download would, and reports per-file `downloaded: true/false` — so it exactly predicts what `POST /laws/downloads` would do.
+- `GET /laws/downloads/status?url=...` — check whether a `vanban.chinhphu.vn` document URL (same shape as above) is already downloaded, without fetching or writing any file. Fetches only the detail page, classifies it the same way a real download would, and reports per-file `downloaded: true/false` — so it exactly predicts what `POST /laws/downloads/url` would do.
 
 - `POST /laws/downloads/batch` — download a list of documents (same shape, up to 100 per call).
 
   ```json
   { "documents": [{ "url": "https://vanban.chinhphu.vn/?pageid=27160&docid=219000" }] }
   ```
+
+- `GET /laws/downloads/search` — search documents via the "TÌM KIẾM VĂN BẢN" filter form (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and return matching document detail URLs without downloading.
 
 - `POST /laws/downloads/search` — replays the "TÌM KIẾM VĂN BẢN" filter form at `vanban.chinhphu.vn/?pageid=41852&mode=0` (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and downloads matches, paginating as needed up to `maxResults`.
 
@@ -94,7 +94,7 @@ Document-level only for now — the Điều/Khoản/Điểm hierarchy (`document
 
 Browsing what's already downloaded (reads `laws/manifest.json` and the filesystem — never touches `vanban.chinhphu.vn`):
 
-- `GET /laws/overview` — document count and total size across every tier folder. Stops at the tier's own known sub-splits (e.g. tier 2's `luat/` vs `luat-sua-doi-bo-sung/`) — doesn't enumerate every individual downloaded law.
+- `GET /laws/overview` — document count and total size across every tier folder. Stops at the tier's own known sub-splits (e.g. tier 2's `luat-bo-luat/` vs `nghi-quyet-quoc-hoi/`) — doesn't enumerate every individual downloaded law.
 - `GET /laws/tiers/:tier` — same stats, scoped to one tier only, but with the full recursive breakdown down to each individual law folder. `tier` is an integer 1-14 (Điều 4, Luật 64/2025/QH15).
 - `GET /laws/documents?citation=...` or `?title=...` (optionally with `dateFrom`/`dateTo`, real date-range filtering, not text matching) — streams back every file belonging to the matching document. `citation` is an exact, case-insensitive match; `title` is a closest-match fuzzy search ([fuse.js](https://fuse.js.org/), diacritics-folded so `"bo luat lao dong"` finds `"Bộ Luật Lao động"`) — no need to type it exactly. A single-file document streams back as-is; a document with phụ lục attachments streams back as a `.zip` of the main text plus every annex. Responds `404` if nothing matches, or if the manifest lists a file that's since gone missing from disk.
 - `GET /laws/documents/status` — same citation/title (+ optional dateFrom/dateTo) resolution as the endpoint above, but returns manifest.json metadata and file count as JSON instead of streaming content, with a per-file `existsOnDisk` flag (reports drift instead of throwing `404` on a missing file).

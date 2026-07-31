@@ -16,7 +16,10 @@ export interface ManifestEntry {
   citation: string;
   title: string;
   date: string | null;
-  pdf: string;
+  /** vanban.chinhphu.vn detail page URL (?pageid=...&docid=...). */
+  docUrl: string | null;
+  /** Direct file attachment URLs (main text + any phụ lục). */
+  fileUrls: string[];
   subdir: string;
   /** Per-law folder (one law = one folder) nested under `subdir` — holds every file for this citation, main text and phụ lục alike. */
   folder: string;

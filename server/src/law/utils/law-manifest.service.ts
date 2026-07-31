@@ -28,8 +28,8 @@ export class LawManifestService implements OnModuleInit {
 
   /**
    * Scaffolds LAWS_DOWNLOAD_DIR on startup: the 14 tier folders (tier 2's
-   * known luat/luat-het-hieu-luc/luat-sua-doi-bo-sung/nghi-quyet-quoc-hoi
-   * split included), manifest.json, download-log.csv, and a dataset README.
+   * known luat-bo-luat/nghi-quyet-quoc-hoi split included), manifest.json,
+   * download-log.csv, and a dataset README.
    * Every step only fills in what's missing — pointing this at the existing
    * ../laws/ dataset is a no-op, not a resync.
    */

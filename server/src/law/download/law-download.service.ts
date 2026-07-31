@@ -7,24 +7,13 @@ import { pipeline } from 'stream/promises';
 import { DEFAULT_MAX_RESULTS, DEFAULT_RECORDS_PER_PAGE } from './constants';
 import { DownloadByUrlDto } from './dto/download-by-url.dto';
 import { SearchDownloadDto } from './dto/search-download.dto';
-import {
-  findSupersededConflict,
-  parseManifestDate,
-} from '../utils/document-matcher';
 import { buildFilename, buildLawFolderName } from './filename.util';
-import type {
-  DownloadOutcome,
-  ManifestEntry,
-} from '../utils/download-outcome.interface';
+import type { DownloadOutcome } from '../utils/download-outcome.interface';
 import type {
   ParsedLawDocument,
   SearchResultRow,
 } from './parsed-law-document.interface';
 import { classifyTier } from './law-tier-classifier';
-import {
-  LUAT_HET_HIEU_LUC_SUBDIR,
-  LUAT_SUBDIR,
-} from '../utils/tier-definitions';
 import { LawManifestService } from '../utils/law-manifest.service';
 import { VanBanChinhPhuClientService } from './vanban-chinh-phu-client.service';
 import {
@@ -75,10 +64,7 @@ export class LawDownloadService {
 
   async downloadFromUrl(dto: DownloadByUrlDto): Promise<DownloadOutcome[]> {
     const parsed = await this.resolveAndParseDetail(dto.url);
-    const resolved = await this.classifyAndBuildTargets(
-      parsed,
-      dto.subdirOverride,
-    );
+    const resolved = this.classifyAndBuildTargets(parsed, dto.subdirOverride);
 
     if ('error' in resolved) {
       return [
@@ -110,7 +96,7 @@ export class LawDownloadService {
     subdirOverride?: string,
   ): Promise<UrlStatusResult> {
     const parsed = await this.resolveAndParseDetail(url);
-    const resolved = await this.classifyAndBuildTargets(parsed, subdirOverride);
+    const resolved = this.classifyAndBuildTargets(parsed, subdirOverride);
 
     if ('error' in resolved) {
       return {
@@ -178,73 +164,18 @@ export class LawDownloadService {
     return outcomes;
   }
 
+  async search(
+    dto: SearchDownloadDto,
+  ): Promise<SearchResultRow[]> {
+    const { documents } = await this.fetchSearchResults(dto);
+    return documents;
+  }
+
   async downloadBySearch(
     dto: SearchDownloadDto,
   ): Promise<SearchDownloadResult> {
-    const recordsPerPage = dto.recordsPerPage ?? DEFAULT_RECORDS_PER_PAGE;
-    const maxResults = dto.maxResults ?? DEFAULT_MAX_RESULTS;
-
-    const searchHtml = await this.client.fetchSearchPage();
-    const initial = parseSearchPage(searchHtml);
-    if (!initial.controls) {
-      throw new BadGatewayException(
-        'Could not find the expected search form controls on vanban.chinhphu.vn — the page structure may have changed.',
-      );
-    }
-    const { controls } = initial;
-
-    const searchFields: Record<string, string> = {
-      ...initial.hiddenFields,
-      [controls.category]: dto.categoryId ?? '0',
-      [controls.org]: dto.orgId ?? '0',
-      [controls.year]: dto.year ?? '0',
-      [controls.recordsPerPage]: String(recordsPerPage),
-      [controls.keyword]: dto.keyword ?? '',
-      [controls.searchButton]: 'Tìm kiếm',
-    };
-    delete searchFields['__EVENTTARGET'];
-    delete searchFields['__EVENTARGUMENT'];
-
-    let page = parseSearchPage(await this.client.postSearch(searchFields));
-    const collected: SearchResultRow[] = [...page.rows];
-    const totalAvailable = page.totalCount ?? page.rows.length;
-    const targetCount = Math.min(maxResults, totalAvailable);
-    // vanban.chinhphu.vn always renders at most this many rows per response,
-    // regardless of the requested drdRecordPerPage value — confirmed by
-    // requesting recordsPerPage 50/100/200/500 for the same query and always
-    // getting back a first page of the same length. Pagination math must be
-    // based on that real, observed page size, not the requested one.
-    const realPageSize = page.rows.length || recordsPerPage;
-    const pageCap = Math.min(Math.ceil(maxResults / realPageSize) + 1, 50);
-
-    let pageNum = 2;
-    while (
-      collected.length < targetCount &&
-      page.rows.length > 0 &&
-      pageNum <= pageCap
-    ) {
-      // The grid's own paging postback (__doPostBack on grvDocument) only
-      // returns results if the filter controls (category/org/year/
-      // recordsPerPage/keyword) are resent alongside the hidden ASP.NET
-      // fields — omitting them makes the server process the postback as if
-      // every filter had been reset, and it comes back with zero rows.
-      const pageFields: Record<string, string> = {
-        ...page.hiddenFields,
-        [controls.category]: dto.categoryId ?? '0',
-        [controls.org]: dto.orgId ?? '0',
-        [controls.year]: dto.year ?? '0',
-        [controls.recordsPerPage]: String(recordsPerPage),
-        [controls.keyword]: dto.keyword ?? '',
-        __EVENTTARGET: controls.gridView,
-        __EVENTARGUMENT: `Page$${pageNum}`,
-      };
-      delete pageFields[controls.searchButton];
-      page = parseSearchPage(await this.client.postSearch(pageFields));
-      collected.push(...page.rows);
-      pageNum += 1;
-    }
-
-    const documents = collected.slice(0, maxResults);
+    const { collected, totalAvailable, documents } =
+      await this.fetchSearchResults(dto);
 
     if (dto.dryRun) {
       return { totalMatched: totalAvailable, documents, downloaded: [] };
@@ -295,17 +226,76 @@ export class LawDownloadService {
     return { totalMatched: totalAvailable, documents, downloaded };
   }
 
-  private async classifyAndBuildTargets(
+  private async fetchSearchResults(dto: SearchDownloadDto) {
+    const recordsPerPage = dto.recordsPerPage ?? DEFAULT_RECORDS_PER_PAGE;
+    const maxResults = dto.maxResults ?? DEFAULT_MAX_RESULTS;
+
+    const searchHtml = await this.client.fetchSearchPage();
+    const initial = parseSearchPage(searchHtml);
+    if (!initial.controls) {
+      throw new BadGatewayException(
+        'Could not find the expected search form controls on vanban.chinhphu.vn — the page structure may have changed.',
+      );
+    }
+    const { controls } = initial;
+
+    const searchFields: Record<string, string> = {
+      ...initial.hiddenFields,
+      [controls.category]: dto.categoryId ?? '0',
+      [controls.org]: dto.orgId ?? '0',
+      [controls.year]: dto.year ?? '0',
+      [controls.recordsPerPage]: String(recordsPerPage),
+      [controls.keyword]: dto.keyword ?? '',
+      [controls.searchButton]: 'Tìm kiếm',
+    };
+    delete searchFields['__EVENTTARGET'];
+    delete searchFields['__EVENTARGUMENT'];
+
+    let page = parseSearchPage(await this.client.postSearch(searchFields));
+    const collected: SearchResultRow[] = [...page.rows];
+    const totalAvailable = page.totalCount ?? page.rows.length;
+    const targetCount = Math.min(maxResults, totalAvailable);
+    const realPageSize = page.rows.length || recordsPerPage;
+    const pageCap = Math.min(Math.ceil(maxResults / realPageSize) + 1, 50);
+
+    let pageNum = 2;
+    while (
+      collected.length < targetCount &&
+      page.rows.length > 0 &&
+      pageNum <= pageCap
+    ) {
+      const pageFields: Record<string, string> = {
+        ...page.hiddenFields,
+        [controls.category]: dto.categoryId ?? '0',
+        [controls.org]: dto.orgId ?? '0',
+        [controls.year]: dto.year ?? '0',
+        [controls.recordsPerPage]: String(recordsPerPage),
+        [controls.keyword]: dto.keyword ?? '',
+        __EVENTTARGET: controls.gridView,
+        __EVENTARGUMENT: `Page$${pageNum}`,
+      };
+      delete pageFields[controls.searchButton];
+      page = parseSearchPage(await this.client.postSearch(pageFields));
+      collected.push(...page.rows);
+      pageNum += 1;
+    }
+
+    const documents = collected.slice(0, maxResults);
+
+    return { collected, totalAvailable, documents };
+  }
+
+  private classifyAndBuildTargets(
     parsed: ParsedLawDocument,
     subdirOverride: string | undefined,
-  ): Promise<ClassifiedTargets> {
+  ): ClassifiedTargets {
     if (parsed.fileUrls.length === 0) {
       return { error: 'No attached file found on this document page.' };
     }
 
     const classification = subdirOverride
       ? { subdir: subdirOverride }
-      : classifyTier(parsed.docType, parsed.issuingBody, parsed.title);
+      : classifyTier(parsed.docType, parsed.issuingBody);
 
     if (!classification) {
       return {
@@ -313,12 +303,7 @@ export class LawDownloadService {
       };
     }
 
-    // An explicit subdirOverride is the caller deliberately choosing a location —
-    // don't second-guess it with automatic supersession detection.
-    const subdir = subdirOverride
-      ? classification.subdir
-      : await this.resolveLuatSupersession(parsed, classification.subdir);
-
+    const subdir = classification.subdir;
     const folder = buildLawFolderName(parsed.citation, parsed.title);
     const targets = parsed.fileUrls.map((fileUrl, index) => ({
       fileUrl,
@@ -332,62 +317,6 @@ export class LawDownloadService {
     }));
 
     return { subdir, folder, targets };
-  }
-
-  /**
-   * Only the plain "luat" bucket has a notion of supersession — amendments and
-   * Quốc hội resolutions aren't "replaced" the same way a standalone law is.
-   * A newer document bumps the current occupant of luat/ out to
-   * luat-het-hieu-luc/; an older one goes straight there itself. This is a
-   * heuristic (title-subject matching), not an authoritative "replaces"
-   * relationship — vanban.chinhphu.vn doesn't expose one (see laws/README.md's
-   * Known limitations).
-   */
-  private async resolveLuatSupersession(
-    parsed: ParsedLawDocument,
-    subdir: string,
-  ): Promise<string> {
-    if (subdir !== LUAT_SUBDIR) return subdir;
-
-    const manifestEntries = await this.manifest.readManifest();
-    const conflict = findSupersededConflict(
-      manifestEntries,
-      LUAT_SUBDIR,
-      parsed.citation,
-      parsed.title,
-    );
-    if (!conflict) return subdir;
-
-    const incomingDate = parseManifestDate(parsed.date);
-    const existingDate = parseManifestDate(conflict.date);
-    if (!incomingDate || !existingDate) return subdir; // can't compare safely — leave as classified
-
-    if (incomingDate.getTime() > existingDate.getTime()) {
-      await this.moveToSuperseded(conflict);
-      return subdir;
-    }
-
-    return LUAT_HET_HIEU_LUC_SUBDIR;
-  }
-
-  private async moveToSuperseded(entry: ManifestEntry): Promise<void> {
-    const oldPath = join(
-      this.manifest.dir,
-      entry.subdir,
-      entry.folder,
-      entry.filename,
-    );
-    const newDir = await this.manifest.ensureTargetDir(
-      join(LUAT_HET_HIEU_LUC_SUBDIR, entry.folder),
-    );
-    const newPath = join(newDir, entry.filename);
-    await rename(oldPath, newPath);
-    await this.manifest.moveEntry(
-      entry.subdir,
-      entry.folder,
-      entry.filename,
-      LUAT_HET_HIEU_LUC_SUBDIR,
-    );
   }
 
   private async resolveAndParseDetail(url: string): Promise<ParsedLawDocument> {
@@ -460,7 +389,8 @@ export class LawDownloadService {
         citation: parsed.citation,
         title: parsed.title,
         date: parsed.date,
-        pdf: fileUrl,
+        docUrl: parsed.sourceUrl,
+        fileUrls: parsed.fileUrls,
         subdir,
         folder,
         filename,

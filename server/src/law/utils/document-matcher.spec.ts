@@ -2,7 +2,6 @@ import {
   filterByDateRange,
   findByCitation,
   findByTitleFuzzy,
-  findSupersededConflict,
   parseManifestDate,
   resolveBestMatch,
 } from './document-matcher';
@@ -13,8 +12,9 @@ const ENTRIES: ManifestEntry[] = [
     citation: '45/2019/QH14',
     title: 'Bộ luật Lao động',
     date: '20/11/2019',
-    pdf: 'https://datafiles.chinhphu.vn/x/bldd.pdf',
-    subdir: '02-luat-nghi-quyet-quoc-hoi/luat',
+    docUrl: 'https://vanban.chinhphu.vn/?pageid=27160&docid=203914',
+    fileUrls: ['https://datafiles.chinhphu.vn/x/bldd.pdf'],
+    subdir: '02-luat-nghi-quyet-quoc-hoi/luat-bo-luat',
     folder: '45-2019-QH14_bo-luat-lao-dong',
     filename: '45-2019-QH14_bo-luat-lao-dong.pdf',
   },
@@ -22,8 +22,9 @@ const ENTRIES: ManifestEntry[] = [
     citation: '91/2015/QH13',
     title: 'Bộ luật Dân sự',
     date: '24/11/2015',
-    pdf: 'https://datafiles.chinhphu.vn/x/bldds.pdf',
-    subdir: '02-luat-nghi-quyet-quoc-hoi/luat',
+    docUrl: 'https://vanban.chinhphu.vn/?pageid=27160&docid=203915',
+    fileUrls: ['https://datafiles.chinhphu.vn/x/bldds.pdf'],
+    subdir: '02-luat-nghi-quyet-quoc-hoi/luat-bo-luat',
     folder: '91-2015-QH13_bo-luat-dan-su',
     filename: '91-2015-QH13_bo-luat-dan-su.pdf',
   },
@@ -31,7 +32,8 @@ const ENTRIES: ManifestEntry[] = [
     citation: '78/2025/NĐ-CP',
     title: 'Quy định chi tiết một số điều',
     date: '01/04/2025',
-    pdf: 'https://datafiles.chinhphu.vn/x/78ndcp-1.pdf',
+    docUrl: 'https://vanban.chinhphu.vn/?pageid=27160&docid=203916',
+    fileUrls: ['https://datafiles.chinhphu.vn/x/78ndcp-1.pdf'],
     subdir: '05-nghi-dinh-nghi-quyet-chinh-phu',
     folder: '78-2025-NĐ-CP_quy-dinh-chi-tiet-mot-so-dieu',
     filename: '78-2025-NĐ-CP_quy-dinh-chi-tiet-mot-so-dieu-1.pdf',
@@ -40,7 +42,8 @@ const ENTRIES: ManifestEntry[] = [
     citation: '78/2025/NĐ-CP',
     title: 'Quy định chi tiết một số điều',
     date: '01/04/2025',
-    pdf: 'https://datafiles.chinhphu.vn/x/pl2.pdf',
+    docUrl: 'https://vanban.chinhphu.vn/?pageid=27160&docid=203916',
+    fileUrls: ['https://datafiles.chinhphu.vn/x/pl2.pdf'],
     subdir: '05-nghi-dinh-nghi-quyet-chinh-phu',
     folder: '78-2025-NĐ-CP_quy-dinh-chi-tiet-mot-so-dieu',
     filename: '78-2025-NĐ-CP_quy-dinh-chi-tiet-mot-so-dieu-2.pdf',
@@ -105,91 +108,6 @@ describe('findByTitleFuzzy', () => {
     expect(findByTitleFuzzy(ENTRIES, 'quy hoach do thi mien nui')).toHaveLength(
       0,
     );
-  });
-});
-
-describe('findSupersededConflict', () => {
-  const LUAT_SUBDIR = '02-luat-nghi-quyet-quoc-hoi/luat';
-
-  it('finds a different document with the same subject in the given subdir', () => {
-    const olderVersion: ManifestEntry = {
-      citation: '13/2003/QH11',
-      title: 'Luật Đất đai',
-      date: '26/11/2003',
-      pdf: 'https://datafiles.chinhphu.vn/x/dd2003.pdf',
-      subdir: LUAT_SUBDIR,
-      folder: '13-2003-QH11_luat-dat-dai',
-      filename: '13-2003-QH11_luat-dat-dai.pdf',
-    };
-    const conflict = findSupersededConflict(
-      [...ENTRIES, olderVersion],
-      LUAT_SUBDIR,
-      '31/2024/QH15',
-      'Luật Đất đai',
-    );
-    expect(conflict?.citation).toBe('13/2003/QH11');
-  });
-
-  it('matches despite diacritics/case differences', () => {
-    const entry: ManifestEntry = {
-      citation: '13/2003/QH11',
-      title: 'LUẬT ĐẤT ĐAI',
-      date: '26/11/2003',
-      pdf: 'https://datafiles.chinhphu.vn/x/dd2003.pdf',
-      subdir: LUAT_SUBDIR,
-      folder: '13-2003-QH11_luat-dat-dai',
-      filename: '13-2003-QH11_luat-dat-dai.pdf',
-    };
-    expect(
-      findSupersededConflict(
-        [entry],
-        LUAT_SUBDIR,
-        '31/2024/QH15',
-        'luat dat dai',
-      ),
-    ).not.toBeNull();
-  });
-
-  it('never matches the same citation (a re-download is not a supersession conflict)', () => {
-    expect(
-      findSupersededConflict(
-        ENTRIES,
-        '02-luat-nghi-quyet-quoc-hoi/luat',
-        '45/2019/QH14',
-        'Bộ luật Lao động',
-      ),
-    ).toBeNull();
-  });
-
-  it('ignores entries outside the given subdir', () => {
-    const sameTitleDifferentSubdir: ManifestEntry = {
-      citation: '99/2010/QH12',
-      title: 'Bộ luật Lao động',
-      date: '10/01/2010',
-      pdf: 'https://datafiles.chinhphu.vn/x/x.pdf',
-      subdir: '02-luat-nghi-quyet-quoc-hoi/luat-het-hieu-luc',
-      folder: '99-2010-QH12_bo-luat-lao-dong',
-      filename: 'x.pdf',
-    };
-    expect(
-      findSupersededConflict(
-        [...ENTRIES, sameTitleDifferentSubdir],
-        LUAT_SUBDIR,
-        '45/2019/QH14',
-        'Bộ luật Lao động',
-      ),
-    ).toBeNull();
-  });
-
-  it('returns null when no other document shares the subject', () => {
-    expect(
-      findSupersededConflict(
-        ENTRIES,
-        LUAT_SUBDIR,
-        '99/2099/QH99',
-        'Luật hoàn toàn khác',
-      ),
-    ).toBeNull();
   });
 });
 

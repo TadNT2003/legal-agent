@@ -46,6 +46,12 @@ export interface DocumentStatusResult {
   citation: string;
   title: string;
   score: number;
+  /** Normalized to DD/MM/YYYY, matching manifest.json's existing entries. */
+  date: string | null;
+  /** The vanban.chinhphu.vn detail page URL of the matched document (from the first file entry). */
+  docUrl: string | null;
+  /** Direct file attachment URLs (pdf field) from each file entry in the manifest. */
+  fileUrls: string[];
   fileCount: number;
   files: DocumentStatusFile[];
 }
@@ -152,6 +158,9 @@ export class LawCatalogService {
       citation: match.entry.citation,
       title: match.entry.title,
       score: match.score,
+      date: match.entry.date,
+      docUrl: match.entry.docUrl,
+      fileUrls: [...new Set(files.flatMap((f) => f.entry.fileUrls))],
       fileCount: files.length,
       files,
     };
