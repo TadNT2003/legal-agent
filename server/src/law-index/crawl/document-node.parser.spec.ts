@@ -213,6 +213,115 @@ describe('parseDocumentBody', () => {
     );
   });
 
+  it('opens a generic annex node on a re-stated Quốc hiệu header, confirmed against real vbpl.vn output (Thông tư 46/2026/TT-BXD promulgating QCVN 01:2026/BXD)', () => {
+    const fullText = [
+      'Điều 2. Hiệu lực thi hành',
+      '1. Thông tư này có hiệu lực từ ngày 01/01/2027.',
+      'Nơi nhận:',
+      '- Bộ trưởng (để b/c);',
+      'KT. BỘ TRƯỞNG',
+      'THỨ TRƯỞNG',
+      'Nguyễn Tường Văn',
+      'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM',
+      'QCVN 01:2026/BXD',
+      'QUY CHUẨN KỸ THUẬT QUỐC GIA VỀ QUY HOẠCH ĐÔ THỊ VÀ NÔNG THÔN',
+    ].join('\n');
+
+    const roots = parseDocumentBody(fullText);
+    expect(roots).toHaveLength(2);
+    expect(roots[1]).toMatchObject({
+      nodeType: 'phu_luc',
+      contentClass: 'normative',
+    });
+    expect(roots[1].textContent).toBe(
+      'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM\nQCVN 01:2026/BXD\nQUY CHUẨN KỸ THUẬT QUỐC GIA VỀ QUY HOẠCH ĐÔ THỊ VÀ NÔNG THÔN',
+    );
+  });
+
+  it('opens a generic annex node on a "Biểu số" report-form title with no "Phụ lục" label, confirmed against real vbpl.vn output (Thông tư 102/2026/TT-BTC)', () => {
+    const fullText = [
+      'Điều 17. Hiệu lực thi hành',
+      '1. Thông tư này có hiệu lực thi hành kể từ ngày ký.',
+      'Nơi nhận:',
+      '- Công báo;',
+      'KT. BỘ TRƯỞNG',
+      'THỨ TRƯỞNG',
+      'Nguyễn Đức Tâm',
+      'TÊN CƠ QUAN ĐẠI DIỆN CHỦ SỞ HỮU',
+      'Biểu số 01.A',
+      'HOẠT ĐỘNG ĐẦU TƯ VỐN NHÀ NƯỚC ĐỂ THÀNH LẬP DOANH NGHIỆP',
+    ].join('\n');
+
+    const roots = parseDocumentBody(fullText);
+    expect(roots).toHaveLength(2);
+    expect(roots[1]).toMatchObject({
+      nodeType: 'phu_luc',
+      contentClass: 'normative',
+    });
+    // "TÊN CƠ QUAN ĐẠI DIỆN CHỦ SỞ HỮU" (no code after it) doesn't match
+    // ANNEX_RESTART_PATTERN itself, so it's dropped as still-footer content —
+    // only "Biểu số 01.A" onward is recovered.
+    expect(roots[1].textContent).toBe(
+      'Biểu số 01.A\nHOẠT ĐỘNG ĐẦU TƯ VỐN NHÀ NƯỚC ĐỂ THÀNH LẬP DOANH NGHIỆP',
+    );
+  });
+
+  it('does not treat a QCVN self-citation inside ordinary annex prose as a new annex restart', () => {
+    const fullText = [
+      'Điều 1. Test',
+      'Nội dung.',
+      'Nơi nhận:',
+      'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM',
+      'QCVN 01:2026/BXD do Viện Quy hoạch đô thị và nông thôn quốc gia biên soạn.',
+    ].join('\n');
+
+    const roots = parseDocumentBody(fullText);
+    expect(roots).toHaveLength(2);
+    expect(roots[1].nodeType).toBe('phu_luc');
+    expect(roots[1].textContent).toBe(
+      'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM\nQCVN 01:2026/BXD do Viện Quy hoạch đô thị và nông thôn quốc gia biên soạn.',
+    );
+  });
+
+  it('parses a bare "Điều N" with no punctuation, heading on the next line, confirmed against real vbpl.vn output (Luật 61/2014/QH13)', () => {
+    const fullText = [
+      'Điều 1',
+      '',
+      'Sửa đổi, bổ sung một số điều của Luật hàng không dân dụng Việt Nam:',
+      '1. Sửa đổi, bổ sung khoản 5 Điều 6 như sau:',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+    expect(dieu).toMatchObject({ nodeType: 'dieu', ordinal: '1', label: 'Điều 1' });
+    expect(dieu.heading).toBe(
+      'Sửa đổi, bổ sung một số điều của Luật hàng không dân dụng Việt Nam:',
+    );
+    expect(dieu.children).toHaveLength(1);
+  });
+
+  it('parses "Điều N: <heading>" (colon separator), confirmed against real vbpl.vn output (Luật 46/2005/QH11)', () => {
+    const fullText = 'Điều 1: Sửa đổi, bổ sung một số điều của Luật khoáng sản như sau:';
+
+    const [dieu] = parseDocumentBody(fullText);
+    expect(dieu).toMatchObject({
+      nodeType: 'dieu',
+      ordinal: '1',
+      heading: 'Sửa đổi, bổ sung một số điều của Luật khoáng sản như sau:',
+    });
+  });
+
+  it('parses "Điều N <heading>" (space, no punctuation at all), confirmed against real vbpl.vn output (Luật 04/1998/QH10)', () => {
+    const fullText =
+      'Điều 1 Sửa đổi, bổ sung một số điều của Luật thuế xuất khẩu, thuế nhập khẩu:';
+
+    const [dieu] = parseDocumentBody(fullText);
+    expect(dieu).toMatchObject({
+      nodeType: 'dieu',
+      ordinal: '1',
+      heading: 'Sửa đổi, bổ sung một số điều của Luật thuế xuất khẩu, thuế nhập khẩu:',
+    });
+  });
+
   it('parses an inserted-amendment ordinal ("Điều 5a") with its alphabetic suffix intact', () => {
     const fullText = ['Điều 5a. Điều bổ sung', 'Nội dung điều bổ sung.'].join(
       '\n',

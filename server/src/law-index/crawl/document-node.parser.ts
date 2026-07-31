@@ -78,7 +78,21 @@ export function romanToArabic(raw: string): string {
 // Việt"). Scoped to a-z/đ for this pass — real insertions overwhelmingly
 // land in the first few letters (a, b, c); the full 24-letter Vietnamese
 // alphabet (ă, â, ê, ô, ơ, ư, ...) is a follow-up if real data ever needs it.
-const DIEU_KHOAN_PATTERN = /^Điều\s+(\d+)([a-zđ]?)\s*\.\s*(.*)$/iu;
+//
+// The separator after the ordinal is optional ([.:]?), not required —
+// confirmed against real vbpl.vn output that a period isn't universal:
+// older "Luật sửa đổi, bổ sung" amendment laws (spot-checked citations
+// spanning 1997-2014) write a bare "Điều 1" (heading on the next line via
+// resolveHeading), "Điều 1: <heading>" (colon), or "Điều 1 <heading>" (no
+// punctuation at all, just whitespace) — a period-only pattern produced
+// zero document_node rows for 17 real documents that do have real
+// structure. Trade-off worth flagging: this makes a false match on a line
+// that happens to *start* with an inline "Điều N" cross-reference
+// ("Điều 5 của Luật này quy định...") marginally more likely than before,
+// since punctuation immediately after the number is no longer required to
+// disambiguate it from a real heading. Accepted for now — same best-effort/
+// recalibrate-against-real-data posture as the rest of this parser.
+const DIEU_KHOAN_PATTERN = /^Điều\s+(\d+)([a-zđ]?)\s*[.:]?\s*(.*)$/iu;
 const KHOAN_PATTERN = /^(\d+)([a-zđ]?)\s*\.\s*(.*)$/u;
 const DIEM_PATTERN = /^([a-zđ])\)\s*(.*)$/iu;
 const PHAN_CHUONG_PATTERN =
@@ -86,6 +100,25 @@ const PHAN_CHUONG_PATTERN =
 const MUC_PATTERN = /^(Mục)\s+(\d+)\b[.:]?\s*(.*)$/iu;
 const TIEU_MUC_PATTERN = /^(Tiểu\s+mục)\s+(\d+)\b[.:]?\s*(.*)$/iu;
 const PHU_LUC_PATTERN = /^(Phụ\s+lục)\s*([IVXLCDM]*)\b[.:]?\s*(.*)$/iu;
+
+// Confirmed against real scraped vbpl.vn text: a văn bản "ban hành kèm
+// theo" (a QCVN technical standard, a "Biểu số"/"Mẫu số" report-form
+// annex) doesn't always call itself "Phụ lục" — PHU_LUC_PATTERN alone
+// missed both real cases found in the first 50-document reindex (a QCVN
+// annex restating its own Quốc hiệu "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM"
+// header per Điều 71, Nghị định 78/2025/NĐ-CP, and a "Biểu số 01.A" report
+// form), both of which the footer-drop logic below silently swallowed
+// whole. This only fires once already inFooter (see the main loop) — it's
+// a re-open trigger for content genuinely attached after the signing
+// block, not a general-purpose line matcher that could misfire on normal
+// Điều body text.
+// Anchored to match the WHOLE line (a standalone title/code, not a
+// sentence that merely starts with one) — e.g. "QCVN 01:2026/BXD" alone
+// matches, but "QCVN 01:2026/BXD do Viện Quy hoạch..." (a self-citation
+// inside the annex's own running prose, confirmed appearing repeatedly in
+// real QCVN body text) does not.
+const ANNEX_RESTART_PATTERN =
+  /^(?:CỘNG\s+HÒA\s+XÃ\s+HỘI\s+CHỦ\s+NGHĨA\s+VIỆT\s+NAM|(?:Biểu\s+(?:số|mẫu)|Mẫu\s+số|QCVN|TCVN)\s*[\dA-ZĐ][\dA-ZĐ.:/-]*)\s*$/iu;
 
 // Điều 71 khoản 2 h-k, Nghị định 78/2025/NĐ-CP (chữ ký/dấu/nơi nhận) —
 // database-design.md §1a: this administrative/signature block has no
@@ -162,6 +195,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
   const stack: { node: ParsedDocumentNode; level: number }[] = [];
   let phuLucNode: ParsedDocumentNode | null = null;
   let inFooter = false;
+  let annexCounter = 0;
 
   const openNode = (
     nodeType: Exclude<DocumentNodeType, 'phu_luc'>,
@@ -177,21 +211,57 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
     stack.push({ node, level });
   };
 
+  /** Opens a Phụ lục node from an explicit PHU_LUC_PATTERN match. Returns the number of extra lines resolveHeading consumed, for the caller to advance `i` by. */
+  const openPhuLucFromMatch = (
+    match: RegExpMatchArray,
+    lineIndex: number,
+  ): number => {
+    annexCounter += 1;
+    const ordinal = match[2] ? romanToArabic(match[2]) : String(annexCounter);
+    const label = match[2] ? `${match[1]} ${match[2]}` : match[1];
+    const [heading, skip] = resolveHeading(match[3], lines, lineIndex);
+    phuLucNode = newNode('phu_luc', ordinal, label, heading);
+    phuLucNode.contentClass = classifyPhuLuc(heading);
+    roots.push(phuLucNode);
+    return skip;
+  };
+
+  /**
+   * Generic fallback for an attached văn bản that never calls itself
+   * "Phụ lục" at all (see ANNEX_RESTART_PATTERN) — a QCVN technical
+   * standard restating its own Quốc hiệu header, or a "Biểu số"/"Mẫu số"
+   * report form. The triggering line is the annex's own title/header, real
+   * content rather than filler, so it's kept as the node's first line of
+   * text instead of being discarded the way a FOOTER_START_PATTERN line is.
+   */
+  const openGenericAnnex = (firstLine: string): void => {
+    annexCounter += 1;
+    const node = newNode(
+      'phu_luc',
+      String(annexCounter),
+      `Phụ lục ${annexCounter}`,
+      null,
+    );
+    node.contentClass = 'normative';
+    phuLucNode = node;
+    roots.push(node);
+    appendText(node, firstLine);
+  };
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
     if (phuLucNode) {
+      // Only the explicit "Phụ lục" pattern opens a new sibling annex from
+      // here — ANNEX_RESTART_PATTERN is a one-time footer-escape trigger,
+      // not re-tested once already inside an annex. Real QCVN/TCVN body
+      // text repeats its own self-citation ("QCVN 01:2026/BXD do Viện...")
+      // throughout, and a multi-line title block (Quốc hiệu header, then
+      // "QCVN ...", then the standard's own name) would otherwise fragment
+      // into several sibling nodes instead of staying one annex.
       const phuLucMatch = line.match(PHU_LUC_PATTERN);
       if (phuLucMatch) {
-        const ordinal = phuLucMatch[2] ? romanToArabic(phuLucMatch[2]) : '1';
-        const label = phuLucMatch[2]
-          ? `${phuLucMatch[1]} ${phuLucMatch[2]}`
-          : phuLucMatch[1];
-        const [heading, skip] = resolveHeading(phuLucMatch[3], lines, i);
-        i += skip;
-        phuLucNode = newNode('phu_luc', ordinal, label, heading);
-        phuLucNode.contentClass = classifyPhuLuc(heading);
-        roots.push(phuLucNode);
+        i += openPhuLucFromMatch(phuLucMatch, i);
         continue;
       }
       appendText(phuLucNode, line);
@@ -202,19 +272,18 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
     if (phuLucMatch) {
       inFooter = false;
       stack.length = 0; // Phụ lục always sits at document root, sibling to top-level Chương/Điều.
-      const ordinal = phuLucMatch[2] ? romanToArabic(phuLucMatch[2]) : '1';
-      const label = phuLucMatch[2]
-        ? `${phuLucMatch[1]} ${phuLucMatch[2]}`
-        : phuLucMatch[1];
-      const [heading, skip] = resolveHeading(phuLucMatch[3], lines, i);
-      i += skip;
-      phuLucNode = newNode('phu_luc', ordinal, label, heading);
-      phuLucNode.contentClass = classifyPhuLuc(heading);
-      roots.push(phuLucNode);
+      i += openPhuLucFromMatch(phuLucMatch, i);
       continue;
     }
 
-    if (inFooter) continue; // dropped — signature/routing block, see FOOTER_START_PATTERN
+    if (inFooter) {
+      if (ANNEX_RESTART_PATTERN.test(line)) {
+        stack.length = 0;
+        openGenericAnnex(line);
+        continue;
+      }
+      continue; // dropped — signature/routing block, see FOOTER_START_PATTERN
+    }
 
     if (FOOTER_START_PATTERN.test(line)) {
       inFooter = true;
