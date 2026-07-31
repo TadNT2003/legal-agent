@@ -16,7 +16,7 @@ import { buildContentDisposition, mimeTypeForFilename } from './http-file.util';
 import { LawCatalogService } from './law-catalog.service';
 
 @ApiTags('law-catalog')
-@Controller('laws')
+@Controller('laws/catalog')
 export class LawCatalogController {
   constructor(private readonly catalog: LawCatalogService) {}
 
@@ -35,14 +35,14 @@ export class LawCatalogController {
   }
 
   /**
-   * Same resolution as GET /laws/documents (citation or closest title match,
-   * optionally date-filtered), but reports manifest.json metadata and
-   * per-file on-disk presence instead of streaming content.
-   */
+* Same resolution as GET /laws/catalog/documents (citation or closest title match,
+    * optionally date-filtered), but reports manifest.json metadata and
+    * per-file on-disk presence instead of streaming content.
+    */
   @ApiOperation({
     summary: "Check a downloaded document's status",
     description:
-      'Same citation/title (+ optional dateFrom/dateTo) resolution as GET /laws/documents, but returns manifest.json metadata and file count instead of streaming content — including per-file existsOnDisk, for spotting manifest/disk drift.',
+      'Same citation/title (+ optional dateFrom/dateTo) resolution as GET /laws/catalog/documents, but returns manifest.json metadata and file count instead of streaming content — including per-file existsOnDisk, for spotting manifest/disk drift.',
   })
   @Get('documents/status')
   async checkDocumentStatus(@Query() query: FindDocumentDto) {
