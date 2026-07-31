@@ -1,6 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   parseDocumentBody,
   type ParsedDocumentNode,
@@ -118,4 +118,94 @@ export class DocumentNodeRepository {
       await this.insertNode(documentId, inserted.id, path, child, meta);
     }
   }
+
+  /**
+   * Fetches document metadata for a given document ID.
+   */
+  async fetchDocumentInfo(
+    documentId: string,
+  ): Promise<{ citationId: string; title: string }> {
+    const row = await this.db.query.document.findFirst({
+      where: eq(document.id, documentId),
+      columns: { citationId: true, title: true },
+    });
+    if (!row) {
+      throw new NotFoundException(`Document ${documentId} not found`);
+    }
+    return row;
+  }
+
+  /**
+   * Fetches a flat list of all nodes for a document, ordered by their
+   * ltree path (preserves document order). Optionally filters by nodeType
+   * and/or ordinal number.
+   */
+  async findAllNodes(
+    documentId: string,
+    nodeType?: string,
+    number?: string,
+  ): Promise<FlatNodeRow[]> {
+    const conditions = [eq(documentNode.documentId, documentId)];
+    if (nodeType)
+      conditions.push(
+        eq(
+          documentNode.nodeType,
+          nodeType as (typeof documentNode.$inferInsert)['nodeType'],
+        ),
+      );
+    if (number) conditions.push(eq(documentNode.ordinal, number));
+
+    const where = conditions.length > 1 ? and(...conditions) : conditions[0];
+
+    return this.db
+      .select()
+      .from(documentNode)
+      .where(where)
+      .orderBy(documentNode.path);
+  }
+
+  /**
+   * Fetches all nodes for a document (needed to build parent->child tree),
+   * then filters the root results.
+   */
+  async findNodeSubtree(
+    documentId: string,
+    nodeId: string,
+  ): Promise<{
+    docInfo: { citationId: string; title: string };
+    nodes: FlatNodeRow[];
+  }> {
+    const docInfo = await this.fetchDocumentInfo(documentId);
+    const nodes = await this.db
+      .select()
+      .from(documentNode)
+      .where(eq(documentNode.documentId, documentId))
+      .orderBy(documentNode.path);
+
+    if (!nodes.some((n) => n.id === nodeId)) {
+      throw new NotFoundException(
+        `Node ${nodeId} not found in document ${documentId}`,
+      );
+    }
+
+    return { docInfo, nodes };
+  }
+}
+
+export interface FlatNodeRow {
+  id: string;
+  documentId: string;
+  parentId: string | null;
+  nodeType: string;
+  contentClass: string | null;
+  path: string;
+  ordinal: string;
+  label: string;
+  heading: string | null;
+  textContent: string | null;
+  contentHash: string;
+  status: string | null;
+  validFrom: string;
+  validTo: string | null;
+  supersededByNodeId: string | null;
 }
