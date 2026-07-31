@@ -39,19 +39,21 @@ Document type + issuing body (read off vanban.chinhphu.vn's own detail page) are
 
 Downloading, all under `/laws/downloads`:
 
-- `POST /laws/downloads` — download one document from its `vanban.chinhphu.vn` detail page URL.
+- `POST /laws/downloads/url` — download one document from its `vanban.chinhphu.vn` detail page URL.
 
   ```json
   { "url": "https://vanban.chinhphu.vn/?pageid=27160&docid=219000" }
   ```
 
-- `GET /laws/downloads/status?url=...` — check whether a `vanban.chinhphu.vn` document URL (same shape as above) is already downloaded, without fetching or writing any file. Fetches only the detail page, classifies it the same way a real download would, and reports per-file `downloaded: true/false` — so it exactly predicts what `POST /laws/downloads` would do.
+- `GET /laws/downloads/status?url=...` — check whether a `vanban.chinhphu.vn` document URL (same shape as above) is already downloaded, without fetching or writing any file. Fetches only the detail page, classifies it the same way a real download would, and reports per-file `downloaded: true/false` — so it exactly predicts what `POST /laws/downloads/url` would do.
 
 - `POST /laws/downloads/batch` — download a list of documents (same shape, up to 100 per call).
 
   ```json
   { "documents": [{ "url": "https://vanban.chinhphu.vn/?pageid=27160&docid=219000" }] }
   ```
+
+- `GET /laws/downloads/search` — search documents via the "TÌM KIẾM VĂN BẢN" filter form (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and return matching document detail URLs without downloading.
 
 - `POST /laws/downloads/search` — replays the "TÌM KIẾM VĂN BẢN" filter form at `vanban.chinhphu.vn/?pageid=41852&mode=0` (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and downloads matches, paginating as needed up to `maxResults`.
 
