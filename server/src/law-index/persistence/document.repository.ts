@@ -20,7 +20,11 @@ import type {
   VbplSearchFilters,
   VbplSearchResult,
 } from '../crawl/vbpl-document.interface';
-import { extractCitationFromTitle, parseVbplDate } from '../crawl/vbpl.parser';
+import {
+  extractCitationFromTitle,
+  extractVbplInternalId,
+  parseVbplDate,
+} from '../crawl/vbpl.parser';
 import { DRIZZLE, type DrizzleDb } from './db.module';
 import { document, issuingBody, documentReference } from './schema';
 
@@ -98,8 +102,10 @@ function mapValidityStatus(
 }
 
 export interface UpsertResult {
-  documentId: string;
+  documentId: string | null;
   changed: boolean;
+  /** Set (and documentId left null) when the document was not persisted — see upsertDocument's citation-collision handling. */
+  skippedReason?: string;
 }
 
 /** Shape written into document.rawSource on every upsert (see upsertDocument
@@ -153,16 +159,71 @@ export class DocumentRepository {
     return raceWinner.id;
   }
 
-  /** Upserts the document row (skipping the write entirely if content_version is unchanged) and its relations. */
+  /**
+   * Upserts the document row (skipping the write entirely if content_version
+   * is unchanged) and its relations.
+   *
+   * Handles vbpl.vn citation collisions before doing anything else — see
+   * docs/monitoring/law-index-flagged-documents.md §5/§6. vbpl.vn's citation
+   * isn't actually unique for two known real cases: every pre-Đổi Mới law
+   * predating the modern citation scheme is recorded as the literal string
+   * "Không số" ("no number"), and a handful of pre-1998 batch instrument
+   * numbers (e.g. "3-LCT/HĐNN7") were reused across genuinely different laws
+   * passed in the same legislative session. `citation_id` is UNIQUE, so a
+   * naive upsert-by-citation would silently overwrite whichever different
+   * document currently holds that citation. Resolution:
+   *   - This exact `sourceUrl` was already synced before (regardless of what
+   *     citation it's currently stored under — matters once a document has
+   *     been disambiguated per the next bullet, since vbpl.vn always
+   *     reports its *bare* citation on every scrape, not whatever
+   *     disambiguated form it was stored under) -> it's a re-sync of that
+   *     same document, not a collision. Proceed normally, keeping its
+   *     existing (possibly-disambiguated) citation.
+   *   - Otherwise, if some *other* document already occupies this citation
+   *     -> a real collision. If this document is not "còn hiệu lực" (in
+   *     force), skip it entirely rather than clobber the existing row with
+   *     dead law. If it *is* still in force, disambiguate by appending
+   *     vbpl.vn's own internal document id to the citation
+   *     (`"<citation> (vbpl-<id>)"`) so it gets its own row instead.
+   */
   async upsertDocument(parsed: ParsedVbplDocument): Promise<UpsertResult> {
     const issuingBodyId = await this.resolveOrCreateIssuingBody(
       parsed.attributes.issuingBody,
     );
     const contentVersion = computeContentVersion(parsed);
 
+    let citation = parsed.attributes.citation;
     const existing = await this.db.query.document.findFirst({
-      where: eq(document.citationId, parsed.attributes.citation),
+      where: sql`${document.rawSource}->>'sourceUrl' = ${parsed.sourceUrl}`,
     });
+
+    if (!existing) {
+      const byCitation = await this.db.query.document.findFirst({
+        where: eq(document.citationId, citation),
+      });
+      if (byCitation) {
+        const status = mapValidityStatus(parsed.attributes.validityStatusRaw);
+        if (status !== 'con_hieu_luc') {
+          return {
+            documentId: null,
+            changed: false,
+            skippedReason: `citation "${citation}" already used by a different document (id ${byCitation.id}) and this one is not còn hiệu lực — skipped rather than overwritten`,
+          };
+        }
+        const internalId = extractVbplInternalId(parsed.sourceUrl);
+        if (!internalId) {
+          throw new Error(
+            `Citation collision on "${citation}" (${parsed.sourceUrl}) but no vbpl.vn internal id could be extracted to disambiguate it`,
+          );
+        }
+        citation = `${citation} (vbpl-${internalId})`;
+      }
+    } else {
+      // Re-sync of an already-known document — keep whatever citation it's
+      // already stored under (bare or previously disambiguated).
+      citation = existing.citationId;
+    }
+
     if (existing && existing.contentVersion === contentVersion) {
       return { documentId: existing.id, changed: false };
     }
@@ -170,7 +231,7 @@ export class DocumentRepository {
     const enactedDate = parseVbplDate(parsed.attributes.issuedDateRaw);
     if (!enactedDate) {
       throw new Error(
-        `Document ${parsed.attributes.citation} has no parseable "Ngày ban hành" — got "${parsed.attributes.issuedDateRaw}"`,
+        `Document ${citation} has no parseable "Ngày ban hành" — got "${parsed.attributes.issuedDateRaw}"`,
       );
     }
 
@@ -181,7 +242,7 @@ export class DocumentRepository {
     );
 
     const values = {
-      citationId: parsed.attributes.citation,
+      citationId: citation,
       title: parsed.title,
       documentType: parsed.attributes.documentType,
       issuingBodyId,

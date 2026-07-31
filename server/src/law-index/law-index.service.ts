@@ -53,7 +53,13 @@ export class LawIndexService {
       };
     }
 
-    const { documentId, changed } = await this.repo.upsertDocument(parsed);
+    const { documentId, changed, skippedReason } =
+      await this.repo.upsertDocument(parsed);
+    if (!documentId) {
+      this.logger.warn(`Skipping ${url} — ${skippedReason}`);
+      return { documentId: null, changed: false, skippedReason };
+    }
+
     await this.repo.upsertRelations(documentId, parsed);
     try {
       await this.nodeRepo.syncNodes(documentId, parsed, changed);

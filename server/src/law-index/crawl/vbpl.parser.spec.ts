@@ -2,6 +2,7 @@ import {
   buildSearchResultUrl,
   extractCitationFromTitle,
   extractRscJsonPayload,
+  extractVbplInternalId,
   normalizeCitation,
   parseAttributes,
   parseRelations,
@@ -261,6 +262,24 @@ describe('buildSearchResultUrl', () => {
     expect(buildSearchResultUrl('32833')).toBe(
       'https://vbpl.vn/van-ban/chi-tiet/van-ban--32833',
     );
+  });
+});
+
+describe('extractVbplInternalId', () => {
+  it('is the exact inverse of buildSearchResultUrl', () => {
+    expect(extractVbplInternalId(buildSearchResultUrl('32833'))).toBe('32833');
+  });
+
+  it('extracts the id from a real detail URL', () => {
+    expect(
+      extractVbplInternalId('https://vbpl.vn/van-ban/chi-tiet/van-ban--25506'),
+    ).toBe('25506');
+  });
+
+  it('returns null for a URL with no id', () => {
+    expect(
+      extractVbplInternalId('https://vbpl.vn/van-ban/trung-uong'),
+    ).toBeNull();
   });
 });
 

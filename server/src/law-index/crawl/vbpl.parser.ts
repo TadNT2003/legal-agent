@@ -373,6 +373,19 @@ export function buildSearchResultUrl(id: string): string {
   return `https://${VBPL_HOST}/van-ban/chi-tiet/van-ban--${id}`;
 }
 
+/**
+ * Inverse of buildSearchResultUrl — pulls vbpl.vn's own internal document id
+ * back out of a document detail URL (e.g. ".../van-ban--25506" -> "25506").
+ * Used by document.repository.ts to disambiguate a citation that collides
+ * with a different already-stored document (see docs/monitoring/law-index-flagged-documents.md
+ * §5/§6 — "Không số" and reused pre-1998 batch citations are not unique on
+ * vbpl.vn, but this id always is).
+ */
+export function extractVbplInternalId(url: string): string | null {
+  const match = url.match(/van-ban--(\d+)/);
+  return match ? match[1] : null;
+}
+
 /** "2024-01-18T00:00:00" -> "2024-01-18"; null/empty -> null. */
 function toDateOnly(raw: string | null | undefined): string | null {
   return raw ? raw.slice(0, 10) : null;

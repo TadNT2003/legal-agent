@@ -162,12 +162,19 @@ Found while rechecking vbpl.vn for Luật/Bộ luật coverage gaps (2026-08-01)
 | 8535 | Không số | Luật Thuế thu nhập doanh nghiệp | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
 | 8534 | Không số | Luật Thuế giá trị gia tăng | 1997-05-10 | Luật Cải cách ruộng đất (1953) |
 
-### 6. Fix for the 3 still-valid documents pulled out of §5
+### 6. Fix for the still-valid documents pulled out of §5, now a permanent mechanism
 
-The 3 documents identified in §5 as "Còn hiệu lực" (still in force) were resolved individually (2026-08-01) rather than accepted into the §5 out-of-scope decision, since permanently excluding currently-valid law is a correctness gap, not a scope boundary. Fix: synced each directly and overrode the parsed citation to embed vbpl.vn's own internal document id (`Không số (vbpl-<id>)`) before calling `upsertDocument`, so each gets its own row instead of colliding with `Luật Cải cách ruộng đất` or with each other. One-off, script-driven fix — no code or schema change, since only these 3 needed it.
+The 3 documents identified in §5 as "Còn hiệu lực" (still in force) were first fixed individually (2026-08-01) with a one-off script, rather than accepted into the §5 out-of-scope decision, since permanently excluding currently-valid law is a correctness gap, not a scope boundary. `Luật Cải cách ruộng đất` (id 1105) — the original occupant of bare "Không số", also confirmed "Còn hiệu lực" live on a follow-up check — got the same treatment for consistency, renamed from bare `Không số` to `Không số (vbpl-1105)`.
+
+**This is no longer a one-off fix — it's now a permanent mechanism in `document.repository.ts`'s `upsertDocument`** (2026-08-01), so future crawls handle this automatically instead of needing another manual intervention:
+
+- A document is recognized as a re-sync of itself by matching `rawSource.sourceUrl`, not citation — citation alone can't tell two "Không số" documents apart, and vbpl.vn always reports the bare citation on every scrape regardless of what disambiguated form a document was previously stored under.
+- If a different document already occupies the citation (a real collision): documents that are **not** "còn hiệu lực" are skipped entirely (`upsertDocument` returns `{ documentId: null, skippedReason }`, surfaced through `syncDocument`/`syncAll` the same way the existing scope-mismatch skip already is) rather than silently overwriting whatever's there. Documents that **are** "còn hiệu lực" get disambiguated by appending vbpl.vn's own internal document id (`extractVbplInternalId`, `vbpl.parser.ts`) to the citation — `"<citation> (vbpl-<id>)"` — and inserted as their own row.
+- Verified live end-to-end (2026-08-01): re-sync-recognizes-itself (both a normally-synced and a manually-SQL-renamed document), the skip path (`3-LCT/HĐNN7`'s expired collision, id 4090 vs the existing id 4091 occupant), and the disambiguate path (a synthetic collision against a real never-before-seen document, cleaned up after). Unit tests added for `extractVbplInternalId`; no repository-level test added, matching this module's existing no-DB-mocking precedent (§ "Not yet automated" below) — verified against live Postgres instead.
 
 | Citation (as stored) | Title | Enacted | Status | Resolution |
 |---|---|---|---|---|
+| Không số (vbpl-1105) | Luật Cải cách ruộng đất | 1953-12-04 | con_hieu_luc | Resolved — renamed for consistency; original occupant, never actually lost |
 | Không số (vbpl-25506) | Luật Bảo vệ sức khỏe nhân dân | 1989-06-30 | con_hieu_luc | Resolved — 66 nodes built |
 | Không số (vbpl-10803) | Luật Thuế sử dụng đất nông nghiệp | 1993-07-10 | con_hieu_luc | Resolved — 80 nodes built |
 | Không số (vbpl-8611) | Luật Bầu cử Đại biểu Quốc hội | 1997-04-15 | con_hieu_luc | Resolved — 117 nodes built |
