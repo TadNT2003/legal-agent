@@ -84,7 +84,7 @@ export class VbplClientService implements OnModuleDestroy {
     return parsed;
   }
 
-  /** Loads all 3 relevant tabs for one document and returns the raw (uninterpreted) extraction. */
+  /** Loads all 4 relevant tabs for one document and returns the raw (uninterpreted) extraction. */
   async fetchDocument(url: string): Promise<RawVbplPage> {
     this.assertTrustedDocumentUrl(url);
     const page = await this.getPage();
@@ -102,7 +102,32 @@ export class VbplClientService implements OnModuleDestroy {
     await this.throttledGoto(page, relationsUrl);
     const relations = await page.evaluate(extractRelations);
 
-    return { sourceUrl: url, scope, title, fullText, attributes, relations };
+    const originalDocumentUrl = withTabQuery(url, 'hien-thi-pdf');
+    await this.throttledGoto(page, originalDocumentUrl);
+    // The file list is lazy-rendered by the AntD Collapse (empty until
+    // expanded) — confirmed live. A real Playwright click (rather than
+    // calling .click() inside page.evaluate) so its own actionability
+    // waiting covers the collapse's expand animation; absent entirely on a
+    // document with zero original files (not observed live yet, but the
+    // "Danh sách văn bản gốc (N file)" heading implies N can be 0).
+    await page
+      .locator('.ant-tabs-tabpane-active .ant-collapse-header')
+      .first()
+      .click({ timeout: 5000 })
+      .catch(() => undefined);
+    const originalDocumentFilenames = await page.evaluate(
+      extractOriginalDocumentFilenames,
+    );
+
+    return {
+      sourceUrl: url,
+      scope,
+      title,
+      fullText,
+      attributes,
+      relations,
+      originalDocumentFilenames,
+    };
   }
 
   /**
@@ -473,7 +498,10 @@ export class VbplClientService implements OnModuleDestroy {
   }
 }
 
-function withTabQuery(url: string, tab: 'thuoc-tinh' | 'luoc-do'): string {
+function withTabQuery(
+  url: string,
+  tab: 'thuoc-tinh' | 'luoc-do' | 'hien-thi-pdf',
+): string {
   const parsed = new URL(url);
   parsed.searchParams.set('tabs', tab);
   return parsed.toString();
@@ -555,4 +583,21 @@ function extractRelations(): RawRelationSection[] {
       };
     })
     .filter((s) => s.categoryLabel);
+}
+
+/**
+ * The "Văn bản gốc" tab's file-list items carry no href in the DOM (same
+ * click-handler-not-a-link pattern as everywhere else on this site) — the
+ * filename is the only thing readable directly, so that's all this extracts
+ * (dumb/uninterpreted, per this section's convention); vbpl.parser.ts
+ * combines it with the document's own internal id to build the real
+ * download URL. Each item renders as "<filename>\nKích thước: <size>" —
+ * only the first line is the filename.
+ */
+function extractOriginalDocumentFilenames(): string[] {
+  const pane = document.querySelector('.ant-tabs-tabpane-active');
+  if (!pane) return [];
+  return Array.from(pane.querySelectorAll('.ant-list-item'))
+    .map((item) => (item as HTMLElement).innerText.split('\n')[0].trim())
+    .filter(Boolean);
 }

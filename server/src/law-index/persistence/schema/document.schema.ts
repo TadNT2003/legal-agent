@@ -72,6 +72,18 @@ export const document = pgTable('document', {
   // law-index plan, so the full scraped text has nowhere else to live yet.
   // Shape: { fullText, scrapedAt, sourceUrl, consolidatesRawTitles, consolidatedIntoRawTitles }.
   rawSource: jsonb('raw_source'),
+  // Direct download URLs for vbpl.vn's "Văn bản gốc" tab — the scanned
+  // original file(s) vbpl.vn itself renders via its PDF viewer for every
+  // document (not just documents with no "Nội dung" tab; see
+  // law-index-flagged-documents.md §3). Not in the DBML. Constructed (not
+  // scraped as a literal href — the file-list items are React click
+  // handlers with no href in the DOM, same pattern as search results) from
+  // the vbpl.vn internal document id plus each file's name, which together
+  // deterministically address vbpl.vn's own MinIO-backed storage gateway —
+  // see buildOriginalDocumentUrl in vbpl.parser.ts. Empty array, not null,
+  // when vbpl.vn reports zero files (not observed live yet, but the "Danh
+  // sách văn bản gốc (N file)" heading implies N can be 0).
+  originalDocumentUrls: text('original_document_urls').array().notNull().default([]),
   // SHA-256 of fullText + key attribute fields — cheap re-scrape idempotency
   // now (skip the write if unchanged), the CDC trigger later.
   contentVersion: text('content_version').notNull(),

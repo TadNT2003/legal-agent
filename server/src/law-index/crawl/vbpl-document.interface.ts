@@ -15,7 +15,7 @@ export interface RawRelationSection {
 
 export type VbplScope = 'trung-uong' | 'dia-phuong' | 'unknown';
 
-/** Everything vbpl-client.service.ts extracts for one document across its 3 tab loads. */
+/** Everything vbpl-client.service.ts extracts for one document across its 4 tab loads. */
 export interface RawVbplPage {
   sourceUrl: string;
   scope: VbplScope;
@@ -34,6 +34,11 @@ export interface RawVbplPage {
   fullText: string | null;
   attributes: RawAttributeEntry[];
   relations: RawRelationSection[];
+  /** Filenames listed on the "Văn bản gốc" tab (e.g. "VanBanGoc_106.2016.QH13.pdf")
+   * — present on every document, not just the no-"Nội dung"-tab ones. Empty
+   * array if vbpl.vn reports zero files. vbpl.parser.ts's
+   * buildOriginalDocumentUrl turns each into a real download URL. */
+  originalDocumentFilenames: string[];
 }
 
 // ---- Parsed / domain shapes (vbpl.parser.ts output) ----
@@ -99,6 +104,10 @@ export interface ParsedVbplDocument {
   attributes: ParsedVbplAttributes;
   relations: VbplRelation[];
   consolidation: VbplConsolidation;
+  /** Direct download URLs for the "Văn bản gốc" scanned original file(s) —
+   * see RawVbplPage.originalDocumentFilenames and
+   * vbpl.parser.ts's buildOriginalDocumentUrl. */
+  originalDocumentUrls: string[];
 }
 
 // ---- Search (targeted/filtered search against /van-ban/trung-uong) ----

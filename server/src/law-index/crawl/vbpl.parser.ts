@@ -1,4 +1,4 @@
-import { VBPL_HOST } from './constants';
+import { VBPL_HOST, VBPL_ORIGINAL_DOCUMENT_HOST } from './constants';
 import type {
   ParsedVbplAttributes,
   ParsedVbplDocument,
@@ -382,9 +382,34 @@ export function parseRelations(raw: RawRelationSection[]): {
   };
 }
 
+/**
+ * Builds the direct download URL for one "Văn bản gốc" file. The file-list
+ * items carry no href in the DOM (see vbpl-client.service.ts's
+ * extractOriginalDocumentFilenames) — this URL shape was instead recovered
+ * by observing vbpl.vn's own PDF viewer's network requests live, confirmed
+ * across multiple documents with different filename styles (e.g.
+ * "VanBanGoc_106.2016.QH13.pdf", "Template.pdf"). `internalId` is vbpl.vn's
+ * own document id (see extractVbplInternalId), which doubles as the storage
+ * bucket's folder name.
+ */
+export function buildOriginalDocumentUrl(
+  internalId: string,
+  filename: string,
+): string {
+  return `https://${VBPL_ORIGINAL_DOCUMENT_HOST}/api/qtdc/public/doc/minio/buckets/vbpl/${internalId}/${encodeURIComponent(filename)}/download`;
+}
+
 export function parseVbplPage(raw: RawVbplPage): ParsedVbplDocument {
   const attributes = parseAttributes(raw.attributes);
   const { relations, consolidation } = parseRelations(raw.relations);
+
+  const internalId = extractVbplInternalId(raw.sourceUrl);
+  const originalDocumentUrls = internalId
+    ? raw.originalDocumentFilenames.map((filename) =>
+        buildOriginalDocumentUrl(internalId, filename),
+      )
+    : [];
+
   return {
     sourceUrl: raw.sourceUrl,
     scope: raw.scope,
@@ -393,6 +418,7 @@ export function parseVbplPage(raw: RawVbplPage): ParsedVbplDocument {
     attributes,
     relations,
     consolidation,
+    originalDocumentUrls,
   };
 }
 

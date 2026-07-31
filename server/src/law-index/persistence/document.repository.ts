@@ -59,6 +59,7 @@ function computeContentVersion(parsed: ParsedVbplDocument): string {
   hash.update(parsed.attributes.validityStatusRaw ?? '');
   hash.update(parsed.attributes.effectiveDateRaw ?? '');
   hash.update(parsed.attributes.expiryDateRaw ?? '');
+  hash.update(parsed.originalDocumentUrls.join(','));
   return hash.digest('hex');
 }
 
@@ -258,6 +259,7 @@ export class DocumentRepository {
       status: mapValidityStatus(parsed.attributes.validityStatusRaw),
       isConsolidated,
       consolidatesDocumentId,
+      originalDocumentUrls: parsed.originalDocumentUrls,
       rawSource: {
         fullText: parsed.fullText,
         scrapedAt: new Date().toISOString(),

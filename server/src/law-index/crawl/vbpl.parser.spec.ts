@@ -1,4 +1,5 @@
 import {
+  buildOriginalDocumentUrl,
   buildSearchResultUrl,
   correctQuocHoiIssuingBody,
   extractCitationFromTitle,
@@ -332,12 +333,13 @@ describe('parseRelations', () => {
 describe('parseVbplPage', () => {
   it('combines scope/title/fullText/attributes/relations/consolidation', () => {
     const raw: RawVbplPage = {
-      sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/example',
+      sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/van-ban--101890',
       scope: 'trung-uong',
       title: 'Thông tư số 05/2026/TT-BNG Hướng dẫn dịch Quốc hiệu...',
       fullText: 'Điều 1. Phạm vi điều chỉnh...',
       attributes: ATTRIBUTES,
       relations: [],
+      originalDocumentFilenames: ['VanBanGoc_106.2016.QH13.pdf'],
     };
     const parsed = parseVbplPage(raw);
     expect(parsed.scope).toBe('trung-uong');
@@ -349,6 +351,38 @@ describe('parseVbplPage', () => {
       consolidatesRawTitles: [],
       consolidatedIntoRawTitles: [],
     });
+    expect(parsed.originalDocumentUrls).toEqual([
+      'https://vbpl-bientap-gateway.moj.gov.vn/api/qtdc/public/doc/minio/buckets/vbpl/101890/VanBanGoc_106.2016.QH13.pdf/download',
+    ]);
+  });
+
+  it('returns no originalDocumentUrls when the internal id cannot be extracted from sourceUrl', () => {
+    const raw: RawVbplPage = {
+      sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/example',
+      scope: 'trung-uong',
+      title: 'Thông tư số 05/2026/TT-BNG Hướng dẫn dịch Quốc hiệu...',
+      fullText: 'Điều 1. Phạm vi điều chỉnh...',
+      attributes: ATTRIBUTES,
+      relations: [],
+      originalDocumentFilenames: ['some-file.pdf'],
+    };
+    expect(parseVbplPage(raw).originalDocumentUrls).toEqual([]);
+  });
+});
+
+describe('buildOriginalDocumentUrl', () => {
+  it('builds the MinIO gateway download URL from internal id + filename', () => {
+    expect(buildOriginalDocumentUrl('104418', 'Template.pdf')).toBe(
+      'https://vbpl-bientap-gateway.moj.gov.vn/api/qtdc/public/doc/minio/buckets/vbpl/104418/Template.pdf/download',
+    );
+  });
+
+  it('percent-encodes filenames with spaces/diacritics', () => {
+    expect(
+      buildOriginalDocumentUrl('186981', 'VanBanGoc_Luật số 149.2025.pdf'),
+    ).toBe(
+      'https://vbpl-bientap-gateway.moj.gov.vn/api/qtdc/public/doc/minio/buckets/vbpl/186981/VanBanGoc_Lu%E1%BA%ADt%20s%E1%BB%91%20149.2025.pdf/download',
+    );
   });
 });
 
