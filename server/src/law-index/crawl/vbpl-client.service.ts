@@ -225,10 +225,6 @@ export class VbplClientService implements OnModuleDestroy {
       filters.documentTypes,
     );
 
-    if (filters.pageSize) {
-      await this.selectPageSize(page, filters.pageSize);
-    }
-
     // Always open the advanced panel to reach its submit button — a
     // deterministic "apply everything now" trigger regardless of which
     // filters above were actually set. Its click may or may not itself
@@ -269,6 +265,20 @@ export class VbplClientService implements OnModuleDestroy {
       getLatestBody,
       getLatestAt,
     );
+
+    if (filters.pageSize) {
+      // Must run after the real search is submitted, not before: the size
+      // changer only reflects (and its selection is only kept by) the
+      // *current* result set. Selecting it against the page's initial,
+      // unfiltered result list — the previous behavior — got silently reset
+      // back to vbpl.vn's default (10) the moment the actual filtered search
+      // executed, so a caller-requested pageSize was never honored (confirmed
+      // live: pageSize=100 came back as a 10-item page with pageSize:10 in
+      // the response).
+      resetLatest();
+      await this.selectPageSize(page, filters.pageSize);
+      bodyText = await this.waitForSettledResponse(getLatestBody, getLatestAt);
+    }
 
     if (filters.page && filters.page > 1) {
       const jumpInput = page.locator(

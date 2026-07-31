@@ -165,7 +165,7 @@ describe('correctQuocHoiIssuingBody', () => {
     ).toBe('Chính phủ');
   });
 
-  it('leaves non-tier-2 document types untouched even with a QH-shaped citation', () => {
+  it('leaves non-tier-2/3 document types untouched even with a QH-shaped citation', () => {
     expect(
       correctQuocHoiIssuingBody('Thông tư', '05/2026/TT-BNG', 'Bộ Ngoại giao'),
     ).toBe('Bộ Ngoại giao');
@@ -177,13 +177,9 @@ describe('correctQuocHoiIssuingBody', () => {
     ).toBe('Quốc hội');
   });
 
-  it('recognizes older batch-era "Nghị quyết" citations ("QHK<khóa>")', () => {
+  it('recognizes older batch-era "Nghị quyết" citations ("QHK<khóa>") as Quốc hội\'s own', () => {
     expect(
-      correctQuocHoiIssuingBody(
-        'Nghị quyết',
-        '216-NQ/QHK4',
-        'Ủy ban Thường vụ Quốc hội',
-      ),
+      correctQuocHoiIssuingBody('Nghị quyết', '216-NQ/QHK4', 'Chính phủ'),
     ).toBe('Quốc hội');
   });
 
@@ -191,6 +187,45 @@ describe('correctQuocHoiIssuingBody', () => {
     expect(
       correctQuocHoiIssuingBody('Luật', '45/LCT', 'Chủ tịch nước'),
     ).toBe('Quốc hội');
+  });
+
+  it('corrects "Pháp lệnh" to Ủy ban Thường vụ Quốc hội regardless of the reported issuing body', () => {
+    // Real vbpl.vn mismatches: Pháp lệnh số 11/2016/UBTVQH13 reports "Quốc
+    // hội"; Pháp lệnh Giống cây trồng số 15/2004/PL-UBTVQH11 reports "Bộ
+    // Nông nghiệp và Môi trường" (the drafting ministry).
+    expect(
+      correctQuocHoiIssuingBody('Pháp lệnh', '11/2016/UBTVQH13', 'Quốc hội'),
+    ).toBe('Uỷ ban Thường vụ Quốc hội');
+    expect(
+      correctQuocHoiIssuingBody(
+        'Pháp lệnh',
+        '15/2004/PL-UBTVQH11',
+        'Bộ Nông nghiệp và Môi trường',
+      ),
+    ).toBe('Uỷ ban Thường vụ Quốc hội');
+  });
+
+  it('corrects "Nghị quyết" to Ủy ban Thường vụ Quốc hội when the citation carries UBTVQH\'s own numbering', () => {
+    expect(
+      correctQuocHoiIssuingBody(
+        'Nghị quyết',
+        '1234/2020/UBTVQH14',
+        'Chính phủ',
+      ),
+    ).toBe('Uỷ ban Thường vụ Quốc hội');
+  });
+
+  it('does not misclassify an already-correct UBTVQH-numbered "Nghị quyết" as Quốc hội (citation ends in "...QH<khóa>" too)', () => {
+    // Regression: "1234/2020/UBTVQH14" ends in "QH14", which the bare
+    // Quốc-hội pattern alone would also match — the UBTVQH-specific pattern
+    // must be checked first (or the bare pattern must exclude it).
+    expect(
+      correctQuocHoiIssuingBody(
+        'Nghị quyết',
+        '1234/2020/UBTVQH14',
+        'Uỷ ban Thường vụ Quốc hội',
+      ),
+    ).toBe('Uỷ ban Thường vụ Quốc hội');
   });
 });
 

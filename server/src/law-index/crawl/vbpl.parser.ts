@@ -239,42 +239,62 @@ export function normalizeCitation(raw: string): string {
 }
 
 const QUOC_HOI_NAME = 'Quốc hội';
+// Exact spelling vbpl.vn itself uses ("Uỷ", not "Ủy") — must match byte-for-byte
+// or resolveOrCreateIssuingBody (exact-string lookup) would create a second,
+// duplicate issuing_body row instead of resolving to the existing one.
+const UBTVQH_NAME = 'Uỷ ban Thường vụ Quốc hội';
 
 /**
  * Matches citations issued under Quốc hội's own numbering scheme: modern
  * "<n>/<năm>/QH<khóa>" (e.g. "51/2024/QH15") and older batch-era
- * "<n>-<loại>/QHK<khóa>" forms (e.g. "216-NQ/QHK4"). Deliberately anchored to
- * the end of the string so it doesn't false-positive on citations that merely
- * contain "QH" elsewhere.
+ * "<n>-<loại>/QHK<khóa>" forms (e.g. "216-NQ/QHK4"). Anchored to the end of
+ * the string so it doesn't false-positive on citations that merely contain
+ * "QH" elsewhere, and excludes any citation ending in "UBTVQH<khóa>" (a
+ * negative lookbehind for a preceding letter) — "11/2016/UBTVQH13" ends in
+ * "QH13" too, but belongs to Ủy ban Thường vụ Quốc hội, not Quốc hội itself.
  */
-const QUOC_HOI_CITATION_PATTERN = /QHK?\d+$/i;
+const QUOC_HOI_CITATION_PATTERN = /(?<![A-ZĐ])QHK?\d+$/i;
+
+/** Matches citations issued under UBTVQH's own numbering scheme: modern
+ * "<n>/<năm>/UBTVQH<khóa>" (e.g. "11/2016/UBTVQH13") and "<n>/PL-UBTVQH<khóa>"
+ * (e.g. "15/2004/PL-UBTVQH11"). */
+const UBTVQH_CITATION_PATTERN = /UBTVQH\d+$/i;
 
 /**
- * Điều 4 khoản 2, Luật 64/2025/QH15 restricts "Luật"/"Bộ luật" to Quốc hội
- * exclusively — no other body can issue that document type, regardless of
- * what vbpl.vn's "Cơ quan ban hành" attribute says. That attribute has been
- * observed, on the live site itself, to sometimes carry the drafting
- * ministry instead (e.g. "Bộ Xây dựng" on Luật Xây dựng số 135/2025/QH15,
- * "Bộ Công an" on Luật số 118/2025/QH15) — a vbpl.vn source-data defect, not
- * a scrape bug (see docs/monitoring/law-index-flagged-documents.md). "Nghị
- * quyết" is ambiguous by itself (Chính phủ/UBTVQH/HĐTP/HĐND all issue nghị
- * quyết too), so it's only corrected when the citation also carries Quốc
- * hội's own "QH<khóa>" numbering — the same double signal (tier + citation)
- * used to spot the mismatch in the first place.
+ * Điều 4 khoản 2–3, Luật 64/2025/QH15 restricts "Luật"/"Bộ luật" to Quốc hội
+ * and "Pháp lệnh" to Ủy ban Thường vụ Quốc hội exclusively — no other body
+ * can issue those document types, regardless of what vbpl.vn's "Cơ quan ban
+ * hành" attribute says. That attribute has been observed, on the live site
+ * itself, to sometimes carry the drafting ministry instead (e.g. "Bộ Xây
+ * dựng" on Luật Xây dựng số 135/2025/QH15, "Bộ Nông nghiệp và Môi trường" on
+ * Pháp lệnh Giống cây trồng số 15/2004/PL-UBTVQH11) or the wrong chamber
+ * (e.g. "Quốc hội" on Pháp lệnh số 11/2016/UBTVQH13) — a vbpl.vn source-data
+ * defect, not a scrape bug (see docs/monitoring/law-index-flagged-documents.md).
+ * "Nghị quyết" is ambiguous by itself (Chính phủ/Quốc hội/UBTVQH/HĐTP/HĐND
+ * all issue nghị quyết too), so it's only corrected when the citation also
+ * carries the matching chamber's own numbering — the same double signal
+ * (tier + citation) used to spot the mismatch in the first place.
  */
 export function correctQuocHoiIssuingBody(
   documentType: string,
   citation: string,
   issuingBodyRaw: string,
 ): string {
-  if (issuingBodyRaw.trim() === QUOC_HOI_NAME) return issuingBodyRaw;
-
   const type = documentType.trim().toLowerCase();
-  const isLawType = type === 'luật' || type === 'bộ luật';
-  const isQuocHoiNghiQuyet =
-    type === 'nghị quyết' && QUOC_HOI_CITATION_PATTERN.test(citation);
+  const current = issuingBodyRaw.trim();
 
-  return isLawType || isQuocHoiNghiQuyet ? QUOC_HOI_NAME : issuingBodyRaw;
+  const isLawType = type === 'luật' || type === 'bộ luật';
+  if (isLawType) return QUOC_HOI_NAME;
+  if (type === 'pháp lệnh') return UBTVQH_NAME;
+
+  if (type === 'nghị quyết') {
+    if (current === QUOC_HOI_NAME || current === UBTVQH_NAME)
+      return issuingBodyRaw;
+    if (UBTVQH_CITATION_PATTERN.test(citation)) return UBTVQH_NAME;
+    if (QUOC_HOI_CITATION_PATTERN.test(citation)) return QUOC_HOI_NAME;
+  }
+
+  return issuingBodyRaw;
 }
 
 export function parseAttributes(

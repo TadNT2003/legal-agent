@@ -61,6 +61,8 @@ Found during the same Luật/Bộ luật backfill (2026-07-31). These 6 document
 
 **Needed:** re-run `POST /laws/index/crawl/url` against each of these 6 documents' `sourceUrl` (in `document.rawSource.sourceUrl`) and confirm the Nội dung tab actually renders before trusting the re-scrape; if it's a page-render timing issue in `VbplClientService`, that needs its own fix first.
 
+**Recurred in the tier-3 (Pháp lệnh) 100-document batch (2026-07-31):** same signature (short `fullText`, 0 `document_node` rows), confirming this isn't confined to Luật/Bộ luật. `15/2004/PL-UBTVQH11` was re-synced (`POST /laws/index/crawl/url`) as part of fixing its `issuing_body` mismatch (see §8) and the attributes-leak reproduced identically on the fresh scrape — the underlying Nội dung-tab render-timing bug is still live, not a one-off.
+
 | Citation | Title | Enacted | Status | fullText length |
 |---|---|---|---|---|
 | 35/2002/QH10 | Luật Sửa đổi, bổ sung một số điều của Bộ luật Lao động số 35/2002/QH10 | 2002-04-02 | het_hieu_luc | 362 |
@@ -69,6 +71,8 @@ Found during the same Luật/Bộ luật backfill (2026-07-31). These 6 document
 | 106/2016/QH13 | Luật Sửa đổi, bổ sung một số điều của Luật Thuế giá trị gia tăng, Luật Thuế tiêu thụ đặc biệt và Luật Quản lý thuế số 106/2016/QH13 | 2016-04-06 | het_hieu_luc | 440 |
 | 105/2025/QH15 | Luật Giám định tư pháp số 105/2025/QH15 | 2025-12-05 | con_hieu_luc | 305 |
 | 141/2025/QH15 | Luật Sửa đổi, bổ sung một số điều của Luật Quản lý nợ công số 141/2025/QH15 | 2025-12-10 | con_hieu_luc | 418 |
+| 11/2003/PL-UBTVQH11 | Pháp lệnh số 11/2003/PL-UBTVQH11 Sửa đổi, bổ sung một số điều của Pháp lệnh Cán bộ, công chức | 2003-04-29 | het_hieu_luc | 415 |
+| 15/2004/PL-UBTVQH11 | Pháp lệnh số 15/2004/PL-UBTVQH11 Giống cây trồng | 2004-03-24 | null (no "Tình trạng hiệu lực" on vbpl.vn) | 297 |
 
 ### 4. Quoted multi-item replacement text mis-nested as top-level siblings
 
@@ -264,6 +268,39 @@ Re-syncing the 3 already-stored documents (`POST /laws/index/crawl/url`) initial
 | 149/2025/QH15 | Luật sửa đổi, bổ sung một số điều của Luật Thuê giá trị gia tăng số 149/2025/QH15 | Bộ Tài chính | Quốc hội |
 | 135/2025/QH15 | Luật Xây dựng số 135/2025/QH15 | Bộ Xây dựng | Quốc hội |
 | 118/2025/QH15 | Luật sửa đổi, bổ sung một số điều của 10 luật có liên quan đến an ninh, trật tự số 118/2025/QH15 | Bộ Công an | Quốc hội |
+
+### 8. Same mis-attribution bug also hits "Pháp lệnh" (tier 3) — guard extended, latent regex bug fixed proactively
+
+Found during a first-100-documents tier-3 (Pháp lệnh) indexing pass (2026-07-31): §7's `correctQuocHoiIssuingBody` only covered Luật/Bộ luật/Nghị quyết-of-Quốc-hội, not Pháp lệnh — but Điều 4 khoản 3 restricts "Pháp lệnh" to Ủy ban Thường vụ Quốc hội (UBTVQH) just as exclusively as khoản 2 restricts Luật/Bộ luật to Quốc hội. Of the 100 Pháp lệnh documents synced, 2 had the same class of mismatch: `11/2016/UBTVQH13` reported "Quốc hội" and `15/2004/PL-UBTVQH11` reported "Bộ Nông nghiệp và Môi trường" (the drafting ministry) — both confirmed live on vbpl.vn itself, not a scrape misread.
+
+**Fix:** extended `correctQuocHoiIssuingBody` (`vbpl.parser.ts`) — "Pháp lệnh" is now corrected to UBTVQH unconditionally, same treatment as Luật/Bộ luật; "Nghị quyết" now also checks for UBTVQH's own citation numbering (`UBTVQH_CITATION_PATTERN`), not just Quốc hội's.
+
+**Also fixed proactively (no live document affected yet, but would have miscorrected the first one encountered):** the existing `QUOC_HOI_CITATION_PATTERN` (`/QHK?\d+$/i`) matched any citation ending in `QH<khóa>` — but UBTVQH citations (`"11/2016/UBTVQH13"`, `"...PL-UBTVQH11"`) *also* end in `QH<khóa>`, so a UBTVQH-issued "Nghị quyết" would have been misclassified as Quốc hội's. Added a negative lookbehind (`(?<![A-ZĐ])QHK?\d+$`) excluding any citation where a letter immediately precedes "QH", and check the UBTVQH-specific pattern first. Regression test added (`vbpl.parser.spec.ts`) asserting a UBTVQH-numbered Nghị quyết stays UBTVQH-attributed.
+
+Exact spelling matters here: vbpl.vn (and the existing DB rows) consistently use `"Uỷ ban Thường vụ Quốc hội"` — the guard's canonical string must match that byte-for-byte, or `resolveOrCreateIssuingBody`'s exact-string lookup creates a second, duplicate `issuing_body` row instead of resolving to the existing one.
+
+Both documents re-synced via `POST /laws/index/crawl/url` (already covered by §7's `computeContentVersion` fix, so the correction actually landed on re-sync).
+
+| Citation | Title | Was | Now |
+|---|---|---|---|
+| 11/2016/UBTVQH13 | Pháp lệnh số 11/2016/UBTVQH13 Quản lý thị trường | Quốc hội | Uỷ ban Thường vụ Quốc hội |
+| 15/2004/PL-UBTVQH11 | Pháp lệnh số 15/2004/PL-UBTVQH11 Giống cây trồng | Bộ Nông nghiệp và Môi trường | Uỷ ban Thường vụ Quốc hội |
+
+### 9. Tier-3 100-document indexing pass — process findings
+
+Run 2026-07-31 to index the first 100 Pháp lệnh (tier 3) documents and evaluate the pipeline end to end. Two tooling bugs surfaced before any document sync happened, both in `server/src/law-index/crawl/`:
+
+- **`GET /laws/index/crawl/search`'s `pageSize` filter was silently ignored.** `VbplClientService.searchDocuments`'s `selectPageSize()` ran *before* the actual filtered search was submitted — against the page's initial, unfiltered result list — so vbpl.vn reset the page size back to its default (10/page) the moment the real search executed. A request for `pageSize=100` came back as a 10-item page with `pageSize: 10` in the response, with no error. **Fixed:** moved the `selectPageSize()` call to after the search submits (and re-waits for the resulting response), before the page-jump step. Verified live: `pageSize=100` now correctly returns 100 items.
+- **A stuck/broken Playwright page required a full server restart to recover from.** The port-3000 dev server was returning bare `500`s for `crawl/search` before any of today's code changes — root cause not fully diagnosed (`VbplClientService` caches its browser `page` indefinitely via `getPage()`, with no health check or recovery path if that page ends up in a bad state after some earlier failure). A process restart cleared it. **Not fixed** — `getPage()` should detect a dead/broken page (e.g. `page.isClosed()`, or a wrapping try/recreate around the navigation calls) and recreate it rather than requiring an operator to notice and restart the whole process.
+
+Batch outcome once both were resolved: 100/100 requests succeeded at the HTTP level (0 errors) — 97 changed, 1 already up to date, 2 skipped as citation collisions with an existing, confirmed-not-`còn hiệu lực` document (the established §5/§6 skip-don't-overwrite guard working as designed, not a new issue). Of the 98 persisted documents, `document_node` build succeeded for 96; the other 2 are the known §3 attributes-leak bug (see the table above) — no new `document_node`-parsing failure modes found in this batch. One document (`01/2018/UBNVQH14`) has what looks like a citation typo on vbpl.vn's own side (`UBNVQH` instead of `UBTVQH`) — left as-is (citations are stored verbatim per this module's existing convention; unlike issuing_body there's no Điều-4-derived ground truth to correct a citation string against), noted here only as an FYI.
+
+**Both citation-collision skips, tracked individually** (per this doc's own convention — see §5 — every document the collision guard filters out gets logged here, not just summarized): checked each skipped candidate's title/enacted date (from the crawl-search result, since a skipped document is never persisted) against whatever already occupies that citation. Both turned out to be §5's already-documented "harmless duplicate" case — vbpl.vn serving the exact same law (identical title, identical enacted date) under two different internal ids/URLs — not a genuine two-different-laws-share-one-citation collision like the historical `Không số`/reused-batch-number cases. No action needed, but recorded so the skip isn't silently unaccounted for.
+
+| Skipped internal id | Citation | Skipped candidate title | Candidate enacted | Candidate validity (vbpl.vn) | Occupying internal id | Occupant enacted | Verdict |
+|---|---|---|---|---|---|---|---|
+| 14102 | 34/2007/PL-UBTVQH11 | Pháp lệnh số 34/2007/PL-UBTVQH11 Thực hiện dân chủ ở xã, phường, thị trấn | 2007-04-20 | Hết hiệu lực một phần | 113212 | 2007-04-20 | Same document, duplicate URL — harmless |
+| 19407 | 15/2004/PL-UBTVQH11 | Pháp lệnh số 15/2004/PL-UBTVQH11 Giống cây trồng | 2004-03-24 | Hết hiệu lực toàn bộ | 104418 | 2004-03-24 | Same document, duplicate URL — harmless |
 
 ---
 
