@@ -27,7 +27,11 @@ export interface RawVbplPage {
    * documents' titles (see vbpl.parser.ts's extractCitationFromTitle).
    */
   title: string;
-  fullText: string;
+  /** Null when vbpl.vn has no "Nội dung" tab for this document at all — some
+   * (mostly older) documents only offer a scanned original via "Văn bản gốc",
+   * no digitized body text (see vbpl-client.service.ts's
+   * extractScopeTitleAndFullText). */
+  fullText: string | null;
   attributes: RawAttributeEntry[];
   relations: RawRelationSection[];
 }
@@ -90,7 +94,8 @@ export interface ParsedVbplDocument {
   sourceUrl: string;
   scope: VbplScope;
   title: string;
-  fullText: string;
+  /** Null when vbpl.vn has no "Nội dung" tab for this document — see RawVbplPage.fullText. */
+  fullText: string | null;
   attributes: ParsedVbplAttributes;
   relations: VbplRelation[];
   consolidation: VbplConsolidation;

@@ -52,7 +52,7 @@ function estimateAuthorityRank(issuingBodyName: string): number {
 
 function computeContentVersion(parsed: ParsedVbplDocument): string {
   const hash = createHash('sha256');
-  hash.update(parsed.fullText);
+  hash.update(parsed.fullText ?? '');
   hash.update(parsed.attributes.citation);
   hash.update(parsed.title);
   hash.update(parsed.attributes.issuingBody);
@@ -117,7 +117,9 @@ export interface UpsertResult {
  * raw_source key yet — searchLocalDocuments's expiryDate is always null
  * until that's added. */
 interface DocumentRawSource {
-  fullText: string;
+  /** Null when vbpl.vn has no "Nội dung" tab for this document — see
+   * ParsedVbplDocument.fullText. */
+  fullText: string | null;
   scrapedAt: string;
   sourceUrl: string;
   consolidatesRawTitles: string[];

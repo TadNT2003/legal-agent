@@ -487,7 +487,7 @@ function withTabQuery(url: string, tab: 'thuoc-tinh' | 'luoc-do'): string {
 function extractScopeTitleAndFullText(): {
   scope: VbplScope;
   title: string;
-  fullText: string;
+  fullText: string | null;
 } {
   const trungUongLink = document.querySelector(
     'nav.ant-breadcrumb a[href="/van-ban/trung-uong"]',
@@ -507,11 +507,21 @@ function extractScopeTitleAndFullText(): {
   const lastItem = breadcrumbItems[breadcrumbItems.length - 1];
   const title = lastItem ? (lastItem as HTMLElement).innerText.trim() : '';
 
+  // Some (mostly older) documents have no "Nội dung" tab at all — vbpl.vn
+  // only offers a scanned original via "Văn bản gốc", no digitized body text
+  // (confirmed live: their tab bar is Thuộc tính/Lược đồ/Văn bản gốc/Tải về,
+  // no "toan-van" tab, and the page's default active tab is Thuộc tính
+  // instead). Without this check, `.ant-tabs-tabpane-active` on first page
+  // load silently resolves to the Thuộc tính pane on those documents, and
+  // its attributes-table text gets captured as if it were the real body.
+  const hasNoiDungTab = !!document.querySelector(
+    '.ant-tabs-tab[data-node-key="toan-van"]',
+  );
   const pane = document.querySelector('.ant-tabs-tabpane-active');
   return {
     scope,
     title,
-    fullText: pane ? (pane as HTMLElement).innerText : '',
+    fullText: hasNoiDungTab && pane ? (pane as HTMLElement).innerText : null,
   };
 }
 

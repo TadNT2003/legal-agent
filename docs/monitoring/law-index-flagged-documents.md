@@ -24,31 +24,25 @@ Found while backfilling `document_node` for all Luật/Bộ luật documents (20
 
 **Fix:** made the separator after the Điều number optional (`[.:]?` instead of a mandatory `.`) in `DIEU_KHOAN_PATTERN`. Regression tests added for all three punctuation variants; all 17 documents' trees rebuilt from stored `fullText`.
 
-Affected documents: 17 rows, `law-index-flagged-documents.csv` (`section=2`). Note: `61/2014/QH13`'s tree has a separate, unresolved shape issue — see §4 below.
-
----
-
-## Unresolved
+Affected documents: 17 rows, `law-index-flagged-documents.csv` (`section=2`). Note: `61/2014/QH13`'s tree has a separate, unresolved shape issue — see §7 below.
 
 ### 3. Attributes-tab content leaked into `fullText` instead of real document body
 
-Found during the same Luật/Bộ luật backfill (2026-07-31). These 6 documents' `document.rawSource.fullText` (305–440 characters) is the *attributes* table ("Số hiệu / Loại văn bản / Ngành / Ngày ban hành / ...") rather than the Nội dung tab's real body text — an upstream scrape-time bug, not a `document_node` parsing gap. There is no real body text stored to parse; `document_node` will stay empty for these until they're re-scraped from vbpl.vn.
+Found during the same Luật/Bộ luật backfill (2026-07-31). These 6 documents' `document.rawSource.fullText` (305–440 characters) is the *attributes* table ("Số hiệu / Loại văn bản / Ngành / Ngày ban hành / ...") rather than the Nội dung tab's real body text — originally assumed to be an upstream scrape-time bug, not a `document_node` parsing gap.
 
-**Needed:** re-run `POST /laws/index/crawl/url` against each of these 6 documents' `sourceUrl` (in `document.rawSource.sourceUrl`) and confirm the Nội dung tab actually renders before trusting the re-scrape; if it's a page-render timing issue in `VbplClientService`, that needs its own fix first.
+**Recurred in the tier-3 (Pháp lệnh) 100-document batch (2026-07-31):** same signature (short `fullText`, 0 `document_node` rows), confirming this isn't confined to Luật/Bộ luật.
 
-**Recurred in the tier-3 (Pháp lệnh) 100-document batch (2026-07-31):** same signature (short `fullText`, 0 `document_node` rows), confirming this isn't confined to Luật/Bộ luật. `15/2004/PL-UBTVQH11` was re-synced (`POST /laws/index/crawl/url`) as part of fixing its `issuing_body` mismatch (see §8) and the attributes-leak reproduced identically on the fresh scrape — the underlying Nội dung-tab render-timing bug is still live, not a one-off.
+**All 8 re-synced (2026-07-31) via `POST /laws/index/crawl/url` — bug reproduced identically on every single one**, ruling out a transient timing flake.
+
+**Root cause confirmed (2026-07-31), and it changed the diagnosis entirely — this was never a timing bug.** Opened all 8 documents live in a real browser and checked their tab bar directly: **none of the 8 has a "Nội dung" tab on vbpl.vn at all** — only Thuộc tính / Lược đồ / Văn bản gốc / Tải về. vbpl.vn has no digitized body text for these documents; the only thing available is a scanned/original file behind "Văn bản gốc". `VbplClientService`'s `extractScopeTitleAndFullText()` (in-page `page.evaluate` function) read `.ant-tabs-tabpane-active`'s `innerText` unconditionally, assuming the page's default active tab is always Nội dung — but on these documents the default active tab is actually Thuộc tính, so the attributes table got captured as `fullText` instead of failing loudly or coming back empty. Since there is no Nội dung tab to ever successfully load, this was 100% deterministic — matches exactly what the 8/8 identical re-sync reproduction showed.
+
+**Fix (2026-07-31):** `extractScopeTitleAndFullText()` now checks whether a tab with `data-node-key="toan-van"` (Nội dung) exists before trusting the active pane; if it doesn't, `fullText` is returned as `null` instead of whatever pane happens to be active by default. Propagated the `string | null` type through `RawVbplPage`/`ParsedVbplDocument`. `document.repository.ts`'s `computeContentVersion` hashes `fullText ?? ''`; `document-node.repository.ts`'s `syncNodes` treats `fullText === null` as a legitimately empty tree (not a parse failure) rather than calling `parseDocumentBody(null)`. All 8 documents re-synced and verified live: `raw_source.fullText` is now genuine JSON `null` (checked via `jsonb_typeof`), not the leaked attributes text. `document_node` correctly stays empty for all 8 — there is no body text to chunk, which is now represented honestly instead of silently wrong.
+
+**Open follow-up, not addressed here:** whether to also capture the "Văn bản gốc" scanned-original link (for a future OCR/manual-ingestion pass) was explicitly deferred — `fullText: null` was chosen as the fix for now. How many documents beyond these 8 fall into this "scanned original only, no Nội dung tab" category across the rest of the corpus is unknown — not yet surveyed, deferred in favor of landing the detection fix first.
 
 Affected documents: 8 rows, `law-index-flagged-documents.csv` (`section=3`).
 
-### 4. Quoted multi-item replacement text mis-nested as top-level siblings
-
-Found while investigating item #2 above (2026-07-31) — a parser shape issue, not a per-document data problem, so it isn't a bounded checklist the way #1–3 are. When an amending Điều quotes a foreign document's replacement text that itself spans *multiple* numbered Khoản (e.g. a quoted `"Điều 8. ... 1. ... 2. ... 9. ..."` block), only the quoted block's *first* line carries a leading quote-mark character. That's the only signal the parser currently uses to keep quoted content from being read as real structure (see `document-node.parser.ts`'s handling of lines starting with `“`/`"`) — every subsequent quoted line has no such marker, so a quoted khoản-numbered item can be picked up by `KHOAN_PATTERN` and inserted as a new top-level sibling Khoản of the *amending* Điều, rather than staying nested inside the quoted block it actually belongs to.
-
-**Confirmed example:** `61/2014/QH13`, Điều 1 (quotes a full replacement "Điều 8" from Luật Hàng không dân dụng, itself containing Khoản 1–9).
-
-**Needed:** track quote-open/quote-close state across lines (open on a leading `“`/`"`, close on a trailing `”`/`"`) so everything inside a quoted span is treated as opaque text of the node that opened the quote, regardless of what it looks like structurally. Not attempted yet — likely affects other "Luật sửa đổi, bổ sung" documents beyond the one confirmed case, but the actual scope (how many) hasn't been surveyed.
-
-### 5. Citation collision — documents can never coexist under a shared/reused vbpl.vn citation
+### 4. Citation collision — documents can never coexist under a shared/reused vbpl.vn citation
 
 Found while rechecking vbpl.vn for Luật/Bộ luật coverage gaps (2026-08-01). Compared the full Luật (562) + Bộ luật (16) count on vbpl.vn's trung-ương corpus against what's in Postgres and found a 74-document gap (70 Luật + 4 Bộ luật). Diffing by vbpl.vn's internal document id (not by citation string — see the methodology note below) narrowed this to exactly **69 documents that are structurally blocked from ever being stored**, plus 5 that turned out not to be a real gap at all (vbpl.vn serves the same already-indexed law under a second URL — harmless, no action needed).
 
@@ -59,15 +53,11 @@ Found while rechecking vbpl.vn for Luật/Bộ luật coverage gaps (2026-08-01)
 
 **Methodology note:** the crawl-search endpoint's response text is mojibake for any citation/title containing non-ASCII characters (confirmed: real UTF-8 bytes decoded as Windows-1252 somewhere in `VbplClientService.searchDocuments`'s response handling — Playwright's `Response.text()` likely trusted a wrong/missing charset from vbpl.vn's Server Action response). This corrupted an initial citation-string-based diff badly enough to produce ~20 false "missing" entries (documents already correctly stored, just compared against their own mangled citation). Recomputed the diff using the ASCII-only internal id embedded in `sourceUrl` (immune to the encoding bug) instead, which is what the 74/69 figures above are based on. The mojibake itself is a distinct bug worth fixing in `VbplClientService`/`vbpl.parser.ts`'s search-response handling (affects the live `crawl/search` endpoint's output for any caller), but is not itself a reason any document failed to index — flagged here only because it's the reason this investigation needed a second pass.
 
-**Validity status verified for all 69 (2026-08-01)** via vbpl.vn's own `Tình trạng hiệu lực` field, against the assumption that all colliding documents are dead law with no bearing on current legal Q&A — **66 confirmed "Hết hiệu lực toàn bộ" (fully expired)**, including both reused-citation cases, but **3 of the "Không số" group are still "Còn hiệu lực" (currently in force)**: `Luật Bảo vệ sức khỏe nhân dân` (1989, id 25506), `Luật Thuế sử dụng đất nông nghiệp` (1993, id 10803), `Luật Bầu cử Đại biểu Quốc hội` (1997, id 8611). Those 3 were pulled out and fixed individually — see §6 below — since permanently excluding *live* law is a correctness problem, not a scope decision, even though the 66 genuinely-expired ones are.
+**Validity status verified for all 69 (2026-08-01)** via vbpl.vn's own `Tình trạng hiệu lực` field, against the assumption that all colliding documents are dead law with no bearing on current legal Q&A — **66 confirmed "Hết hiệu lực toàn bộ" (fully expired)**, including both reused-citation cases, but **3 of the "Không số" group are still "Còn hiệu lực" (currently in force)**: `Luật Bảo vệ sức khỏe nhân dân` (1989, id 25506), `Luật Thuế sử dụng đất nông nghiệp` (1993, id 10803), `Luật Bầu cử Đại biểu Quốc hội` (1997, id 8611). Those 3 were pulled out and fixed individually (below), since permanently excluding *live* law is a correctness problem, not a scope decision, even though the 66 genuinely-expired ones are.
 
-**Decision (2026-08-01): the remaining 66 confirmed-expired documents are out of scope for this corpus — won't fix.** Rationale: (1) direct precedent — `server/src/law/` already made this exact call for the same "Không số" pattern, for the same reason (see the `d441189` commit message: "ignore those laws completely because they're now irrelevant to the current legal system"); (2) the real fix (loosening/replacing the `citation_id UNIQUE` constraint) has to be re-validated against every citation-keyed lookup in `document.repository.ts` — reference resolution, forward-reference healing, consolidation matching — a disproportionate cost for content with no bearing on "what does current law say," this system's stated purpose; (3) it's a small, now fully-enumerated, and *documented* boundary rather than a silent gap — revisit if the corpus's scope ever grows to include historical/repealed-law research.
+**Decision (2026-08-01): the 66 confirmed-expired documents are out of scope for this corpus — won't fix.** Rationale: (1) direct precedent — `server/src/law/` already made this exact call for the same "Không số" pattern, for the same reason (see the `d441189` commit message: "ignore those laws completely because they're now irrelevant to the current legal system"); (2) the real fix (loosening/replacing the `citation_id UNIQUE` constraint) has to be re-validated against every citation-keyed lookup in `document.repository.ts` — reference resolution, forward-reference healing, consolidation matching — a disproportionate cost for content with no bearing on "what does current law say," this system's stated purpose; (3) it's a small, now fully-enumerated, and *documented* boundary rather than a silent gap — revisit if the corpus's scope ever grows to include historical/repealed-law research.
 
-Affected documents: 66 rows, `law-index-flagged-documents.csv` (`section=5`).
-
-### 6. Fix for the still-valid documents pulled out of §5, now a permanent mechanism
-
-The 3 documents identified in §5 as "Còn hiệu lực" (still in force) were first fixed individually (2026-08-01) with a one-off script, rather than accepted into the §5 out-of-scope decision, since permanently excluding currently-valid law is a correctness gap, not a scope boundary. `Luật Cải cách ruộng đất` (id 1105) — the original occupant of bare "Không số", also confirmed "Còn hiệu lực" live on a follow-up check — got the same treatment for consistency, renamed from bare `Không số` to `Không số (vbpl-1105)`.
+**The remaining 3 were fixed individually (2026-08-01)** with a one-off script, rather than accepted into the won't-fix decision above. `Luật Cải cách ruộng đất` (id 1105) — the original occupant of bare "Không số", also confirmed "Còn hiệu lực" live on a follow-up check — got the same treatment for consistency, renamed from bare `Không số` to `Không số (vbpl-1105)`.
 
 **This is no longer a one-off fix — it's now a permanent mechanism in `document.repository.ts`'s `upsertDocument`** (2026-08-01), so future crawls handle this automatically instead of needing another manual intervention:
 
@@ -75,11 +65,11 @@ The 3 documents identified in §5 as "Còn hiệu lực" (still in force) were f
 - If a different document already occupies the citation (a real collision): documents that are **not** "còn hiệu lực" are skipped entirely (`upsertDocument` returns `{ documentId: null, skippedReason }`, surfaced through `syncDocument`/`syncAll` the same way the existing scope-mismatch skip already is) rather than silently overwriting whatever's there. Documents that **are** "còn hiệu lực" get disambiguated by appending vbpl.vn's own internal document id (`extractVbplInternalId`, `vbpl.parser.ts`) to the citation — `"<citation> (vbpl-<id>)"` — and inserted as their own row.
 - Verified live end-to-end (2026-08-01): re-sync-recognizes-itself (both a normally-synced and a manually-SQL-renamed document), the skip path (`3-LCT/HĐNN7`'s expired collision, id 4090 vs the existing id 4091 occupant), and the disambiguate path (a synthetic collision against a real never-before-seen document, cleaned up after). Unit tests added for `extractVbplInternalId`; no repository-level test added, matching this module's existing no-DB-mocking precedent (§ "Not yet automated" below) — verified against live Postgres instead.
 
-Affected documents: 4 rows, `law-index-flagged-documents.csv` (`section=6`).
+**Marked Resolved** in the sense that every one of the 69 documents this investigation found now has a settled, deliberate outcome and the underlying mechanism is permanent code, not a one-off script — not in the sense that all 69 were fixed: 3 (+ the renamed original occupant = 4) were fixed, 66 were explicitly decided out of scope. Both outcomes are tracked per-document in the CSV (`status` = `Resolved` or `Won't fix`).
 
-(The full 69-document verification snapshot — §5's 66 plus the 3 fixed above — is not duplicated here; it's exactly the union of `section=5` and `section=6` in the CSV.)
+Affected documents: 70 rows, `law-index-flagged-documents.csv` (`section=4`) — 4 `Resolved`, 66 `Won't fix`.
 
-### 7. "Luật"/"Bộ luật" mis-attributed to the drafting ministry instead of Quốc hội
+### 5. "Luật"/"Bộ luật" mis-attributed to the drafting ministry instead of Quốc hội
 
 Found via a Postgres tier audit (2026-07-31): 3 documents with `document_type = 'Luật'` had `issuing_body` set to a ministry instead of Quốc hội, even though Điều 4 khoản 2 restricts "Luật"/"Bộ luật" to Quốc hội exclusively and each citation's own `QH<khóa>` numbering confirms it. Confirmed against the live vbpl.vn attributes tab — the drafting ministry is what vbpl.vn itself reports in "Cơ quan ban hành" for these, not a scrape-time misread.
 
@@ -87,11 +77,11 @@ Found via a Postgres tier audit (2026-07-31): 3 documents with `document_type = 
 
 Re-syncing the 3 already-stored documents (`POST /laws/index/crawl/url`) initially had no effect: `document.repository.ts`'s `computeContentVersion` hashed `fullText`/`citation`/`title`/`validityStatusRaw`/`effectiveDateRaw`/`expiryDateRaw` but not `issuingBody`, so an otherwise-unchanged document short-circuited the upsert (`changed: false`) before the corrected `issuing_body` was ever written — confirmed live (re-sync of `149/2025/QH15` returned `changed: false` and the DB row was untouched). Added `issuingBody` to the hash so this class of correction (an attribute-only change with no `fullText`/date/status delta) is no longer silently swallowed on re-sync; all 3 documents re-synced successfully afterward.
 
-Affected documents: 3 rows, `law-index-flagged-documents.csv` (`section=7`).
+Affected documents: 3 rows, `law-index-flagged-documents.csv` (`section=5`).
 
-### 8. Same mis-attribution bug also hits "Pháp lệnh" (tier 3) — guard extended, latent regex bug fixed proactively
+### 6. Same mis-attribution bug also hits "Pháp lệnh" (tier 3) — guard extended, latent regex bug fixed proactively
 
-Found during a first-100-documents tier-3 (Pháp lệnh) indexing pass (2026-07-31): §7's `correctQuocHoiIssuingBody` only covered Luật/Bộ luật/Nghị quyết-of-Quốc-hội, not Pháp lệnh — but Điều 4 khoản 3 restricts "Pháp lệnh" to Ủy ban Thường vụ Quốc hội (UBTVQH) just as exclusively as khoản 2 restricts Luật/Bộ luật to Quốc hội. Of the 100 Pháp lệnh documents synced, 2 had the same class of mismatch: `11/2016/UBTVQH13` reported "Quốc hội" and `15/2004/PL-UBTVQH11` reported "Bộ Nông nghiệp và Môi trường" (the drafting ministry) — both confirmed live on vbpl.vn itself, not a scrape misread.
+Found during a first-100-documents tier-3 (Pháp lệnh) indexing pass (2026-07-31): §5's `correctQuocHoiIssuingBody` only covered Luật/Bộ luật/Nghị quyết-of-Quốc-hội, not Pháp lệnh — but Điều 4 khoản 3 restricts "Pháp lệnh" to Ủy ban Thường vụ Quốc hội (UBTVQH) just as exclusively as khoản 2 restricts Luật/Bộ luật to Quốc hội. Of the 100 Pháp lệnh documents synced, 2 had the same class of mismatch: `11/2016/UBTVQH13` reported "Quốc hội" and `15/2004/PL-UBTVQH11` reported "Bộ Nông nghiệp và Môi trường" (the drafting ministry) — both confirmed live on vbpl.vn itself, not a scrape misread.
 
 **Fix:** extended `correctQuocHoiIssuingBody` (`vbpl.parser.ts`) — "Pháp lệnh" is now corrected to UBTVQH unconditionally, same treatment as Luật/Bộ luật; "Nghị quyết" now also checks for UBTVQH's own citation numbering (`UBTVQH_CITATION_PATTERN`), not just Quốc hội's.
 
@@ -99,22 +89,34 @@ Found during a first-100-documents tier-3 (Pháp lệnh) indexing pass (2026-07-
 
 Exact spelling matters here: vbpl.vn (and the existing DB rows) consistently use `"Uỷ ban Thường vụ Quốc hội"` — the guard's canonical string must match that byte-for-byte, or `resolveOrCreateIssuingBody`'s exact-string lookup creates a second, duplicate `issuing_body` row instead of resolving to the existing one.
 
-Both documents re-synced via `POST /laws/index/crawl/url` (already covered by §7's `computeContentVersion` fix, so the correction actually landed on re-sync).
+Both documents re-synced via `POST /laws/index/crawl/url` (already covered by §5's `computeContentVersion` fix, so the correction actually landed on re-sync).
 
-Affected documents: 2 rows, `law-index-flagged-documents.csv` (`section=8`).
+Affected documents: 2 rows, `law-index-flagged-documents.csv` (`section=6`).
 
-### 9. Tier-3 100-document indexing pass — process findings
+---
+
+## Unresolved
+
+### 7. Quoted multi-item replacement text mis-nested as top-level siblings
+
+Found while investigating item #2 above (2026-07-31) — a parser shape issue, not a per-document data problem, so it isn't a bounded checklist the way #1–3 are. When an amending Điều quotes a foreign document's replacement text that itself spans *multiple* numbered Khoản (e.g. a quoted `"Điều 8. ... 1. ... 2. ... 9. ..."` block), only the quoted block's *first* line carries a leading quote-mark character. That's the only signal the parser currently uses to keep quoted content from being read as real structure (see `document-node.parser.ts`'s handling of lines starting with `“`/`"`) — every subsequent quoted line has no such marker, so a quoted khoản-numbered item can be picked up by `KHOAN_PATTERN` and inserted as a new top-level sibling Khoản of the *amending* Điều, rather than staying nested inside the quoted block it actually belongs to.
+
+**Confirmed example:** `61/2014/QH13`, Điều 1 (quotes a full replacement "Điều 8" from Luật Hàng không dân dụng, itself containing Khoản 1–9).
+
+**Needed:** track quote-open/quote-close state across lines (open on a leading `“`/`"`, close on a trailing `”`/`"`) so everything inside a quoted span is treated as opaque text of the node that opened the quote, regardless of what it looks like structurally. Not attempted yet — likely affects other "Luật sửa đổi, bổ sung" documents beyond the one confirmed case, but the actual scope (how many) hasn't been surveyed.
+
+### 8. Tier-3 100-document indexing pass — process findings
 
 Run 2026-07-31 to index the first 100 Pháp lệnh (tier 3) documents and evaluate the pipeline end to end. Two tooling bugs surfaced before any document sync happened, both in `server/src/law-index/crawl/`:
 
 - **`GET /laws/index/crawl/search`'s `pageSize` filter was silently ignored.** `VbplClientService.searchDocuments`'s `selectPageSize()` ran *before* the actual filtered search was submitted — against the page's initial, unfiltered result list — so vbpl.vn reset the page size back to its default (10/page) the moment the real search executed. A request for `pageSize=100` came back as a 10-item page with `pageSize: 10` in the response, with no error. **Fixed:** moved the `selectPageSize()` call to after the search submits (and re-waits for the resulting response), before the page-jump step. Verified live: `pageSize=100` now correctly returns 100 items.
-- **A stuck/broken Playwright page required a full server restart to recover from.** The port-3000 dev server was returning bare `500`s for `crawl/search` before any of today's code changes — root cause not fully diagnosed (`VbplClientService` caches its browser `page` indefinitely via `getPage()`, with no health check or recovery path if that page ends up in a bad state after some earlier failure). A process restart cleared it. **Not fixed** — `getPage()` should detect a dead/broken page (e.g. `page.isClosed()`, or a wrapping try/recreate around the navigation calls) and recreate it rather than requiring an operator to notice and restart the whole process.
+- **A stuck/broken Playwright page required a full server restart to recover from.** The port-3000 dev server was returning bare `500`s for `crawl/search` before any of today's code changes — root cause not fully diagnosed (`VbplClientService` caches its browser `page` indefinitely via `getPage()`, with no health check or recovery path if that page ends up in a bad state after some earlier failure). A process restart cleared it. **Not fixed** — `getPage()` should detect a dead/broken page (e.g. `page.isClosed()`, or a wrapping try/recreate around the navigation calls) and recreate it rather than requiring an operator to notice and restart the whole process. This is the reason this section stays under "Unresolved" despite most of its findings being closed.
 
-Batch outcome once both were resolved: 100/100 requests succeeded at the HTTP level (0 errors) — 97 changed, 1 already up to date, 2 skipped as citation collisions with an existing, confirmed-not-`còn hiệu lực` document (the established §5/§6 skip-don't-overwrite guard working as designed, not a new issue). Of the 98 persisted documents, `document_node` build succeeded for 96; the other 2 are the known §3 attributes-leak bug (see `section=3` in the CSV) — no new `document_node`-parsing failure modes found in this batch. One document (`01/2018/UBNVQH14`) has what looks like a citation typo on vbpl.vn's own side (`UBNVQH` instead of `UBTVQH`) — left as-is (citations are stored verbatim per this module's existing convention; unlike issuing_body there's no Điều-4-derived ground truth to correct a citation string against), noted here only as an FYI.
+Batch outcome once both were resolved: 100/100 requests succeeded at the HTTP level (0 errors) — 97 changed, 1 already up to date, 2 skipped as citation collisions with an existing, confirmed-not-`còn hiệu lực` document (the established §4 skip-don't-overwrite guard working as designed, not a new issue). Of the 98 persisted documents, `document_node` build succeeded for 96; the other 2 (`11/2003/PL-UBTVQH11`, `15/2004/PL-UBTVQH11`) hit the §3 attributes-leak bug — since resolved, see §3 (now correctly `fullText: null`, no more `document_node` rows, since these 2 genuinely have no digitized body on vbpl.vn) — no other `document_node`-parsing failure modes found in this batch. One document (`01/2018/UBNVQH14`) has what looks like a citation typo on vbpl.vn's own side (`UBNVQH` instead of `UBTVQH`) — left as-is (citations are stored verbatim per this module's existing convention; unlike issuing_body there's no Điều-4-derived ground truth to correct a citation string against), noted here only as an FYI.
 
-**Both citation-collision skips, tracked individually** (per this doc's own convention — see §5 — every document the collision guard filters out gets a row in the CSV, not just a summary): checked each skipped candidate's title/enacted date (from the crawl-search result, since a skipped document is never persisted) against whatever already occupies that citation. Both turned out to be §5's already-documented "harmless duplicate" case — vbpl.vn serving the exact same law (identical title, identical enacted date) under two different internal ids/URLs — not a genuine two-different-laws-share-one-citation collision like the historical `Không số`/reused-batch-number cases. No action needed, but recorded so the skip isn't silently unaccounted for.
+**Both citation-collision skips, tracked individually** (per this doc's own convention — see §4 — every document the collision guard filters out gets a row in the CSV, not just a summary): checked each skipped candidate's title/enacted date (from the crawl-search result, since a skipped document is never persisted) against whatever already occupies that citation. Both turned out to be §4's already-documented "harmless duplicate" case — vbpl.vn serving the exact same law (identical title, identical enacted date) under two different internal ids/URLs — not a genuine two-different-laws-share-one-citation collision like the historical `Không số`/reused-batch-number cases. No action needed, but recorded so the skip isn't silently unaccounted for.
 
-Affected documents: 2 rows, `law-index-flagged-documents.csv` (`section=9`).
+Affected documents: 2 rows, `law-index-flagged-documents.csv` (`section=8`).
 
 ---
 
