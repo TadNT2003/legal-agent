@@ -58,10 +58,10 @@ export class LawIndexService {
     const { documentId, changed } = await this.repo.upsertDocument(parsed);
     await this.repo.upsertRelations(documentId, parsed);
     try {
-      await this.repo.extractPreambleReferences(documentId, parsed.fullText);
+      await this.repo.extractTextReferences(documentId, parsed);
     } catch (err) {
       this.logger.warn(
-        `Failed to extract preamble references for ${url}: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to extract text references for ${url}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
     try {

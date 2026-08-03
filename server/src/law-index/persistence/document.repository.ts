@@ -57,6 +57,11 @@ function computeContentVersion(parsed: ParsedVbplDocument): string {
   return hash.digest('hex');
 }
 
+/** Matches citation patterns in body text: "104/2016/QH13", "78/2025/NĐ-CP", "03/2009/TT-BNG", "203/2025/QH15", "216-NQ-QHK4". */
+const CITATION_RE =
+  /\b(\d{1,3}\/\d{4}\/(?:[A-Z]{2,5}(?:-\d+)?-CP|TT-[A-Z]{2,5}|QH\d+|NQ-[A-ZĐ]{1,3}\d+|QĐ-[A-Z]{2,5}))\b/;
+const CITATION_RE_GLOBAL = new RegExp(CITATION_RE.source, 'g');
+
 const VALIDITY_STATUS_MAP: Record<
   string,
   (typeof document.$inferInsert)['status']
@@ -354,13 +359,24 @@ export class DocumentRepository {
   }
 
   /**
-   * Extracts "Căn cứ" (legal basis) references from the document's preamble
-   * text. The preamble is the block between the document-type heading
-   * ("NGHỊ ĐỊNH", "LUẬT", "THÔNG TƯ", ...) and the first "Chương" header.
-   * Each "Căn cứ ..." line that contains a citation becomes a `has_basis`
-   * reference. Only inserts rows that don't already exist from vbpl.vn data.
+   * Extracts all text-based references: "Căn cứ" preamble lines as
+   * `has_basis`, and inline body citations classified by surrounding
+   * context keywords. Only inserts rows that don't already exist from
+   * vbpl.vn data.
    */
-  async extractPreambleReferences(
+  async extractTextReferences(
+    thisDocumentId: string,
+    parsed: ParsedVbplDocument,
+  ): Promise<void> {
+    await this.extractPreambleReferences(thisDocumentId, parsed.fullText);
+    await this.extractBodyReferences(
+      thisDocumentId,
+      parsed.fullText,
+      parsed.attributes.citation,
+    );
+  }
+
+  private async extractPreambleReferences(
     thisDocumentId: string,
     fullText: string,
   ): Promise<void> {
@@ -404,7 +420,9 @@ export class DocumentRepository {
     }
     if (docTypePos === -1) return null;
     const afterDocType = fullText.substring(docTypePos);
-    const firstChapter = afterDocType.search(/[\n\r]\s*CHƯƠNG\s*\d+[.\s]/i);
+    const firstChapter = afterDocType.search(
+      /[\n\r]\s*CHƯƠNG\s*[\dIVXLC]+[.\s]/i,
+    );
     if (firstChapter === -1) {
       return afterDocType.trim();
     }
@@ -414,10 +432,65 @@ export class DocumentRepository {
   private extractCitationFromBody(text: string): string | null {
     const citation = extractCitationFromTitle(text);
     if (citation) return citation;
-    const directMatch = text.match(
-      /\b(\d{1,3}\/\d{4}\/(?:[A-Z]{2,5}(?:-\d+)?-CP|TT-[A-Z]{2,5}|QH\d+|NQ-[A-ZĐ]{1,3}\d+|QĐ-[A-Z]{2,5}))\b/g,
-    );
+    const directMatch = text.match(CITATION_RE);
     return directMatch ? directMatch[0] : null;
+  }
+
+  /**
+   * Scans the document body (post-preamble) for inline citations to other
+   * documents. Each match is classified by contextual keywords surrounding
+   * the citation: "sửa đổi"/"bãi bỏ"/"thay thế" → amends/repeals,
+   * "quy định tại"/"theo Điều" → cites (default).
+   */
+  private async extractBodyReferences(
+    thisDocumentId: string,
+    fullText: string,
+    ownCitationId: string,
+  ): Promise<void> {
+    const bodyStart = this.findBodyStart(fullText);
+    if (bodyStart === -1) return;
+    const body = fullText.substring(bodyStart);
+
+    const matches = [...body.matchAll(CITATION_RE_GLOBAL)];
+    const seen = new Set<string>();
+    for (const m of matches) {
+      const citation = m[0];
+      if (citation === ownCitationId || seen.has(citation)) continue;
+
+      const contextStart = Math.max(0, m.index - 80);
+      const contextEnd = Math.min(
+        body.length,
+        (m.index || 0) + citation.length + 80,
+      );
+      const context = body.substring(contextStart, contextEnd).toLowerCase();
+
+      const refType = this.classifyBodyReference(context);
+      if (refType === null) continue;
+
+      const targetId = await this.findDocumentIdByCitation(citation);
+      await this.insertReferenceIfNotExists({
+        sourceDocumentId: thisDocumentId,
+        targetDocumentId: targetId,
+        referenceType: refType,
+        changeType: null,
+        rawCitationText: context.trim(),
+      });
+      seen.add(citation);
+    }
+  }
+
+  private findBodyStart(fullText: string): number {
+    const chapterMatch = fullText.match(/[\n\r]\s*CHƯƠNG\s*[\dIVXLC]+[.\s]/i);
+    return chapterMatch ? chapterMatch.index! + chapterMatch[0].length : -1;
+  }
+
+  private classifyBodyReference(context: string): VbplReferenceType | null {
+    if (/sửa\s+đổi|bổ\s*sung/.test(context)) return 'amends';
+    if (/bãi\s+bỏ|hết\s+hiệu\s+lực/.test(context)) return 'repeals';
+    if (/thay\s+thế/.test(context)) return 'amends';
+    if (/đính\s+chính/.test(context)) return 'corrects';
+    if (/hướng\s+dẫn/.test(context)) return 'guides';
+    return 'cites';
   }
 
   /**
