@@ -140,6 +140,10 @@ interface DocumentRawSource {
 export class DocumentRepository {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
+  getDb(): DrizzleDb {
+    return this.db;
+  }
+
   async findDocumentIdByCitation(citation: string): Promise<string | null> {
     const row = await this.db.query.document.findFirst({
       where: eq(document.citationId, citation),
