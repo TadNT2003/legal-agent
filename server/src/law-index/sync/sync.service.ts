@@ -3,7 +3,7 @@ import { eq, isNull } from 'drizzle-orm';
 import { DocumentRepository } from '../persistence/document.repository';
 import { document, documentReference } from '../persistence/schema';
 import { extractCitationFromTitle } from '../crawl/vbpl.parser';
-import type { SyncRefsResultItem } from '../dto/sync-refs-response.dto';
+import type { SyncRefsResultItem } from './dto/sync-refs-response.dto';
 
 @Injectable()
 export class SyncService {

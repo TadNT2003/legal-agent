@@ -8,9 +8,9 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
-import { SyncRefsByCitationDto } from '../dto/sync-refs-by-citation.dto';
-import { SyncRefsByCitationResponseDto } from '../dto/sync-refs-response.dto';
-import { SyncRefsAllResponseDto } from '../dto/sync-refs-all-response.dto';
+import { SyncRefsByCitationDto } from './dto/sync-refs-by-citation.dto';
+import { SyncRefsByCitationResponseDto } from './dto/sync-refs-response.dto';
+import { SyncRefsAllResponseDto } from './dto/sync-refs-all-response.dto';
 import { SyncService } from './sync.service';
 
 @ApiTags('law-index')
