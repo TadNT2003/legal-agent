@@ -5,14 +5,17 @@ import { parseVbplPage, parseVbplSearchPage } from './crawl/vbpl.parser';
 import type {
   VbplSearchFilters,
   VbplSearchResult,
+  VbplSearchResultItem,
 } from './crawl/vbpl-document.interface';
 import { DocumentRepository } from './persistence/document.repository';
 import { DocumentNodeRepository } from './persistence/document-node.repository';
+import type { SearchSyncDocumentsDto } from './dto/search-sync-documents.dto';
 
 export interface SyncDocumentResult {
   documentId: string | null;
   changed: boolean;
   skippedReason?: string;
+  healedReferences: number;
 }
 
 export interface SyncSummary {
@@ -50,11 +53,19 @@ export class LawIndexService {
         documentId: null,
         changed: false,
         skippedReason: `scope=${parsed.scope}`,
+        healedReferences: 0,
       };
     }
 
     const { documentId, changed } = await this.repo.upsertDocument(parsed);
     await this.repo.upsertRelations(documentId, parsed);
+    try {
+      await this.repo.extractTextReferences(documentId, parsed);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to extract text references for ${url}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     try {
       await this.nodeRepo.syncNodes(documentId, parsed, changed);
     } catch (err) {
@@ -65,7 +76,8 @@ export class LawIndexService {
         `Failed to build document_node tree for ${url}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    return { documentId, changed };
+    const healedReferences = await this.repo.healDanglingReferences();
+    return { documentId, changed, healedReferences };
   }
 
   /**
@@ -91,6 +103,7 @@ export class LawIndexService {
         } else {
           summary.synced += 1;
         }
+        summary.healedReferences += result.healedReferences;
       } catch (err) {
         summary.errors.push({
           url,
@@ -134,6 +147,7 @@ export class LawIndexService {
           } else {
             summary.synced += 1;
           }
+          summary.healedReferences += result.healedReferences;
         } catch (err) {
           summary.errors.push({
             url,
@@ -156,5 +170,108 @@ export class LawIndexService {
   async searchDocuments(filters: VbplSearchFilters): Promise<VbplSearchResult> {
     const raw = await this.client.searchDocuments(filters);
     return parseVbplSearchPage(raw);
+  }
+
+  /**
+   * Searches vbpl.vn with the given filters, then syncs each matched document
+   * into Postgres. Per-document failures are collected into `errors` rather
+   * than aborting. When `dryRun` is true, only the search results are returned.
+   */
+  async searchAndSyncDocuments(filters: SearchSyncDocumentsDto): Promise<{
+    total: number;
+    page: number;
+    pageSize: number;
+    items: Array<
+      VbplSearchResultItem & {
+        syncResult:
+          | { documentId: string; changed: boolean }
+          | { skippedReason: string }
+          | { error: string }
+          | null;
+      }
+    >;
+    synced: number;
+    skipped: number;
+    healedReferences: number;
+    errors: Array<{ url: string; error: string }>;
+  }> {
+    const searchResult = await this.searchDocuments(filters);
+
+    const items: Array<
+      VbplSearchResultItem & {
+        syncResult:
+          | { documentId: string; changed: boolean }
+          | { skippedReason: string }
+          | { error: string }
+          | null;
+      }
+    > = [];
+
+    let synced = 0;
+    let skipped = 0;
+    let healedReferences = 0;
+    const errors: Array<{ url: string; error: string }> = [];
+
+    if (!filters.dryRun) {
+      const maxResults = filters.maxResults ?? 50;
+      const toSync = searchResult.items.slice(0, maxResults);
+
+      for (const item of toSync) {
+        try {
+          const result = await this.syncDocument(item.sourceUrl);
+          if (result.skippedReason) {
+            skipped += 1;
+            items.push({
+              ...item,
+              syncResult: { skippedReason: result.skippedReason },
+            });
+          } else {
+            synced += 1;
+            healedReferences += result.healedReferences;
+            items.push({
+              ...item,
+              syncResult: {
+                documentId: result.documentId!,
+                changed: result.changed,
+              },
+            });
+          }
+        } catch (err) {
+          errors.push({
+            url: item.sourceUrl,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          items.push({
+            ...item,
+            syncResult: {
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
+        }
+      }
+
+      // Final heal pass across all dangling refs
+      healedReferences = await this.repo.healDanglingReferences();
+
+      // Append any remaining search items that weren't synced (exceeded maxResults)
+      for (const item of searchResult.items.slice(maxResults)) {
+        items.push({ ...item, syncResult: null });
+      }
+    } else {
+      for (const item of searchResult.items) {
+        items.push({ ...item, syncResult: null });
+      }
+    }
+
+    return {
+      total: searchResult.total,
+      page: searchResult.page,
+      pageSize: searchResult.pageSize,
+      items,
+      synced,
+      skipped,
+      healedReferences,
+      errors,
+    };
   }
 }

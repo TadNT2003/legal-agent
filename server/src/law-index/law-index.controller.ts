@@ -9,6 +9,8 @@ import {
 import { BatchSyncDocumentDto } from './dto/batch-sync-document.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
 import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
+import { SearchSyncDocumentsDto } from './dto/search-sync-documents.dto';
+import { SearchSyncDocumentsResponseDto } from './dto/search-sync-documents-response.dto';
 import { SyncAllDto } from './dto/sync-all.dto';
 import { SyncDocumentDto } from './dto/sync-document.dto';
 import { SyncDocumentResponseDto } from './dto/sync-document-response.dto';
@@ -89,4 +91,23 @@ export class LawIndexController {
     return this.service.searchDocuments(dto);
   }
 
+  @ApiOperation({
+    summary: 'Search vbpl.vn and sync matched documents into Postgres',
+    description:
+      'Combines the vbpl.vn filter search with automatic sync. Searches vbpl.vn/van-ban/trung-uong ' +
+      'using the same filters as GET /laws/index/crawl/search, then syncs each matched document ' +
+      'into Postgres (document upsert, vbpl.vn relations, text-based reference extraction, node tree ' +
+      'sync, and dangling reference healing). Per-document failures are collected into `errors` rather ' +
+      'than aborting the batch. Use `maxResults` to cap how many documents to sync, and `dryRun=true` ' +
+      'to only return search results without syncing.',
+  })
+  @ApiOkResponse({ type: SearchSyncDocumentsResponseDto })
+  @ApiBadGatewayResponse({
+    description:
+      'vbpl.vn failed to load or render the search page (network error, timeout, or unexpected DOM shape).',
+  })
+  @Post('crawl/search')
+  searchAndSync(@Body() dto: SearchSyncDocumentsDto) {
+    return this.service.searchAndSyncDocuments(dto);
   }
+}

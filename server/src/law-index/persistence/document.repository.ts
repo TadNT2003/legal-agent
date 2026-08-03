@@ -57,6 +57,11 @@ function computeContentVersion(parsed: ParsedVbplDocument): string {
   return hash.digest('hex');
 }
 
+/** Matches citation patterns in body text: "104/2016/QH13", "78/2025/NĐ-CP", "03/2009/TT-BNG", "203/2025/QH15", "216-NQ-QHK4". */
+const CITATION_RE =
+  /\b(\d{1,3}\/\d{4}\/(?:[A-Z]{2,5}(?:-\d+)?-CP|TT-[A-Z]{2,5}|QH\d+|NQ-[A-ZĐ]{1,3}\d+|QĐ-[A-Z]{2,5}))\b/;
+const CITATION_RE_GLOBAL = new RegExp(CITATION_RE.source, 'g');
+
 const VALIDITY_STATUS_MAP: Record<
   string,
   (typeof document.$inferInsert)['status']
@@ -100,6 +105,20 @@ function mapValidityStatus(
 export interface UpsertResult {
   documentId: string;
   changed: boolean;
+}
+
+export interface ReferenceRow {
+  id: string;
+  sourceDocumentId: string | null;
+  sourceCitationId: string | null;
+  sourceTitle: string | null;
+  targetDocumentId: string | null;
+  targetCitationId: string | null;
+  targetTitle: string | null;
+  referenceType: string;
+  changeType: string | null;
+  rawCitationText: string;
+  createdAt: string;
 }
 
 /** Shape written into document.rawSource on every upsert (see upsertDocument
@@ -340,13 +359,265 @@ export class DocumentRepository {
   }
 
   /**
+   * Extracts all text-based references: "Căn cứ" preamble lines as
+   * `has_basis`, and inline body citations classified by surrounding
+   * context keywords. Only inserts rows that don't already exist from
+   * vbpl.vn data.
+   */
+  async extractTextReferences(
+    thisDocumentId: string,
+    parsed: ParsedVbplDocument,
+  ): Promise<void> {
+    await this.extractPreambleReferences(thisDocumentId, parsed.fullText);
+    await this.extractBodyReferences(
+      thisDocumentId,
+      parsed.fullText,
+      parsed.attributes.citation,
+    );
+  }
+
+  private async extractPreambleReferences(
+    thisDocumentId: string,
+    fullText: string,
+  ): Promise<void> {
+    const preamble = this.extractPreambleBlock(fullText);
+    if (!preamble) return;
+
+    const lines = preamble.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.toLowerCase().startsWith('căn cứ')) continue;
+      const citation = this.extractCitationFromBody(trimmed);
+      if (!citation) continue;
+      const targetId = await this.findDocumentIdByCitation(citation);
+      await this.insertReferenceIfNotExists({
+        sourceDocumentId: thisDocumentId,
+        targetDocumentId: targetId,
+        referenceType: 'has_basis',
+        changeType: null,
+        rawCitationText: trimmed,
+      });
+    }
+  }
+
+  private extractPreambleBlock(fullText: string): string | null {
+    const upper = fullText.toUpperCase();
+    const docTypeMarkers = [
+      'NGHỊ ĐỊNH',
+      'LUẬT',
+      'THÔNG TƯ',
+      'QUYẾT ĐỊNH',
+      'LỆNH',
+      'PHÁP LỆNH',
+      'NGHỊ QUYẾT',
+    ];
+    let docTypePos = -1;
+    for (const marker of docTypeMarkers) {
+      const idx = upper.indexOf(marker);
+      if (idx !== -1 && (docTypePos === -1 || idx < docTypePos)) {
+        docTypePos = idx;
+      }
+    }
+    if (docTypePos === -1) return null;
+    const afterDocType = fullText.substring(docTypePos);
+    const firstChapter = afterDocType.search(
+      /[\n\r]\s*CHƯƠNG\s*[\dIVXLC]+[.\s]/i,
+    );
+    if (firstChapter === -1) {
+      return afterDocType.trim();
+    }
+    return afterDocType.substring(0, firstChapter).trim();
+  }
+
+  private extractCitationFromBody(text: string): string | null {
+    const citation = extractCitationFromTitle(text);
+    if (citation) return citation;
+    const directMatch = text.match(CITATION_RE);
+    return directMatch ? directMatch[0] : null;
+  }
+
+  /**
+   * Scans the document body (post-preamble) for inline citations to other
+   * documents. Each match is classified by contextual keywords surrounding
+   * the citation: "sửa đổi"/"bãi bỏ"/"thay thế" → amends/repeals,
+   * "quy định tại"/"theo Điều" → cites (default).
+   */
+  private async extractBodyReferences(
+    thisDocumentId: string,
+    fullText: string,
+    ownCitationId: string,
+  ): Promise<void> {
+    const bodyStart = this.findBodyStart(fullText);
+    if (bodyStart === -1) return;
+    const body = fullText.substring(bodyStart);
+
+    const matches = [...body.matchAll(CITATION_RE_GLOBAL)];
+    const seen = new Set<string>();
+    for (const m of matches) {
+      const citation = m[0];
+      if (citation === ownCitationId || seen.has(citation)) continue;
+
+      const contextStart = Math.max(0, m.index - 80);
+      const contextEnd = Math.min(
+        body.length,
+        (m.index || 0) + citation.length + 80,
+      );
+      const context = body.substring(contextStart, contextEnd).toLowerCase();
+
+      const refType = this.classifyBodyReference(context);
+      if (refType === null) continue;
+
+      const targetId = await this.findDocumentIdByCitation(citation);
+      await this.insertReferenceIfNotExists({
+        sourceDocumentId: thisDocumentId,
+        targetDocumentId: targetId,
+        referenceType: refType,
+        changeType: null,
+        rawCitationText: context.trim(),
+      });
+      seen.add(citation);
+    }
+  }
+
+  private findBodyStart(fullText: string): number {
+    const chapterMatch = fullText.match(/[\n\r]\s*CHƯƠNG\s*[\dIVXLC]+[.\s]/i);
+    return chapterMatch ? chapterMatch.index! + chapterMatch[0].length : -1;
+  }
+
+  private classifyBodyReference(context: string): VbplReferenceType | null {
+    if (/sửa\s+đổi|bổ\s*sung/.test(context)) return 'amends';
+    if (/bãi\s+bỏ|hết\s+hiệu\s+lực/.test(context)) return 'repeals';
+    if (/thay\s+thế/.test(context)) return 'amends';
+    if (/đính\s+chính/.test(context)) return 'corrects';
+    if (/hướng\s+dẫn/.test(context)) return 'guides';
+    return 'cites';
+  }
+
+  /**
+   * Fetches document_reference rows for a given document, optionally
+   * filtered by direction and reference type. Joins source/target
+   * document metadata into each row.
+   */
+  async findReferences(
+    documentId: string,
+    direction: 'outgoing' | 'incoming' | 'all' = 'outgoing',
+    referenceType?: string,
+  ): Promise<{
+    citationId: string;
+    title: string;
+    references: ReferenceRow[];
+  }> {
+    const docInfo = await this.db.query.document.findFirst({
+      where: eq(document.id, documentId),
+      columns: { citationId: true, title: true },
+    });
+    if (!docInfo) {
+      throw new Error(`Document ${documentId} not found`);
+    }
+
+    const conditions: SQL[] = [];
+    if (direction === 'outgoing') {
+      conditions.push(eq(documentReference.sourceDocumentId, documentId));
+    } else if (direction === 'incoming') {
+      conditions.push(eq(documentReference.targetDocumentId, documentId));
+    } else {
+      const orResult = or(
+        eq(documentReference.sourceDocumentId, documentId),
+        eq(documentReference.targetDocumentId, documentId),
+      );
+      if (orResult) conditions.push(orResult);
+    }
+    if (referenceType) {
+      conditions.push(
+        eq(
+          documentReference.referenceType,
+          referenceType as (typeof documentReference.$inferInsert)['referenceType'],
+        ),
+      );
+    }
+
+    const where = conditions.length > 1 ? and(...conditions) : conditions[0];
+
+    const refs = await this.db
+      .select({
+        id: documentReference.id,
+        sourceDocumentId: documentReference.sourceDocumentId,
+        targetDocumentId: documentReference.targetDocumentId,
+        referenceType: documentReference.referenceType,
+        changeType: documentReference.changeType,
+        rawCitationText: documentReference.rawCitationText,
+        createdAt: documentReference.createdAt,
+      })
+      .from(documentReference)
+      .where(where)
+      .orderBy(documentReference.createdAt);
+
+    const sourceIds = refs
+      .map((r) => r.sourceDocumentId)
+      .filter((id): id is string => id !== null && id !== documentId);
+    const targetIds = refs
+      .map((r) => r.targetDocumentId)
+      .filter((id): id is string => id !== null && id !== documentId);
+    const allRelatedIds = [...new Set([...sourceIds, ...targetIds])];
+
+    const docMap = new Map<string, { citationId: string; title: string }>();
+    docMap.set(documentId, {
+      citationId: docInfo.citationId,
+      title: docInfo.title,
+    });
+    if (allRelatedIds.length > 0) {
+      const relatedDocs = await this.db
+        .select({
+          id: document.id,
+          citationId: document.citationId,
+          title: document.title,
+        })
+        .from(document)
+        .where(inArray(document.id, allRelatedIds));
+      for (const d of relatedDocs) {
+        docMap.set(d.id, { citationId: d.citationId, title: d.title });
+      }
+    }
+
+    const references: ReferenceRow[] = refs.map((ref) => {
+      const src = ref.sourceDocumentId
+        ? (docMap.get(ref.sourceDocumentId) ?? null)
+        : null;
+      const tgt = ref.targetDocumentId
+        ? (docMap.get(ref.targetDocumentId) ?? null)
+        : null;
+      return {
+        id: ref.id,
+        sourceDocumentId: ref.sourceDocumentId,
+        sourceCitationId: src?.citationId ?? null,
+        sourceTitle: src?.title ?? null,
+        targetDocumentId: ref.targetDocumentId,
+        targetCitationId: tgt?.citationId ?? null,
+        targetTitle: tgt?.title ?? null,
+        referenceType: ref.referenceType,
+        changeType: ref.changeType,
+        rawCitationText: ref.rawCitationText,
+        createdAt: ref.createdAt.toISOString(),
+      };
+    });
+
+    return {
+      citationId: docInfo.citationId,
+      title: docInfo.title,
+      references,
+    };
+  }
+
+  /**
    * Search locally synced documents in Postgres. Converts dd/mm/yyyy date
    * strings to yyyy-MM-dd for DB comparison.
    */
   async searchLocalDocuments(
-    filters: Omit<VbplSearchFilters, 'documentGroups' | 'expiredFrom' | 'expiredTo'>,
+    filters: Omit<
+      VbplSearchFilters,
+      'documentGroups' | 'expiredFrom' | 'expiredTo'
+    >,
   ): Promise<VbplSearchResult> {
-
     const conditions: SQL[] = [];
 
     if (filters.keyword) {
@@ -358,9 +629,7 @@ export class DocumentRepository {
       const scope = filters.searchScope ?? 'tieu-de';
       const matches: SQL[] = [];
       if (scope === 'noi-dung') {
-        matches.push(
-          sql`raw_source->>'fullText' ILIKE ${keywordLike}`,
-        );
+        matches.push(sql`raw_source->>'fullText' ILIKE ${keywordLike}`);
       }
       if (scope === 'tieu-de') {
         matches.push(ilike(document.title, keywordLike));
@@ -485,6 +754,64 @@ export class DocumentRepository {
           validityStatus: mapDbStatusToDisplay(row.status),
         };
       }),
+    };
+  }
+
+  /** List issuing bodies with optional keyword/scope filters and document counts. */
+  async findIssuingBodies(filters: {
+    keyword?: string;
+    scope?: 'national' | 'local';
+  }): Promise<{
+    items: Array<{
+      id: string;
+      name: string;
+      nameEn: string | null;
+      authorityRank: number;
+      scope: 'national' | 'local';
+      parentBodyId: string | null;
+      documentCount: number;
+    }>;
+    total: number;
+  }> {
+    const conditions: SQL[] = [];
+
+    if (filters.keyword) {
+      conditions.push(ilike(issuingBody.name, `%${filters.keyword}%`));
+    }
+
+    if (filters.scope) {
+      conditions.push(eq(issuingBody.scope, filters.scope));
+    }
+
+    const rows = await this.db
+      .select({
+        id: issuingBody.id,
+        name: issuingBody.name,
+        nameEn: issuingBody.nameEn,
+        authorityRank: issuingBody.authorityRank,
+        scope: issuingBody.scope,
+        parentBodyId: issuingBody.parentBodyId,
+        documentCount: sql<number>`count(${document.id})`,
+      })
+      .from(issuingBody)
+      .leftJoin(document, eq(issuingBody.id, document.issuingBodyId))
+      .where(conditions.length ? and(...conditions) : undefined)
+      .groupBy(
+        issuingBody.id,
+        issuingBody.name,
+        issuingBody.nameEn,
+        issuingBody.authorityRank,
+        issuingBody.scope,
+        issuingBody.parentBodyId,
+      )
+      .orderBy(issuingBody.authorityRank, issuingBody.name);
+
+    return {
+      items: rows.map((row) => ({
+        ...row,
+        documentCount: Number(row.documentCount),
+      })),
+      total: rows.length,
     };
   }
 }
