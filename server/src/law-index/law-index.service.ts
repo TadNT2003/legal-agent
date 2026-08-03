@@ -13,6 +13,7 @@ export interface SyncDocumentResult {
   documentId: string | null;
   changed: boolean;
   skippedReason?: string;
+  healedReferences: number;
 }
 
 export interface SyncSummary {
@@ -50,6 +51,7 @@ export class LawIndexService {
         documentId: null,
         changed: false,
         skippedReason: `scope=${parsed.scope}`,
+        healedReferences: 0,
       };
     }
 
@@ -65,7 +67,8 @@ export class LawIndexService {
         `Failed to build document_node tree for ${url}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    return { documentId, changed };
+    const healedReferences = await this.repo.healDanglingReferences();
+    return { documentId, changed, healedReferences };
   }
 
   /**
@@ -91,6 +94,7 @@ export class LawIndexService {
         } else {
           summary.synced += 1;
         }
+        summary.healedReferences += result.healedReferences;
       } catch (err) {
         summary.errors.push({
           url,
@@ -134,6 +138,7 @@ export class LawIndexService {
           } else {
             summary.synced += 1;
           }
+          summary.healedReferences += result.healedReferences;
         } catch (err) {
           summary.errors.push({
             url,
