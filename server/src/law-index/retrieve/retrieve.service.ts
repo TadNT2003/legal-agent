@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import type { VbplSearchResult } from '../crawl/vbpl-document.interface';
+import type {
+  RetrieveIssuingBodiesDto,
+  RetrieveIssuingBodiesResponseDto,
+} from '../dto/retrieve-issuing-bodies.dto';
 import { RetrieveNodeDto } from '../dto/retrieve-node.dto';
 import { RetrieveReferencesDto } from '../dto/retrieve-references.dto';
 import type { RetrieveReferencesResponseDto } from '../dto/retrieve-references-response.dto';
@@ -40,6 +44,12 @@ export class RetrieveService {
       total: result.references.length,
       references: result.references,
     };
+  }
+
+  async findIssuingBodies(
+    dto: RetrieveIssuingBodiesDto,
+  ): Promise<RetrieveIssuingBodiesResponseDto> {
+    return this.repo.findIssuingBodies(dto);
   }
 
   /**

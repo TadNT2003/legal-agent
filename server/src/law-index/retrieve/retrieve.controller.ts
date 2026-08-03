@@ -6,6 +6,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { SearchDocumentsResponseDto } from '../dto/search-documents-response.dto';
+import { RetrieveIssuingBodiesDto } from '../dto/retrieve-issuing-bodies.dto';
+import { RetrieveIssuingBodiesResponseDto } from '../dto/retrieve-issuing-bodies.dto';
 import { RetrieveNodeDto } from '../dto/retrieve-node.dto';
 import { RetrieveNodeResponseDto } from '../dto/retrieve-node-response.dto';
 import { RetrieveReferencesDto } from '../dto/retrieve-references.dto';
@@ -96,5 +98,18 @@ export class RetrieveController {
   @Get('references')
   async retrieveReferences(@Query() dto: RetrieveReferencesDto) {
     return this.service.findReferences(dto);
+  }
+
+  @ApiOperation({
+    summary: 'List issuing bodies with document counts',
+    description:
+      'Returns all issuing bodies from the local index, ordered by ' +
+      'authority rank (lower = higher authority). Filter by `keyword` for ' +
+      'case-insensitive name search, or by `scope` for "national"/"local".',
+  })
+  @ApiOkResponse({ type: RetrieveIssuingBodiesResponseDto })
+  @Get('issuing-bodies')
+  async retrieveIssuingBodies(@Query() dto: RetrieveIssuingBodiesDto) {
+    return this.service.findIssuingBodies(dto);
   }
 }

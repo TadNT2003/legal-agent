@@ -756,6 +756,64 @@ export class DocumentRepository {
       }),
     };
   }
+
+  /** List issuing bodies with optional keyword/scope filters and document counts. */
+  async findIssuingBodies(filters: {
+    keyword?: string;
+    scope?: 'national' | 'local';
+  }): Promise<{
+    items: Array<{
+      id: string;
+      name: string;
+      nameEn: string | null;
+      authorityRank: number;
+      scope: 'national' | 'local';
+      parentBodyId: string | null;
+      documentCount: number;
+    }>;
+    total: number;
+  }> {
+    const conditions: SQL[] = [];
+
+    if (filters.keyword) {
+      conditions.push(ilike(issuingBody.name, `%${filters.keyword}%`));
+    }
+
+    if (filters.scope) {
+      conditions.push(eq(issuingBody.scope, filters.scope));
+    }
+
+    const rows = await this.db
+      .select({
+        id: issuingBody.id,
+        name: issuingBody.name,
+        nameEn: issuingBody.nameEn,
+        authorityRank: issuingBody.authorityRank,
+        scope: issuingBody.scope,
+        parentBodyId: issuingBody.parentBodyId,
+        documentCount: sql<number>`count(${document.id})`,
+      })
+      .from(issuingBody)
+      .leftJoin(document, eq(issuingBody.id, document.issuingBodyId))
+      .where(conditions.length ? and(...conditions) : undefined)
+      .groupBy(
+        issuingBody.id,
+        issuingBody.name,
+        issuingBody.nameEn,
+        issuingBody.authorityRank,
+        issuingBody.scope,
+        issuingBody.parentBodyId,
+      )
+      .orderBy(issuingBody.authorityRank, issuingBody.name);
+
+    return {
+      items: rows.map((row) => ({
+        ...row,
+        documentCount: Number(row.documentCount),
+      })),
+      total: rows.length,
+    };
+  }
 }
 
 /** Convert yyyy-MM-dd (DB date string mode) to dd/mm/yyyy display format. */
