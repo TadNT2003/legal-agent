@@ -55,9 +55,22 @@ export class VbplClientService implements OnModuleDestroy {
   ) {}
 
   async onModuleDestroy(): Promise<void> {
+    await this.closeBrowserResources();
+  }
+
+  private async closeBrowserResources(): Promise<void> {
     await this.page?.close().catch(() => undefined);
     await this.context?.close().catch(() => undefined);
     await this.browser?.close().catch(() => undefined);
+  }
+
+  /** Tears down the cached browser/context/page so the next getPage() call
+   * launches a completely fresh one — see withPageRetry. */
+  private async resetPage(): Promise<void> {
+    await this.closeBrowserResources();
+    this.browser = null;
+    this.context = null;
+    this.page = null;
   }
 
   assertTrustedDocumentUrl(url: string): URL {
@@ -87,23 +100,23 @@ export class VbplClientService implements OnModuleDestroy {
   /** Loads all 4 relevant tabs for one document and returns the raw (uninterpreted) extraction. */
   async fetchDocument(url: string): Promise<RawVbplPage> {
     this.assertTrustedDocumentUrl(url);
-    const page = await this.getPage();
 
-    await this.throttledGoto(page, url);
+    // Each throttledGoto call may replace the shared page with a fresh one
+    // (see withPageRetry) — always use the page it just returned, not one
+    // captured earlier, or a mid-flow retry would leave later steps
+    // operating on a closed/stale page.
+    let page = await this.throttledGoto(url);
     const { scope, title, fullText } = await page.evaluate(
       extractScopeTitleAndFullText,
     );
 
-    const attributesUrl = withTabQuery(url, 'thuoc-tinh');
-    await this.throttledGoto(page, attributesUrl);
+    page = await this.throttledGoto(withTabQuery(url, 'thuoc-tinh'));
     const attributes = await page.evaluate(extractAttributes);
 
-    const relationsUrl = withTabQuery(url, 'luoc-do');
-    await this.throttledGoto(page, relationsUrl);
+    page = await this.throttledGoto(withTabQuery(url, 'luoc-do'));
     const relations = await page.evaluate(extractRelations);
 
-    const originalDocumentUrl = withTabQuery(url, 'hien-thi-pdf');
-    await this.throttledGoto(page, originalDocumentUrl);
+    page = await this.throttledGoto(withTabQuery(url, 'hien-thi-pdf'));
     // The file list is lazy-rendered by the AntD Collapse (empty until
     // expanded) — confirmed live. A real Playwright click (rather than
     // calling .click() inside page.evaluate) so its own actionability
@@ -144,7 +157,6 @@ export class VbplClientService implements OnModuleDestroy {
    * vbpl.parser.ts's parseVbplSearchPage turns this into typed results.
    */
   async searchDocuments(filters: VbplSearchFilters): Promise<string> {
-    const page = await this.getPage();
     await this.throttle();
 
     const searchUrl = `${this.config.vbplBaseUrl}/van-ban/trung-uong`;
@@ -171,29 +183,31 @@ export class VbplClientService implements OnModuleDestroy {
         })
         .catch(() => undefined);
     };
-    page.on('response', onResponse);
+
+    // withPageRetry may swap in a fresh page on retry — the listener has to
+    // move with it (attached inside the attempt, removed if that attempt
+    // fails) so a retry doesn't leave a stale listener on a closed page.
+    const page = await this.withPageRetry(
+      `Loading ${searchUrl}`,
+      async (p) => {
+        p.on('response', onResponse);
+        try {
+          const response = await p.goto(searchUrl, {
+            waitUntil: 'domcontentloaded',
+          });
+          if (!response || !response.ok()) {
+            throw new Error(`HTTP ${response?.status() ?? 'unknown'}`);
+          }
+          await p.waitForSelector('.ant-collapse-item', { timeout: 15000 });
+          return p;
+        } catch (err) {
+          p.off('response', onResponse);
+          throw err;
+        }
+      },
+    );
 
     try {
-      const response = await page
-        .goto(searchUrl, { waitUntil: 'domcontentloaded' })
-        .catch((err) => {
-          throw new BadGatewayException(
-            `Failed to load ${searchUrl}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        });
-      if (!response || !response.ok()) {
-        throw new BadGatewayException(
-          `Failed to load ${searchUrl}: HTTP ${response?.status() ?? 'unknown'}`,
-        );
-      }
-      await page
-        .waitForSelector('.ant-collapse-item', { timeout: 15000 })
-        .catch((err) => {
-          throw new BadGatewayException(
-            `Loaded ${searchUrl} but its filter panel never rendered: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        });
-
       return await this.applyFiltersAndCollect(
         page,
         filters,
@@ -459,6 +473,47 @@ export class VbplClientService implements OnModuleDestroy {
     return this.page;
   }
 
+  /**
+   * Runs `attemptFn` against the current (or lazily-launched) shared page,
+   * retrying exactly once against a completely fresh browser/context/page if
+   * the first attempt throws. Closes the resilience gap where the single
+   * cached `page` getting into a degraded/stuck state (from an earlier
+   * navigation failure) previously took down every subsequent call on this
+   * service instance until an operator noticed and restarted the whole
+   * process — confirmed live: a 653-document re-sync batch saw runs of
+   * consecutive slow/unresponsive requests (client-side timeouts with no
+   * response at all) immediately following an isolated 15s render-wait
+   * timeout, recovering only once something eventually reset the shared
+   * page's state on its own. A second failure still throws
+   * BadGatewayException rather than retrying further — this bounds recovery
+   * to one retry, not an infinite loop against a genuinely unreachable page.
+   */
+  private async withPageRetry<T>(
+    description: string,
+    attemptFn: (page: Page) => Promise<T>,
+  ): Promise<T> {
+    const page = await this.getPage();
+    try {
+      return await attemptFn(page);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `${description} failed (${message}) — recreating the browser page and retrying once`,
+      );
+      await this.resetPage();
+      const freshPage = await this.getPage();
+      try {
+        return await attemptFn(freshPage);
+      } catch (retryErr) {
+        const retryMessage =
+          retryErr instanceof Error ? retryErr.message : String(retryErr);
+        throw new BadGatewayException(
+          `${description} failed even after recreating the browser page: ${retryMessage}`,
+        );
+      }
+    }
+  }
+
   private async throttle(): Promise<void> {
     const elapsed = Date.now() - this.lastRequestAt;
     if (elapsed < this.config.requestDelayMs) {
@@ -474,27 +529,22 @@ export class VbplClientService implements OnModuleDestroy {
   // a documented Playwright pitfall, not specific to this site). Waiting for
   // the tab content itself to render is both faster and actually tied to
   // what we need, instead of an unrelated (and unreliable) global signal.
-  private async throttledGoto(page: Page, url: string): Promise<void> {
+  //
+  // Returns the Page actually used (see withPageRetry) — callers must use
+  // this return value for subsequent operations rather than a page reference
+  // captured earlier, since a retry may have replaced it with a fresh one.
+  private async throttledGoto(url: string): Promise<Page> {
     await this.throttle();
-    const response = await page
-      .goto(url, { waitUntil: 'domcontentloaded' })
-      .catch((err) => {
-        throw new BadGatewayException(
-          `Failed to load ${url}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+    return this.withPageRetry(`Navigation to ${url}`, async (page) => {
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
+      if (!response || !response.ok()) {
+        throw new Error(`HTTP ${response?.status() ?? 'unknown'}`);
+      }
+      await page.waitForSelector('.ant-tabs-tabpane-active', {
+        timeout: 15000,
       });
-    if (!response || !response.ok()) {
-      throw new BadGatewayException(
-        `Failed to load ${url}: HTTP ${response?.status() ?? 'unknown'}`,
-      );
-    }
-    await page
-      .waitForSelector('.ant-tabs-tabpane-active', { timeout: 15000 })
-      .catch((err) => {
-        throw new BadGatewayException(
-          `Loaded ${url} but its content never rendered: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+      return page;
+    });
   }
 }
 
