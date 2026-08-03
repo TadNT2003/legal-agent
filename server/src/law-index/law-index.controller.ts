@@ -6,15 +6,15 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { BatchSyncDocumentDto } from './dto/batch-sync-document.dto';
-import { SearchDocumentsDto } from './dto/search-documents.dto';
+import { BatchSyncDocumentDto } from './crawl/dto/batch-sync-document.dto';
+import { SearchDocumentsDto } from './crawl/dto/search-documents.dto';
 import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
-import { SearchSyncDocumentsDto } from './dto/search-sync-documents.dto';
-import { SearchSyncDocumentsResponseDto } from './dto/search-sync-documents-response.dto';
-import { SyncAllDto } from './dto/sync-all.dto';
-import { SyncDocumentDto } from './dto/sync-document.dto';
-import { SyncDocumentResponseDto } from './dto/sync-document-response.dto';
-import { SyncSummaryResponseDto } from './dto/sync-summary-response.dto';
+import { SearchSyncDocumentsDto } from './crawl/dto/search-sync-documents.dto';
+import { SearchSyncDocumentsResponseDto } from './crawl/dto/search-sync-documents-response.dto';
+import { SyncAllDto } from './crawl/dto/sync-all.dto';
+import { SyncDocumentDto } from './crawl/dto/sync-document.dto';
+import { SyncDocumentResponseDto } from './crawl/dto/sync-document-response.dto';
+import { SyncSummaryResponseDto } from './crawl/dto/sync-summary-response.dto';
 import { LawIndexService } from './law-index.service';
 
 @ApiTags('law-index')

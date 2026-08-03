@@ -9,7 +9,7 @@ import type {
 } from './crawl/vbpl-document.interface';
 import { DocumentRepository } from './persistence/document.repository';
 import { DocumentNodeRepository } from './persistence/document-node.repository';
-import type { SearchSyncDocumentsDto } from './dto/search-sync-documents.dto';
+import type { SearchSyncDocumentsDto } from './crawl/dto/search-sync-documents.dto';
 
 export interface SyncDocumentResult {
   documentId: string | null;

@@ -6,13 +6,15 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { SearchDocumentsResponseDto } from '../dto/search-documents-response.dto';
-import { RetrieveIssuingBodiesDto } from '../dto/retrieve-issuing-bodies.dto';
-import { RetrieveIssuingBodiesResponseDto } from '../dto/retrieve-issuing-bodies.dto';
-import { RetrieveNodeDto } from '../dto/retrieve-node.dto';
-import { RetrieveNodeResponseDto } from '../dto/retrieve-node-response.dto';
-import { RetrieveReferencesDto } from '../dto/retrieve-references.dto';
-import { RetrieveReferencesResponseDto } from '../dto/retrieve-references-response.dto';
-import { RetrieveSearchDto } from '../dto/retrieve-search.dto';
+import {
+  RetrieveIssuingBodiesDto,
+  RetrieveIssuingBodiesResponseDto,
+} from './dto/retrieve-issuing-bodies.dto';
+import { RetrieveNodeDto } from './dto/retrieve-node.dto';
+import { RetrieveNodeResponseDto } from './dto/retrieve-node-response.dto';
+import { RetrieveReferencesDto } from './dto/retrieve-references.dto';
+import { RetrieveReferencesResponseDto } from './dto/retrieve-references-response.dto';
+import { RetrieveSearchDto } from './dto/retrieve-search.dto';
 import { RetrieveService } from './retrieve.service';
 
 @ApiTags('law-index')

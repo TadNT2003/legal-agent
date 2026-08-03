@@ -14,7 +14,8 @@ export const NODE_TYPE_OPTIONS = [
 
 export class RetrieveNodeDto {
   @ApiProperty({
-    description: 'Document UUID (from `GET /laws/index/retrieve` results or crawl sync).',
+    description:
+      'Document UUID (from `GET /laws/index/retrieve` results or crawl sync).',
   })
   @IsUUID('4')
   documentId: string;

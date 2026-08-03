@@ -3,15 +3,15 @@ import type { VbplSearchResult } from '../crawl/vbpl-document.interface';
 import type {
   RetrieveIssuingBodiesDto,
   RetrieveIssuingBodiesResponseDto,
-} from '../dto/retrieve-issuing-bodies.dto';
-import { RetrieveNodeDto } from '../dto/retrieve-node.dto';
-import { RetrieveReferencesDto } from '../dto/retrieve-references.dto';
-import type { RetrieveReferencesResponseDto } from '../dto/retrieve-references-response.dto';
-import { RetrieveSearchDto } from '../dto/retrieve-search.dto';
+} from './dto/retrieve-issuing-bodies.dto';
+import { RetrieveNodeDto } from './dto/retrieve-node.dto';
+import { RetrieveReferencesDto } from './dto/retrieve-references.dto';
+import type { RetrieveReferencesResponseDto } from './dto/retrieve-references-response.dto';
+import { RetrieveSearchDto } from './dto/retrieve-search.dto';
 import type {
   RetrieveNodeItemDto,
   RetrieveNodeResponseDto,
-} from '../dto/retrieve-node-response.dto';
+} from './dto/retrieve-node-response.dto';
 import { DocumentRepository } from '../persistence/document.repository';
 import {
   DocumentNodeRepository,
