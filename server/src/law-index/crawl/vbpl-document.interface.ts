@@ -34,11 +34,14 @@ export interface RawVbplPage {
   fullText: string | null;
   attributes: RawAttributeEntry[];
   relations: RawRelationSection[];
-  /** Filenames listed on the "Văn bản gốc" tab (e.g. "VanBanGoc_106.2016.QH13.pdf")
-   * — present on every document, not just the no-"Nội dung"-tab ones. Empty
-   * array if vbpl.vn reports zero files. vbpl.parser.ts's
-   * buildOriginalDocumentUrl turns each into a real download URL. */
-  originalDocumentFilenames: string[];
+  /** Direct download URLs for the "Văn bản gốc" tab's scanned original
+   * file(s) — present on every document, not just the no-"Nội dung"-tab
+   * ones. Captured straight off the network response (see
+   * vbpl-client.service.ts's fetchOriginalDocumentUrls), not reconstructed
+   * from a scraped filename — the tab renders in more than one DOM shape
+   * and a filename isn't reliably present in all of them. Empty array if
+   * vbpl.vn reports zero files. */
+  originalDocumentUrls: string[];
 }
 
 // ---- Parsed / domain shapes (vbpl.parser.ts output) ----

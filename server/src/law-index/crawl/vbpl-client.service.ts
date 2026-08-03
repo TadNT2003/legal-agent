@@ -13,6 +13,7 @@ import {
   DISALLOWED_PATH_PREFIXES,
   REQUEST_USER_AGENT,
   VBPL_HOST,
+  VBPL_ORIGINAL_DOCUMENT_HOST,
 } from './constants';
 import type {
   RawAttributeEntry,
@@ -116,21 +117,7 @@ export class VbplClientService implements OnModuleDestroy {
     page = await this.throttledGoto(withTabQuery(url, 'luoc-do'));
     const relations = await page.evaluate(extractRelations);
 
-    page = await this.throttledGoto(withTabQuery(url, 'hien-thi-pdf'));
-    // The file list is lazy-rendered by the AntD Collapse (empty until
-    // expanded) — confirmed live. A real Playwright click (rather than
-    // calling .click() inside page.evaluate) so its own actionability
-    // waiting covers the collapse's expand animation; absent entirely on a
-    // document with zero original files (not observed live yet, but the
-    // "Danh sách văn bản gốc (N file)" heading implies N can be 0).
-    await page
-      .locator('.ant-tabs-tabpane-active .ant-collapse-header')
-      .first()
-      .click({ timeout: 5000 })
-      .catch(() => undefined);
-    const originalDocumentFilenames = await page.evaluate(
-      extractOriginalDocumentFilenames,
-    );
+    const originalDocumentUrls = await this.fetchOriginalDocumentUrls(url);
 
     return {
       sourceUrl: url,
@@ -139,8 +126,81 @@ export class VbplClientService implements OnModuleDestroy {
       fullText,
       attributes,
       relations,
-      originalDocumentFilenames,
+      originalDocumentUrls,
     };
+  }
+
+  /**
+   * Loads the "Văn bản gốc" tab and returns every distinct scanned-original
+   * download URL vbpl.vn's own PDF viewer fetches from the MoJ MinIO
+   * gateway — captured directly off the network response rather than
+   * reconstructed from a DOM-scraped filename + internal id.
+   *
+   * Confirmed live this is the only reliable signal: the tab renders in at
+   * least two different DOM shapes depending on vbpl.vn's own logic — a
+   * "Danh sách văn bản gốc (N file)" collapse+list for some documents, a
+   * bare embedded PDF viewer with *no list at all* for others (both cases
+   * observed on real single-file documents) — and the file-list-scraping
+   * approach this replaced silently returned `[]` for the latter shape
+   * regardless of whether a real file existed underneath.
+   */
+  private async fetchOriginalDocumentUrls(url: string): Promise<string[]> {
+    await this.throttle();
+    const tabUrl = withTabQuery(url, 'hien-thi-pdf');
+    const isOriginalDocResponse = (res: Response) =>
+      res
+        .url()
+        .includes(
+          `${VBPL_ORIGINAL_DOCUMENT_HOST}/api/qtdc/public/doc/minio/buckets/vbpl/`,
+        );
+
+    const urls = new Set<string>();
+    const onResponse = (res: Response) => {
+      if (isOriginalDocResponse(res)) urls.add(res.url());
+    };
+
+    await this.withPageRetry(`Loading ${tabUrl}`, async (page) => {
+      page.on('response', onResponse);
+      try {
+        const response = await page.goto(tabUrl, {
+          waitUntil: 'domcontentloaded',
+        });
+        if (!response || !response.ok()) {
+          throw new Error(`HTTP ${response?.status() ?? 'unknown'}`);
+        }
+        await page.waitForSelector('.ant-tabs-tabpane-active', {
+          timeout: 15000,
+        });
+        // Multi-file documents show a collapse+list; only the first file
+        // auto-fetches on tab load, so click through the rest to trigger
+        // their own fetches too. Single-file documents (either DOM shape)
+        // already auto-fetch on mount — these clicks are then a harmless
+        // no-op (or at worst re-trigger the same fetch, deduped by the Set
+        // above).
+        await page
+          .locator('.ant-tabs-tabpane-active .ant-collapse-header')
+          .first()
+          .click({ timeout: 5000 })
+          .catch(() => undefined);
+        const items = page.locator('.ant-tabs-tabpane-active .ant-list-item');
+        const itemCount = await items.count().catch(() => 0);
+        for (let i = 0; i < itemCount; i++) {
+          await items
+            .nth(i)
+            .click({ timeout: 5000 })
+            .catch(() => undefined);
+        }
+        // response events for a fetch triggered by the actions above arrive
+        // asynchronously, not synchronously within those calls — give the
+        // last one a moment to actually land. Absent entirely (no error) on
+        // a document with zero original files.
+        await page.waitForTimeout(1500);
+      } finally {
+        page.off('response', onResponse);
+      }
+    });
+
+    return Array.from(urls);
   }
 
   /**
@@ -635,19 +695,3 @@ function extractRelations(): RawRelationSection[] {
     .filter((s) => s.categoryLabel);
 }
 
-/**
- * The "Văn bản gốc" tab's file-list items carry no href in the DOM (same
- * click-handler-not-a-link pattern as everywhere else on this site) — the
- * filename is the only thing readable directly, so that's all this extracts
- * (dumb/uninterpreted, per this section's convention); vbpl.parser.ts
- * combines it with the document's own internal id to build the real
- * download URL. Each item renders as "<filename>\nKích thước: <size>" —
- * only the first line is the filename.
- */
-function extractOriginalDocumentFilenames(): string[] {
-  const pane = document.querySelector('.ant-tabs-tabpane-active');
-  if (!pane) return [];
-  return Array.from(pane.querySelectorAll('.ant-list-item'))
-    .map((item) => (item as HTMLElement).innerText.split('\n')[0].trim())
-    .filter(Boolean);
-}

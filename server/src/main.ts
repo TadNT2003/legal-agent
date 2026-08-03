@@ -6,6 +6,13 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  // Without this, Nest never calls OnModuleDestroy on SIGTERM/SIGINT — so
+  // VbplClientService's cleanup (closing its Playwright browser/context/page)
+  // never runs on process shutdown, graceful or not, and every dev-server
+  // restart orphans its browser. Confirmed live: 50 orphaned chrome.exe
+  // processes accumulated across a single day's restarts before this was
+  // caught (see docs/monitoring/law-index-flagged-documents.md).
+  app.enableShutdownHooks();
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

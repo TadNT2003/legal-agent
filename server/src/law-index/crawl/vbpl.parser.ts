@@ -1,4 +1,4 @@
-import { VBPL_HOST, VBPL_ORIGINAL_DOCUMENT_HOST } from './constants';
+import { VBPL_HOST } from './constants';
 import type {
   ParsedVbplAttributes,
   ParsedVbplDocument,
@@ -382,33 +382,9 @@ export function parseRelations(raw: RawRelationSection[]): {
   };
 }
 
-/**
- * Builds the direct download URL for one "Văn bản gốc" file. The file-list
- * items carry no href in the DOM (see vbpl-client.service.ts's
- * extractOriginalDocumentFilenames) — this URL shape was instead recovered
- * by observing vbpl.vn's own PDF viewer's network requests live, confirmed
- * across multiple documents with different filename styles (e.g.
- * "VanBanGoc_106.2016.QH13.pdf", "Template.pdf"). `internalId` is vbpl.vn's
- * own document id (see extractVbplInternalId), which doubles as the storage
- * bucket's folder name.
- */
-export function buildOriginalDocumentUrl(
-  internalId: string,
-  filename: string,
-): string {
-  return `https://${VBPL_ORIGINAL_DOCUMENT_HOST}/api/qtdc/public/doc/minio/buckets/vbpl/${internalId}/${encodeURIComponent(filename)}/download`;
-}
-
 export function parseVbplPage(raw: RawVbplPage): ParsedVbplDocument {
   const attributes = parseAttributes(raw.attributes);
   const { relations, consolidation } = parseRelations(raw.relations);
-
-  const internalId = extractVbplInternalId(raw.sourceUrl);
-  const originalDocumentUrls = internalId
-    ? raw.originalDocumentFilenames.map((filename) =>
-        buildOriginalDocumentUrl(internalId, filename),
-      )
-    : [];
 
   return {
     sourceUrl: raw.sourceUrl,
@@ -418,7 +394,11 @@ export function parseVbplPage(raw: RawVbplPage): ParsedVbplDocument {
     attributes,
     relations,
     consolidation,
-    originalDocumentUrls,
+    // Already real, absolute download URLs by this point — captured
+    // directly off the network response in
+    // vbpl-client.service.ts's fetchOriginalDocumentUrls, not reconstructed
+    // here from a scraped filename (see that method's comment for why).
+    originalDocumentUrls: raw.originalDocumentUrls,
   };
 }
 
@@ -465,16 +445,37 @@ export function buildSearchResultUrl(id: string): string {
 }
 
 /**
- * Inverse of buildSearchResultUrl — pulls vbpl.vn's own internal document id
- * back out of a document detail URL (e.g. ".../van-ban--25506" -> "25506").
- * Used by document.repository.ts to disambiguate a citation that collides
- * with a different already-stored document (see docs/monitoring/law-index-flagged-documents.md
- * §5/§6 — "Không số" and reused pre-1998 batch citations are not unique on
- * vbpl.vn, but this id always is).
+ * Pulls vbpl.vn's own internal document id back out of a document detail
+ * URL. Used by document.repository.ts to disambiguate a citation that
+ * collides with a different already-stored document (see
+ * docs/monitoring/law-index-flagged-documents.md §4 — "Không số" and reused
+ * pre-1998 batch citations are not unique on vbpl.vn, but this id always is).
+ *
+ * Takes the text after the *last* "--" in the URL's final path segment —
+ * not a literal "van-ban--" prefix match. Two real shapes both need to work:
+ * buildSearchResultUrl's own synthetic placeholder slug
+ * (".../van-ban--101890") and vbpl.vn's real human-readable slugs from
+ * sitemap-discovered URLs (".../thong-tu-so-05-2026-tt-bgddt-...--101890").
+ * A prefix match on "van-ban--" only ever matched the former — confirmed
+ * live this silently broke id extraction for every sitemap-sourced document
+ * (~7% of the corpus at time of fix), all resolving to `null`, not just
+ * documents with vbpl.vn's newer UUID-style ids (e.g.
+ * "4978cbd0-6aee-11f1-980c-d3fdbd60ea75", which this also now handles — the
+ * id itself is opaque, taking whatever text follows the final "--"
+ * regardless of its shape).
  */
 export function extractVbplInternalId(url: string): string | null {
-  const match = url.match(/van-ban--(\d+)/);
-  return match ? match[1] : null;
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return null;
+  }
+  const lastSegment = pathname.split('/').filter(Boolean).pop();
+  if (!lastSegment) return null;
+  const parts = lastSegment.split('--');
+  if (parts.length < 2) return null;
+  return parts[parts.length - 1] || null;
 }
 
 /** "2024-01-18T00:00:00" -> "2024-01-18"; null/empty -> null. */

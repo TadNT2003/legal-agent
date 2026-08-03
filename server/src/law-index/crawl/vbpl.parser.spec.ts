@@ -1,5 +1,4 @@
 import {
-  buildOriginalDocumentUrl,
   buildSearchResultUrl,
   correctQuocHoiIssuingBody,
   extractCitationFromTitle,
@@ -331,7 +330,7 @@ describe('parseRelations', () => {
 });
 
 describe('parseVbplPage', () => {
-  it('combines scope/title/fullText/attributes/relations/consolidation', () => {
+  it('combines scope/title/fullText/attributes/relations/consolidation/originalDocumentUrls', () => {
     const raw: RawVbplPage = {
       sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/van-ban--101890',
       scope: 'trung-uong',
@@ -339,7 +338,12 @@ describe('parseVbplPage', () => {
       fullText: 'Điều 1. Phạm vi điều chỉnh...',
       attributes: ATTRIBUTES,
       relations: [],
-      originalDocumentFilenames: ['VanBanGoc_106.2016.QH13.pdf'],
+      // Already real, absolute URLs by the time vbpl-client.service.ts hands
+      // this off — captured off the network response, not a filename to
+      // reconstruct from (see fetchOriginalDocumentUrls).
+      originalDocumentUrls: [
+        'https://vbpl-bientap-gateway.moj.gov.vn/api/qtdc/public/doc/minio/buckets/vbpl/101890/VanBanGoc_106.2016.QH13.pdf/download',
+      ],
     };
     const parsed = parseVbplPage(raw);
     expect(parsed.scope).toBe('trung-uong');
@@ -351,12 +355,10 @@ describe('parseVbplPage', () => {
       consolidatesRawTitles: [],
       consolidatedIntoRawTitles: [],
     });
-    expect(parsed.originalDocumentUrls).toEqual([
-      'https://vbpl-bientap-gateway.moj.gov.vn/api/qtdc/public/doc/minio/buckets/vbpl/101890/VanBanGoc_106.2016.QH13.pdf/download',
-    ]);
+    expect(parsed.originalDocumentUrls).toEqual(raw.originalDocumentUrls);
   });
 
-  it('returns no originalDocumentUrls when the internal id cannot be extracted from sourceUrl', () => {
+  it('passes through an empty originalDocumentUrls unchanged', () => {
     const raw: RawVbplPage = {
       sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/example',
       scope: 'trung-uong',
@@ -364,25 +366,9 @@ describe('parseVbplPage', () => {
       fullText: 'Điều 1. Phạm vi điều chỉnh...',
       attributes: ATTRIBUTES,
       relations: [],
-      originalDocumentFilenames: ['some-file.pdf'],
+      originalDocumentUrls: [],
     };
     expect(parseVbplPage(raw).originalDocumentUrls).toEqual([]);
-  });
-});
-
-describe('buildOriginalDocumentUrl', () => {
-  it('builds the MinIO gateway download URL from internal id + filename', () => {
-    expect(buildOriginalDocumentUrl('104418', 'Template.pdf')).toBe(
-      'https://vbpl-bientap-gateway.moj.gov.vn/api/qtdc/public/doc/minio/buckets/vbpl/104418/Template.pdf/download',
-    );
-  });
-
-  it('percent-encodes filenames with spaces/diacritics', () => {
-    expect(
-      buildOriginalDocumentUrl('186981', 'VanBanGoc_Luật số 149.2025.pdf'),
-    ).toBe(
-      'https://vbpl-bientap-gateway.moj.gov.vn/api/qtdc/public/doc/minio/buckets/vbpl/186981/VanBanGoc_Lu%E1%BA%ADt%20s%E1%BB%91%20149.2025.pdf/download',
-    );
   });
 });
 
@@ -423,6 +409,34 @@ describe('extractVbplInternalId', () => {
     expect(
       extractVbplInternalId('https://vbpl.vn/van-ban/trung-uong'),
     ).toBeNull();
+  });
+
+  it('extracts the id from a real vbpl.vn human-readable-slug URL, not just the synthetic "van-ban--" placeholder', () => {
+    // Confirmed live: a prefix match on "van-ban--" only ever matched
+    // buildSearchResultUrl's own synthetic slug — sitemap-discovered URLs
+    // use vbpl.vn's real slug instead, silently breaking id extraction for
+    // every one of them.
+    expect(
+      extractVbplInternalId(
+        'https://vbpl.vn/van-ban/chi-tiet/thong-tu-so-05-2026-tt-bgddt-quy-dinh-che-do-lam-viec-doi-voi-nha-giao-giao-duc-nghe-nghiep--31de7cc0-898b-11f1-8268-a9294e958254',
+      ),
+    ).toBe('31de7cc0-898b-11f1-8268-a9294e958254');
+  });
+
+  it('extracts a UUID-style id (vbpl.vn\'s newer id scheme) the same as a legacy numeric one', () => {
+    expect(
+      extractVbplInternalId(
+        'https://vbpl.vn/van-ban/chi-tiet/van-ban--4978cbd0-6aee-11f1-980c-d3fdbd60ea75',
+      ),
+    ).toBe('4978cbd0-6aee-11f1-980c-d3fdbd60ea75');
+  });
+
+  it('extracts the id from a slug URL ending in a plain numeric id', () => {
+    expect(
+      extractVbplInternalId(
+        'https://vbpl.vn/van-ban/chi-tiet/quyet-dinh-so-06-2020-qd-ttg-ve-to-chuc-va-quan-ly-hoi-nghi-hoi-thao-quoc-te-tai-viet-nam--140940',
+      ),
+    ).toBe('140940');
   });
 });
 
