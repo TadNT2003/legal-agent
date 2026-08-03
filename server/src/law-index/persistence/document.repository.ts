@@ -240,6 +240,56 @@ export class DocumentRepository {
   }
 
   /**
+   * Update-only variant of upsertDocument. Fetches the document from the URL,
+   * looks up the existing DB row by citationId, and updates in place.
+   * Returns { notFound: true, citationId } if no matching document exists.
+   * Returns { unchanged: true, ... } if content_version is the same.
+   */
+  async updateDocument(parsed: ParsedVbplDocument): Promise<
+    | { notFound: true; citationId: string }
+    | {
+        notFound: false;
+        unchanged: true;
+        documentId: string;
+        citationId: string;
+      }
+    | {
+        notFound: false;
+        unchanged: false;
+        documentId: string;
+        citationId: string;
+        changed: boolean;
+      }
+  > {
+    const citationId = parsed.attributes.citation;
+    const existing = await this.db.query.document.findFirst({
+      where: eq(document.citationId, citationId),
+    });
+    if (!existing) {
+      return { notFound: true, citationId };
+    }
+
+    const contentVersion = computeContentVersion(parsed);
+    if (existing.contentVersion === contentVersion) {
+      return {
+        notFound: false,
+        unchanged: true,
+        documentId: existing.id,
+        citationId,
+      };
+    }
+
+    const result = await this.upsertDocument(parsed);
+    return {
+      notFound: false,
+      unchanged: false,
+      documentId: result.documentId,
+      citationId,
+      changed: result.changed,
+    };
+  }
+
+  /**
    * Persists relations from the outbound (this-document-is-source) side only.
    * An inbound-labeled relation (e.g. "Văn bản được thay thế") is the exact
    * mirror of another document's outbound relation ("Văn bản thay thế") — if
@@ -754,6 +804,71 @@ export class DocumentRepository {
           validityStatus: mapDbStatusToDisplay(row.status),
         };
       }),
+    };
+  }
+
+  /** Find a single document by UUID. */
+  async findOneById(documentId: string): Promise<{
+    id: string;
+    citationId: string;
+    title: string;
+    documentType: string;
+    issuingBody: string;
+    industry: string | null;
+    field: string | null;
+    signerName: string | null;
+    signerTitle: string | null;
+    enactedDate: string | null;
+    effectiveDate: string | null;
+    gazettePublishedDate: string | null;
+    status: (typeof document.$inferSelect)['status'];
+    isConsolidated: boolean;
+    consolidatesDocumentId: string | null;
+    sourceUrl: string;
+  } | null> {
+    const [row] = await this.db
+      .select({
+        id: document.id,
+        citationId: document.citationId,
+        title: document.title,
+        documentType: document.documentType,
+        issuingBody: issuingBody.name,
+        industry: document.industry,
+        field: document.field,
+        signerName: document.signerName,
+        signerTitle: document.signerTitle,
+        enactedDate: document.enactedDate,
+        effectiveDate: document.effectiveDate,
+        gazettePublishedDate: document.gazettePublishedDate,
+        status: document.status,
+        isConsolidated: document.isConsolidated,
+        consolidatesDocumentId: document.consolidatesDocumentId,
+        rawSource: document.rawSource,
+      })
+      .from(document)
+      .innerJoin(issuingBody, eq(document.issuingBodyId, issuingBody.id))
+      .where(eq(document.id, documentId));
+
+    if (!row) return null;
+
+    const rawSource = row.rawSource as { sourceUrl?: string } | null;
+    return {
+      id: row.id,
+      citationId: row.citationId,
+      title: row.title,
+      documentType: row.documentType,
+      issuingBody: row.issuingBody,
+      industry: row.industry,
+      field: row.field,
+      signerName: row.signerName,
+      signerTitle: row.signerTitle,
+      enactedDate: row.enactedDate,
+      effectiveDate: row.effectiveDate,
+      gazettePublishedDate: row.gazettePublishedDate,
+      status: row.status,
+      isConsolidated: row.isConsolidated,
+      consolidatesDocumentId: row.consolidatesDocumentId,
+      sourceUrl: rawSource?.sourceUrl ?? '',
     };
   }
 

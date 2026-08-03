@@ -1,5 +1,14 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
   ApiBadGatewayResponse,
   ApiCreatedResponse,
   ApiOkResponse,
@@ -14,6 +23,10 @@ import { SearchSyncDocumentsResponseDto } from './crawl/dto/search-sync-document
 import { SyncAllDto } from './crawl/dto/sync-all.dto';
 import { SyncDocumentDto } from './crawl/dto/sync-document.dto';
 import { SyncDocumentResponseDto } from './crawl/dto/sync-document-response.dto';
+import {
+  UpdateDocumentByUrlResultDto,
+  UpdateDocumentByUrlErrorDto,
+} from './crawl/dto/update-document-by-url-response.dto';
 import { SyncSummaryResponseDto } from './crawl/dto/sync-summary-response.dto';
 import { LawIndexService } from './law-index.service';
 
@@ -39,6 +52,35 @@ export class LawIndexController {
   @Post('crawl/url')
   syncDocument(@Body() dto: SyncDocumentDto) {
     return this.service.syncDocument(dto.url);
+  }
+
+  @ApiOperation({
+    summary: 'Update an existing document from vbpl.vn URL',
+    description:
+      'Scrapes the vbpl.vn document detail page (same as POST /crawl/url), ' +
+      'looks up the document in the local index by citationId, and updates it ' +
+      'in place if the content has changed (content_version differs). Does NOT ' +
+      'create new documents — returns 404 if the citation is not found in the ' +
+      'local index. Relations, text references, and node tree are also refreshed ' +
+      'on update.',
+  })
+  @ApiOkResponse({ type: UpdateDocumentByUrlResultDto })
+  @ApiBadRequestResponse({
+    type: UpdateDocumentByUrlErrorDto,
+    description:
+      'No matching document found in the local index for the citation extracted from the vbpl.vn page.',
+  })
+  @ApiBadGatewayResponse({
+    description:
+      'vbpl.vn failed to load or render the page (network error, timeout, or unexpected DOM shape).',
+  })
+  @Put('crawl/url')
+  async updateDocumentByUrl(@Body() dto: SyncDocumentDto) {
+    const result = await this.service.updateDocumentByUrl(dto.url);
+    if ('message' in result) {
+      throw new BadRequestException(result);
+    }
+    return result;
   }
 
   @ApiOperation({

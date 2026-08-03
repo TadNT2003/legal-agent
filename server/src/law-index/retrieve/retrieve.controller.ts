@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import {
   ApiOkResponse,
   ApiOperation,
@@ -6,6 +6,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { SearchDocumentsResponseDto } from '../dto/search-documents-response.dto';
+import { RetrieveDocumentResponseDto } from './dto/retrieve-document-response.dto';
 import {
   RetrieveIssuingBodiesDto,
   RetrieveIssuingBodiesResponseDto,
@@ -49,6 +50,26 @@ export class RetrieveController {
   @Get()
   search(@Query() dto: RetrieveSearchDto) {
     return this.service.search(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Retrieve a single document by ID',
+    description:
+      'Returns full metadata for a synced document by its internal UUID, ' +
+      'including citation, title, issuing body, dates, validity status, ' +
+      'consolidation info, and source URL.',
+  })
+  @ApiParam({
+    name: 'id',
+    required: true,
+    type: String,
+    description: 'Document UUID.',
+    example: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
+  })
+  @ApiOkResponse({ type: RetrieveDocumentResponseDto })
+  @Get(':id')
+  async retrieveById(@Param('id') id: string) {
+    return this.service.retrieveById(id);
   }
 
   @ApiOperation({

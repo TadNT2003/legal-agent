@@ -18,6 +18,19 @@ export interface SyncDocumentResult {
   healedReferences: number;
 }
 
+export interface UpdateDocumentByUrlResult {
+  documentId: string;
+  citationId: string;
+  changed: boolean;
+  healedReferences: number;
+}
+
+export interface UpdateDocumentByUrlError {
+  message: string;
+  citationId: string;
+  url: string;
+}
+
 export interface SyncSummary {
   totalUrls: number;
   synced: number;
@@ -78,6 +91,77 @@ export class LawIndexService {
     }
     const healedReferences = await this.repo.healDanglingReferences();
     return { documentId, changed, healedReferences };
+  }
+
+  /**
+   * Fetches a document from a vbpl.vn URL, finds the existing DB row by
+   * citationId, and updates it in place. Fails with a clear error if no
+   * matching document exists in the index. Does NOT create new documents.
+   */
+  async updateDocumentByUrl(
+    url: string,
+  ): Promise<UpdateDocumentByUrlResult | UpdateDocumentByUrlError> {
+    const raw = await this.client.fetchDocument(url);
+    const parsed = parseVbplPage(raw);
+
+    if (parsed.scope !== 'trung-uong') {
+      this.logger.warn(
+        `Skipping update ${url} — breadcrumb scope is "${parsed.scope}", not trung-uong`,
+      );
+      return {
+        message: `Document at URL has scope "${parsed.scope}", not trung-uong. Only trung-uong documents are indexed.`,
+        citationId: parsed.attributes.citation,
+        url,
+      };
+    }
+
+    const result = await this.repo.updateDocument(parsed);
+
+    if (result.notFound) {
+      this.logger.warn(
+        `Update failed: no document found for citation "${result.citationId}" (URL: ${url})`,
+      );
+      return {
+        message: `No document found in the index matching citation "${result.citationId}". Sync it first via POST /laws/index/crawl/url.`,
+        citationId: result.citationId,
+        url,
+      };
+    }
+
+    if (result.unchanged) {
+      this.logger.debug(
+        `Update skipped: document "${result.citationId}" unchanged (same content_version).`,
+      );
+      return {
+        documentId: result.documentId,
+        citationId: result.citationId,
+        changed: false,
+        healedReferences: 0,
+      };
+    }
+
+    await this.repo.upsertRelations(result.documentId, parsed);
+    try {
+      await this.repo.extractTextReferences(result.documentId, parsed);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to extract text references for update ${url}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    try {
+      await this.nodeRepo.syncNodes(result.documentId, parsed, true);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to update document_node tree for ${url}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const healedReferences = await this.repo.healDanglingReferences();
+    return {
+      documentId: result.documentId,
+      citationId: result.citationId,
+      changed: true,
+      healedReferences,
+    };
   }
 
   /**
