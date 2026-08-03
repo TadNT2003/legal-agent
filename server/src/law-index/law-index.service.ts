@@ -39,6 +39,15 @@ export interface SyncSummary {
   errors: Array<{ url: string; error: string }>;
 }
 
+export interface BatchUpdateSummary {
+  totalUrls: number;
+  updated: number;
+  unchanged: number;
+  healedReferences: number;
+  notFound: Array<{ url: string; citationId: string; message: string }>;
+  errors: Array<{ url: string; error: string }>;
+}
+
 @Injectable()
 export class LawIndexService {
   private readonly logger = new Logger(LawIndexService.name);
@@ -162,6 +171,49 @@ export class LawIndexService {
       changed: true,
       healedReferences,
     };
+  }
+
+  /**
+   * Updates a batch of documents from vbpl.vn URLs. Per-URL failures and
+   * not-found citations are collected rather than aborting the batch. Returns
+   * a summary with updated/unchanged/notFound/error counts and a final
+   * dangling-reference heal pass. Does NOT create new documents.
+   */
+  async updateDocumentsBatch(urls: string[]): Promise<BatchUpdateSummary> {
+    const summary: BatchUpdateSummary = {
+      totalUrls: urls.length,
+      updated: 0,
+      unchanged: 0,
+      healedReferences: 0,
+      notFound: [],
+      errors: [],
+    };
+
+    for (const url of urls) {
+      try {
+        const result = await this.updateDocumentByUrl(url);
+        if ('message' in result) {
+          summary.notFound.push({
+            url,
+            citationId: result.citationId,
+            message: result.message,
+          });
+        } else if (result.changed) {
+          summary.updated += 1;
+          summary.healedReferences += result.healedReferences;
+        } else {
+          summary.unchanged += 1;
+        }
+      } catch (err) {
+        summary.errors.push({
+          url,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    summary.healedReferences = await this.repo.healDanglingReferences();
+    return summary;
   }
 
   /**

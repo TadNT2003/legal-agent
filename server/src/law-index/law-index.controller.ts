@@ -16,6 +16,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { BatchSyncDocumentDto } from './crawl/dto/batch-sync-document.dto';
+import { BatchUpdateSummaryResponseDto } from './crawl/dto/batch-update-by-url-response.dto';
 import { SearchDocumentsDto } from './crawl/dto/search-documents.dto';
 import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
 import { SearchSyncDocumentsDto } from './crawl/dto/search-sync-documents.dto';
@@ -81,6 +82,26 @@ export class LawIndexController {
       throw new BadRequestException(result);
     }
     return result;
+  }
+
+  @ApiOperation({
+    summary: 'Update a batch of existing documents from vbpl.vn URLs',
+    description:
+      'Same as PUT /laws/index/crawl/url, for up to 100 vbpl.vn document ' +
+      'detail page URLs at once. Only updates documents that already exist in ' +
+      'the local index by citationId — does NOT create new documents. Per-URL ' +
+      'failures and not-found citations are collected rather than aborting the ' +
+      'whole batch. After processing all URLs, a cleanup pass heals any ' +
+      'dangling document_reference rows.',
+  })
+  @ApiOkResponse({ type: BatchUpdateSummaryResponseDto })
+  @ApiBadGatewayResponse({
+    description:
+      'vbpl.vn failed to load or render a page (network error, timeout, or unexpected DOM shape). Individual URL failures are collected, the batch still completes.',
+  })
+  @Put('crawl/batch')
+  updateDocumentsBatch(@Body() dto: BatchSyncDocumentDto) {
+    return this.service.updateDocumentsBatch(dto.urls.map((u) => u.url));
   }
 
   @ApiOperation({
