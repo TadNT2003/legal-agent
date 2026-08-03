@@ -1,8 +1,15 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import {
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 import { SearchDocumentsResponseDto } from '../dto/search-documents-response.dto';
 import { RetrieveNodeDto } from '../dto/retrieve-node.dto';
 import { RetrieveNodeResponseDto } from '../dto/retrieve-node-response.dto';
+import { RetrieveReferencesDto } from '../dto/retrieve-references.dto';
+import { RetrieveReferencesResponseDto } from '../dto/retrieve-references-response.dto';
 import { RetrieveSearchDto } from '../dto/retrieve-search.dto';
 import { RetrieveService } from './retrieve.service';
 
@@ -53,18 +60,41 @@ export class RetrieveController {
       '\n- `nodeId`: returns the single node and its subtree by UUID. ' +
       '\n\n' +
       'Each node includes `fullText` — the reconstructed vbpl.vn-style text ' +
-      'containing the node\'s label, heading, own content, and all descendant text recursively.',
+      "containing the node's label, heading, own content, and all descendant text recursively.",
   })
   @ApiParam({
     name: 'documentId',
     required: true,
     type: String,
-    description: 'Document UUID (from `GET /laws/index/retrieve` results or crawl sync).',
+    description:
+      'Document UUID (from `GET /laws/index/retrieve` results or crawl sync).',
     example: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
   })
   @ApiOkResponse({ type: RetrieveNodeResponseDto })
   @Get('nodes')
   async retrieveNode(@Query() dto: RetrieveNodeDto) {
     return this.service.retrieveNode(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Retrieve document references (relations)',
+    description:
+      'Returns the document_reference rows for a synced document, showing ' +
+      'which other documents it cites, amends, repeals, etc. or which documents ' +
+      'reference it. Defaults to outgoing references only. Use `direction=all` ' +
+      'to get both directions, or `direction=incoming` for references pointing to ' +
+      'this document. Filter by `referenceType` for a specific relation type.',
+  })
+  @ApiParam({
+    name: 'documentId',
+    required: true,
+    type: String,
+    description: 'Document UUID.',
+    example: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
+  })
+  @ApiOkResponse({ type: RetrieveReferencesResponseDto })
+  @Get('references')
+  async retrieveReferences(@Query() dto: RetrieveReferencesDto) {
+    return this.service.findReferences(dto);
   }
 }

@@ -102,6 +102,20 @@ export interface UpsertResult {
   changed: boolean;
 }
 
+export interface ReferenceRow {
+  id: string;
+  sourceDocumentId: string | null;
+  sourceCitationId: string | null;
+  sourceTitle: string | null;
+  targetDocumentId: string | null;
+  targetCitationId: string | null;
+  targetTitle: string | null;
+  referenceType: string;
+  changeType: string | null;
+  rawCitationText: string;
+  createdAt: string;
+}
+
 /** Shape written into document.rawSource on every upsert (see upsertDocument
  * below) — kept here so searchLocalDocuments can read it back without an
  * `any` cast. Note there is no expiry-date field: vbpl.vn's "Ngày hết hiệu
@@ -340,13 +354,130 @@ export class DocumentRepository {
   }
 
   /**
+   * Fetches document_reference rows for a given document, optionally
+   * filtered by direction and reference type. Joins source/target
+   * document metadata into each row.
+   */
+  async findReferences(
+    documentId: string,
+    direction: 'outgoing' | 'incoming' | 'all' = 'outgoing',
+    referenceType?: string,
+  ): Promise<{
+    citationId: string;
+    title: string;
+    references: ReferenceRow[];
+  }> {
+    const docInfo = await this.db.query.document.findFirst({
+      where: eq(document.id, documentId),
+      columns: { citationId: true, title: true },
+    });
+    if (!docInfo) {
+      throw new Error(`Document ${documentId} not found`);
+    }
+
+    const conditions: SQL[] = [];
+    if (direction === 'outgoing') {
+      conditions.push(eq(documentReference.sourceDocumentId, documentId));
+    } else if (direction === 'incoming') {
+      conditions.push(eq(documentReference.targetDocumentId, documentId));
+    } else {
+      const orResult = or(
+        eq(documentReference.sourceDocumentId, documentId),
+        eq(documentReference.targetDocumentId, documentId),
+      );
+      if (orResult) conditions.push(orResult);
+    }
+    if (referenceType) {
+      conditions.push(
+        eq(
+          documentReference.referenceType,
+          referenceType as (typeof documentReference.$inferInsert)['referenceType'],
+        ),
+      );
+    }
+
+    const where = conditions.length > 1 ? and(...conditions) : conditions[0];
+
+    const refs = await this.db
+      .select({
+        id: documentReference.id,
+        sourceDocumentId: documentReference.sourceDocumentId,
+        targetDocumentId: documentReference.targetDocumentId,
+        referenceType: documentReference.referenceType,
+        changeType: documentReference.changeType,
+        rawCitationText: documentReference.rawCitationText,
+        createdAt: documentReference.createdAt,
+      })
+      .from(documentReference)
+      .where(where)
+      .orderBy(documentReference.createdAt);
+
+    const sourceIds = refs
+      .map((r) => r.sourceDocumentId)
+      .filter((id): id is string => id !== null && id !== documentId);
+    const targetIds = refs
+      .map((r) => r.targetDocumentId)
+      .filter((id): id is string => id !== null && id !== documentId);
+    const allRelatedIds = [...new Set([...sourceIds, ...targetIds])];
+
+    const docMap = new Map<string, { citationId: string; title: string }>();
+    docMap.set(documentId, {
+      citationId: docInfo.citationId,
+      title: docInfo.title,
+    });
+    if (allRelatedIds.length > 0) {
+      const relatedDocs = await this.db
+        .select({
+          id: document.id,
+          citationId: document.citationId,
+          title: document.title,
+        })
+        .from(document)
+        .where(inArray(document.id, allRelatedIds));
+      for (const d of relatedDocs) {
+        docMap.set(d.id, { citationId: d.citationId, title: d.title });
+      }
+    }
+
+    const references: ReferenceRow[] = refs.map((ref) => {
+      const src = ref.sourceDocumentId
+        ? (docMap.get(ref.sourceDocumentId) ?? null)
+        : null;
+      const tgt = ref.targetDocumentId
+        ? (docMap.get(ref.targetDocumentId) ?? null)
+        : null;
+      return {
+        id: ref.id,
+        sourceDocumentId: ref.sourceDocumentId,
+        sourceCitationId: src?.citationId ?? null,
+        sourceTitle: src?.title ?? null,
+        targetDocumentId: ref.targetDocumentId,
+        targetCitationId: tgt?.citationId ?? null,
+        targetTitle: tgt?.title ?? null,
+        referenceType: ref.referenceType,
+        changeType: ref.changeType,
+        rawCitationText: ref.rawCitationText,
+        createdAt: ref.createdAt.toISOString(),
+      };
+    });
+
+    return {
+      citationId: docInfo.citationId,
+      title: docInfo.title,
+      references,
+    };
+  }
+
+  /**
    * Search locally synced documents in Postgres. Converts dd/mm/yyyy date
    * strings to yyyy-MM-dd for DB comparison.
    */
   async searchLocalDocuments(
-    filters: Omit<VbplSearchFilters, 'documentGroups' | 'expiredFrom' | 'expiredTo'>,
+    filters: Omit<
+      VbplSearchFilters,
+      'documentGroups' | 'expiredFrom' | 'expiredTo'
+    >,
   ): Promise<VbplSearchResult> {
-
     const conditions: SQL[] = [];
 
     if (filters.keyword) {
@@ -358,9 +489,7 @@ export class DocumentRepository {
       const scope = filters.searchScope ?? 'tieu-de';
       const matches: SQL[] = [];
       if (scope === 'noi-dung') {
-        matches.push(
-          sql`raw_source->>'fullText' ILIKE ${keywordLike}`,
-        );
+        matches.push(sql`raw_source->>'fullText' ILIKE ${keywordLike}`);
       }
       if (scope === 'tieu-de') {
         matches.push(ilike(document.title, keywordLike));
