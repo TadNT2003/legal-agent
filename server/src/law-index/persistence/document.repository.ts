@@ -354,6 +354,73 @@ export class DocumentRepository {
   }
 
   /**
+   * Extracts "Căn cứ" (legal basis) references from the document's preamble
+   * text. The preamble is the block between the document-type heading
+   * ("NGHỊ ĐỊNH", "LUẬT", "THÔNG TƯ", ...) and the first "Chương" header.
+   * Each "Căn cứ ..." line that contains a citation becomes a `has_basis`
+   * reference. Only inserts rows that don't already exist from vbpl.vn data.
+   */
+  async extractPreambleReferences(
+    thisDocumentId: string,
+    fullText: string,
+  ): Promise<void> {
+    const preamble = this.extractPreambleBlock(fullText);
+    if (!preamble) return;
+
+    const lines = preamble.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.toLowerCase().startsWith('căn cứ')) continue;
+      const citation = this.extractCitationFromBody(trimmed);
+      if (!citation) continue;
+      const targetId = await this.findDocumentIdByCitation(citation);
+      await this.insertReferenceIfNotExists({
+        sourceDocumentId: thisDocumentId,
+        targetDocumentId: targetId,
+        referenceType: 'has_basis',
+        changeType: null,
+        rawCitationText: trimmed,
+      });
+    }
+  }
+
+  private extractPreambleBlock(fullText: string): string | null {
+    const upper = fullText.toUpperCase();
+    const docTypeMarkers = [
+      'NGHỊ ĐỊNH',
+      'LUẬT',
+      'THÔNG TƯ',
+      'QUYẾT ĐỊNH',
+      'LỆNH',
+      'PHÁP LỆNH',
+      'NGHỊ QUYẾT',
+    ];
+    let docTypePos = -1;
+    for (const marker of docTypeMarkers) {
+      const idx = upper.indexOf(marker);
+      if (idx !== -1 && (docTypePos === -1 || idx < docTypePos)) {
+        docTypePos = idx;
+      }
+    }
+    if (docTypePos === -1) return null;
+    const afterDocType = fullText.substring(docTypePos);
+    const firstChapter = afterDocType.search(/[\n\r]\s*CHƯƠNG\s*\d+[.\s]/i);
+    if (firstChapter === -1) {
+      return afterDocType.trim();
+    }
+    return afterDocType.substring(0, firstChapter).trim();
+  }
+
+  private extractCitationFromBody(text: string): string | null {
+    const citation = extractCitationFromTitle(text);
+    if (citation) return citation;
+    const directMatch = text.match(
+      /\b(\d{1,3}\/\d{4}\/(?:[A-Z]{2,5}(?:-\d+)?-CP|TT-[A-Z]{2,5}|QH\d+|NQ-[A-ZĐ]{1,3}\d+|QĐ-[A-Z]{2,5}))\b/g,
+    );
+    return directMatch ? directMatch[0] : null;
+  }
+
+  /**
    * Fetches document_reference rows for a given document, optionally
    * filtered by direction and reference type. Joins source/target
    * document metadata into each row.

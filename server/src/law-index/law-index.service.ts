@@ -58,6 +58,13 @@ export class LawIndexService {
     const { documentId, changed } = await this.repo.upsertDocument(parsed);
     await this.repo.upsertRelations(documentId, parsed);
     try {
+      await this.repo.extractPreambleReferences(documentId, parsed.fullText);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to extract preamble references for ${url}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    try {
       await this.nodeRepo.syncNodes(documentId, parsed, changed);
     } catch (err) {
       // A malformed body shouldn't roll back the already-successful
