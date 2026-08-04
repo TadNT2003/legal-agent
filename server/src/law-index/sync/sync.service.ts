@@ -314,4 +314,38 @@ export class SyncService {
       items,
     };
   }
+
+  /**
+   * Re-extracts text-based references for an existing document using its
+   * stored raw_source fullText. Re-runs the preamble "Căn cứ" and inline
+   * body citation extraction, inserting any new references that don't
+   * already exist. Returns the count of newly inserted reference rows.
+   */
+  async reExtractTextRefs(documentId: string): Promise<{
+    documentId: string;
+    citationId: string;
+    newReferencesInserted: number;
+  }> {
+    const doc = await this.docRepo.getDb().query.document.findFirst({
+      where: eq(document.id, documentId),
+      columns: { citationId: true },
+    });
+
+    if (!doc) {
+      throw new NotFoundException(`Document ${documentId} not found`);
+    }
+
+    const newReferencesInserted =
+      await this.docRepo.reExtractTextReferences(documentId);
+
+    this.logger.log(
+      `Re-extracted text references for ${documentId}: ${newReferencesInserted} new refs`,
+    );
+
+    return {
+      documentId,
+      citationId: doc.citationId,
+      newReferencesInserted,
+    };
+  }
 }

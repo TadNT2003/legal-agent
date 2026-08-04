@@ -8,6 +8,8 @@ import {
 } from '@nestjs/swagger';
 import { ListDanglingRefsDto } from './dto/list-dangling-refs.dto';
 import { ListDanglingRefsResponseDto } from './dto/list-dangling-refs-response.dto';
+import { ReExtractTextRefsDto } from './dto/re-extract-text-refs.dto';
+import { ReExtractTextRefsResponseDto } from './dto/re-extract-text-refs-response.dto';
 import { SyncRefsBulkByCitationDto } from './dto/sync-refs-bulk-by-citation.dto';
 import { SyncRefsBulkByCitationResponseDto } from './dto/sync-refs-bulk-by-citation-response.dto';
 import { SyncRefsByCitationDto } from './dto/sync-refs-by-citation.dto';
@@ -34,7 +36,7 @@ export class SyncController {
   @ApiNotFoundResponse({
     description: 'No document found with the given citation ID.',
   })
-  @Post('refs/document')
+  @Patch('refs/document')
   syncRefsByCitation(@Body() dto: SyncRefsByCitationDto) {
     return this.service.syncRefsByCitation(dto.citation);
   }
@@ -49,7 +51,7 @@ export class SyncController {
       'vbpl.vn — operates entirely on existing Postgres data.',
   })
   @ApiOkResponse({ type: SyncRefsAllResponseDto })
-  @Post('refs/all')
+  @Patch('refs/all')
   healAllDanglingRefs() {
     return this.service.healAllDanglingRefs();
   }
@@ -58,16 +60,36 @@ export class SyncController {
     summary: 'Bulk heal dangling references for multiple citations',
     description:
       'Accepts an array of citation IDs, resolves dangling document_reference ' +
-      'rows for each citation in a single pass. Unlike POST /refs/document ' +
-      '(single citation) and POST /refs/all (global), this targets a specific ' +
+      'rows for each citation in a single pass. Unlike PATCH /refs/document ' +
+      '(single citation) and PATCH /refs/all (global), this targets a specific ' +
       'set of citations. Each citation is resolved independently — a missing ' +
       'citation produces an error entry rather than aborting the batch. Does ' +
       'not scrape vbpl.vn — operates entirely on existing Postgres data.',
   })
   @ApiCreatedResponse({ type: SyncRefsBulkByCitationResponseDto })
-  @Patch('refs')
+  @Patch('refs/batch')
   syncRefsBulkByCitation(@Body() dto: SyncRefsBulkByCitationDto) {
     return this.service.syncRefsBulkByCitation(dto.citations);
+  }
+
+  @ApiOperation({
+    summary: 'Re-extract text-based references for a document',
+    description:
+      'Re-runs the text-based citation extraction (preamble "Căn cứ" lines ' +
+      'and inline body citations) for an existing document using its stored ' +
+      'raw_source fullText. Inserts any new references that don\'t already ' +
+      'exist — useful when a document was scraped before text extraction ' +
+      'logic existed or was improved, and new target documents have since ' +
+      'been indexed. Returns the count of newly inserted references. Does ' +
+      'not scrape vbpl.vn — operates entirely on existing Postgres data.',
+  })
+  @ApiCreatedResponse({ type: ReExtractTextRefsResponseDto })
+  @ApiNotFoundResponse({
+    description: 'Document not found.',
+  })
+  @Post('refs/reextract')
+  reExtractTextRefs(@Body() dto: ReExtractTextRefsDto) {
+    return this.service.reExtractTextRefs(dto.documentId);
   }
 
   @ApiOperation({
