@@ -1,3 +1,11 @@
+jest.mock('playwright', () => ({
+  chromium: {
+    launch: jest.fn(),
+  },
+}));
+
+import { BadRequestException, BadGatewayException } from '@nestjs/common';
+import { chromium } from 'playwright';
 import { VbplClientService } from './vbpl-client.service';
 
 const MOCK_CONFIG = {
@@ -7,11 +15,74 @@ const MOCK_CONFIG = {
   headless: true,
 };
 
+function createMockResponse(ok = true, status = ok ? 200 : 502) {
+  return {
+    ok: () => ok,
+    status: () => status,
+  };
+}
+
+function createMockPage() {
+  const listeners: Record<string, Function[]> = {};
+  const mockPage: any = {
+    on: jest.fn((event: string, handler: Function) => {
+      if (!listeners[event]) listeners[event] = [];
+      listeners[event].push(handler);
+    }),
+    off: jest.fn((event: string, handler: Function) => {
+      if (listeners[event]) {
+        listeners[event] = listeners[event].filter((h) => h !== handler);
+      }
+    }),
+    goto: jest.fn().mockResolvedValue(createMockResponse()),
+    evaluate: jest.fn(),
+    waitForSelector: jest.fn().mockResolvedValue({}),
+    getByPlaceholder: jest.fn().mockReturnValue({ fill: jest.fn() }),
+    getByRole: jest.fn().mockReturnValue({
+      check: jest.fn(),
+      click: jest.fn(),
+      last: jest.fn().mockReturnValue({ click: jest.fn() }),
+    }),
+    getByText: jest.fn().mockReturnValue({
+      locator: jest.fn().mockReturnValue({ click: jest.fn() }),
+    }),
+    locator: jest.fn().mockReturnValue({
+      click: jest.fn(),
+      locator: jest.fn().mockReturnValue({
+        click: jest.fn(),
+        fill: jest.fn(),
+        press: jest.fn(),
+      }),
+      waitFor: jest.fn().mockResolvedValue(void 0),
+      fill: jest.fn(),
+      press: jest.fn(),
+      nth: jest.fn().mockReturnValue({ fill: jest.fn() }),
+    }),
+    close: jest.fn().mockResolvedValue(void 0),
+    _listeners: listeners,
+  };
+  return mockPage;
+}
+
+function createMockBrowser() {
+  const mockContext: any = {
+    newPage: jest.fn(),
+    close: jest.fn().mockResolvedValue(void 0),
+  };
+  const mockBrowser: any = {
+    newContext: jest.fn().mockResolvedValue(mockContext),
+    close: jest.fn().mockResolvedValue(void 0),
+  };
+  return { mockBrowser, mockContext };
+}
+
 describe('VbplClientService', () => {
   let service: VbplClientService;
 
   beforeEach(() => {
+    jest.clearAllMocks();
     service = new VbplClientService(MOCK_CONFIG as any);
+    (service as any).lastRequestAt = Date.now() - 10000;
   });
 
   describe('assertTrustedDocumentUrl', () => {
@@ -63,6 +134,269 @@ describe('VbplClientService', () => {
       expect(() =>
         service.assertTrustedDocumentUrl('https://vbpl.vn/van-ban/api-docs'),
       ).not.toThrow();
+    });
+  });
+
+  describe('fetchDocument', () => {
+    it('happy path: launches browser, navigates three tabs, returns raw page data', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      mockPage.goto.mockResolvedValue(createMockResponse());
+
+      mockPage.evaluate
+        .mockResolvedValueOnce({
+          scope: 'trung-uong',
+          title: 'Test Document Title',
+          fullText: 'This is the full document text.',
+        })
+        .mockResolvedValueOnce([
+          { label: 'So hieu', value: '123/2024/QD-TTg' },
+        ])
+        .mockResolvedValueOnce([
+          { categoryLabel: 'Luon giai', entries: ['Entry A', 'Entry B'] },
+        ]);
+
+      const result = await service.fetchDocument(
+        'https://vbpl.vn/van-ban/chi-tiet/123',
+      );
+
+      expect(result).toEqual({
+        sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/123',
+        scope: 'trung-uong',
+        title: 'Test Document Title',
+        fullText: 'This is the full document text.',
+        attributes: [{ label: 'So hieu', value: '123/2024/QD-TTg' }],
+        relations: [
+          { categoryLabel: 'Luon giai', entries: ['Entry A', 'Entry B'] },
+        ],
+      });
+
+      expect(chromium.launch).toHaveBeenCalledWith({ headless: true });
+      expect(mockBrowser.newContext).toHaveBeenCalledWith({
+        userAgent: 'legal-agent-law-index/1.0',
+      });
+
+      expect(mockPage.goto).toHaveBeenCalledTimes(3);
+      expect(mockPage.goto).toHaveBeenNthCalledWith(
+        1,
+        'https://vbpl.vn/van-ban/chi-tiet/123',
+        { waitUntil: 'domcontentloaded' },
+      );
+      expect(mockPage.goto).toHaveBeenNthCalledWith(
+        2,
+        'https://vbpl.vn/van-ban/chi-tiet/123?tabs=thuoc-tinh',
+        { waitUntil: 'domcontentloaded' },
+      );
+      expect(mockPage.goto).toHaveBeenNthCalledWith(
+        3,
+        'https://vbpl.vn/van-ban/chi-tiet/123?tabs=luoc-do',
+        { waitUntil: 'domcontentloaded' },
+      );
+
+      expect(mockPage.evaluate).toHaveBeenCalledTimes(3);
+    });
+
+    it('bad gateway: throws when page.goto returns a non-ok response', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      mockPage.goto.mockResolvedValue(createMockResponse(false, 502));
+
+      await expect(
+        service.fetchDocument('https://vbpl.vn/van-ban/chi-tiet/123'),
+      ).rejects.toThrow('Failed to load');
+    });
+
+    it('bad gateway: throws when page.goto throws a navigation error', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      mockPage.goto.mockRejectedValue(new Error('net::ERR_CONNECTION_REFUSED'));
+
+      await expect(
+        service.fetchDocument('https://vbpl.vn/van-ban/chi-tiet/123'),
+      ).rejects.toThrow(BadGatewayException);
+    });
+
+    it('rejects untrusted URLs before any browser work', async () => {
+      await expect(
+        service.fetchDocument('https://evil.com/phish'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(chromium.launch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('searchDocuments', () => {
+    it('happy path: navigates to search page, applies filters, returns body text', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      mockPage.goto.mockResolvedValue(createMockResponse());
+
+      const searchedBody = '<html>search results</html>';
+      const mockResponse = {
+        url: () => 'https://vbpl.vn/van-ban/trung-uong',
+        request: () => ({ method: () => 'POST' }),
+        text: () => Promise.resolve(searchedBody),
+      };
+
+      mockPage.on.mockImplementation((event: string, handler: Function) => {
+        if (event === 'response') {
+          handler(mockResponse);
+        }
+      });
+
+      const result = await service.searchDocuments({ keyword: 'test' });
+
+      expect(result).toBe(searchedBody);
+      expect(mockPage.goto).toHaveBeenCalledWith(
+        'https://vbpl.vn/van-ban/trung-uong',
+        { waitUntil: 'domcontentloaded' },
+      );
+    });
+
+    it('bad gateway: throws when page.goto returns a non-ok response', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      mockPage.goto.mockResolvedValue(createMockResponse(false, 502));
+
+      await expect(
+        service.searchDocuments({ keyword: 'test' }),
+      ).rejects.toThrow(BadGatewayException);
+    });
+
+    it('bad gateway: throws when page.goto throws a navigation error', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      mockPage.goto.mockRejectedValue(new Error('net::ERR_CONNECTION_REFUSED'));
+
+      await expect(
+        service.searchDocuments({ keyword: 'test' }),
+      ).rejects.toThrow(BadGatewayException);
+    });
+
+    it('removes response listener in finally block', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      mockPage.goto.mockResolvedValue(createMockResponse());
+
+      const searchedBody = 'body';
+      const mockResponse = {
+        url: () => 'https://vbpl.vn/van-ban/trung-uong',
+        request: () => ({ method: () => 'POST' }),
+        text: () => Promise.resolve(searchedBody),
+      };
+
+      mockPage.on.mockImplementation((event: string, handler: Function) => {
+        if (event === 'response') {
+          handler(mockResponse);
+        }
+      });
+
+      await service.searchDocuments({ keyword: 'test' });
+
+      expect(mockPage.off).toHaveBeenCalledWith('response', expect.any(Function));
+    });
+  });
+
+  describe('getPage', () => {
+    it('initializes browser, context, and page on first call', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      const page1 = await service['getPage']();
+
+      expect(chromium.launch).toHaveBeenCalledWith({ headless: true });
+      expect(mockBrowser.newContext).toHaveBeenCalled();
+      expect(mockContext.newPage).toHaveBeenCalled();
+      expect(page1).toBe(mockPage);
+    });
+
+    it('returns cached page on subsequent calls', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      const page1 = await service['getPage']();
+      const page2 = await service['getPage']();
+
+      expect(page1).toBe(page2);
+      expect(chromium.launch).toHaveBeenCalledTimes(1);
+      expect(mockContext.newPage).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('onModuleDestroy', () => {
+    it('closes page, context, and browser', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      await service['getPage']();
+      await service.onModuleDestroy();
+
+      expect(mockPage.close).toHaveBeenCalled();
+      expect(mockContext.close).toHaveBeenCalled();
+      expect(mockBrowser.close).toHaveBeenCalled();
+    });
+
+    it('handles close errors gracefully', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      mockPage.close.mockRejectedValue(new Error('already closed'));
+      mockContext.close.mockRejectedValue(new Error('already closed'));
+      mockBrowser.close.mockRejectedValue(new Error('already closed'));
+
+      await service['getPage']();
+      await expect(service.onModuleDestroy()).resolves.toBeUndefined();
     });
   });
 });

@@ -24,6 +24,122 @@ describe('LawManifestService', () => {
     service = new LawManifestService(MOCK_CONFIG as any);
   });
 
+  describe('dir getter', () => {
+    it('returns config.dir', () => {
+      expect(service.dir).toBe(MOCK_CONFIG.dir);
+    });
+  });
+
+  describe('onModuleInit', () => {
+    it('creates base dir and calls mkdir with recursive', async () => {
+      mockedFs.access.mockRejectedValue({ code: 'ENOENT' });
+      mockedFs.readdir.mockResolvedValue([]);
+      await service.onModuleInit();
+      expect(mockedFs.mkdir).toHaveBeenCalledWith(MOCK_CONFIG.dir, {
+        recursive: true,
+      });
+    });
+
+    it('creates tier directories with recursive', async () => {
+      mockedFs.access.mockRejectedValue({ code: 'ENOENT' });
+      mockedFs.readdir.mockResolvedValue([]);
+      await service.onModuleInit();
+      const mkdirCalls = (mockedFs.mkdir as jest.Mock).mock.calls;
+      const tierCalls = mkdirCalls.filter(
+        ([path]: [string, object]) =>
+          typeof path === 'string' && path.includes('01-hien-phap'),
+      );
+      expect(tierCalls.length).toBeGreaterThan(0);
+      expect(tierCalls[0][1]).toEqual({ recursive: true });
+    });
+
+    it('calls ensureManifestFile, ensureLogFile, ensureDatasetReadme indirectly via writes', async () => {
+      mockedFs.access.mockRejectedValue({ code: 'ENOENT' });
+      mockedFs.readdir.mockResolvedValue([]);
+      await service.onModuleInit();
+      const writeCalls = (mockedFs.writeFile as jest.Mock).mock.calls;
+      const manifestWritten = writeCalls.some(
+        ([path]: [string, string]) =>
+          typeof path === 'string' && path.includes('manifest.json'),
+      );
+      const logWritten = writeCalls.some(
+        ([path]: [string, string]) =>
+          typeof path === 'string' && path.includes('download-log.csv'),
+      );
+      const readmeWritten = writeCalls.some(
+        ([path]: [string, string]) =>
+          typeof path === 'string' && path.endsWith('README.md'),
+      );
+      expect(manifestWritten).toBe(true);
+      expect(logWritten).toBe(true);
+      expect(readmeWritten).toBe(true);
+    });
+
+    it('when files already exist, does not overwrite manifest.json', async () => {
+      mockedFs.access.mockResolvedValue(undefined);
+      mockedFs.readdir.mockResolvedValue(['existing-file.pdf']);
+      const writeFileSpy = mockedFs.writeFile as jest.Mock;
+      await service.onModuleInit();
+      const manifestWrites = writeFileSpy.mock.calls.filter(
+        ([path]: [string, string]) =>
+          typeof path === 'string' && path.includes('manifest.json'),
+      );
+      expect(manifestWrites.length).toBe(0);
+    });
+
+    it('when files already exist, does not overwrite download-log.csv', async () => {
+      mockedFs.access.mockResolvedValue(undefined);
+      mockedFs.readdir.mockResolvedValue(['existing-file.pdf']);
+      const writeFileSpy = mockedFs.writeFile as jest.Mock;
+      await service.onModuleInit();
+      const logWrites = writeFileSpy.mock.calls.filter(
+        ([path]: [string, string]) =>
+          typeof path === 'string' && path.includes('download-log.csv'),
+      );
+      expect(logWrites.length).toBe(0);
+    });
+
+    it('when dataset README already exists, does not overwrite it', async () => {
+      mockedFs.access.mockResolvedValue(undefined);
+      mockedFs.readdir.mockResolvedValue(['existing-file.pdf']);
+      const writeFileSpy = mockedFs.writeFile as jest.Mock;
+      await service.onModuleInit();
+      const dirReadmeWrites = writeFileSpy.mock.calls.filter(
+        ([path]: [string, string]) =>
+          typeof path === 'string' &&
+          path.includes(MOCK_CONFIG.dir) &&
+          path.endsWith('README.md'),
+      );
+      expect(dirReadmeWrites.length).toBe(0);
+    });
+
+    it('creates tier README files when tier dir is empty', async () => {
+      mockedFs.access.mockRejectedValue({ code: 'ENOENT' });
+      mockedFs.readdir.mockResolvedValue([]);
+      await service.onModuleInit();
+      const writeCalls = (mockedFs.writeFile as jest.Mock).mock.calls;
+      const tierReadmeCalls = writeCalls.filter(
+        ([path]: [string, string]) =>
+          typeof path === 'string' && path.includes('01-hien-phap'),
+      );
+      expect(tierReadmeCalls.length).toBeGreaterThan(0);
+    });
+
+    it('does not create tier README when tier dir has files', async () => {
+      mockedFs.access.mockRejectedValue({ code: 'ENOENT' });
+      mockedFs.readdir.mockResolvedValue(['existing-doc.pdf']);
+      await service.onModuleInit();
+      const writeCalls = (mockedFs.writeFile as jest.Mock).mock.calls;
+      const tierReadmeWrites = writeCalls.filter(
+        ([path, data]: [string, string]) =>
+          typeof path === 'string' &&
+          path.includes('01-hien-phap') &&
+          path.endsWith('README.md'),
+      );
+      expect(tierReadmeWrites.length).toBe(0);
+    });
+  });
+
   describe('fileExists', () => {
     it('returns true when file exists', async () => {
       mockedFs.access.mockResolvedValue(undefined);
@@ -150,7 +266,12 @@ describe('LawManifestService', () => {
         },
       ];
       mockedFs.readFile.mockResolvedValue(JSON.stringify(existing));
-      await service.moveEntry('old-subdir', '45-2019-QH14', '45-2019-QH14.pdf', 'new-subdir');
+      await service.moveEntry(
+        'old-subdir',
+        '45-2019-QH14',
+        '45-2019-QH14.pdf',
+        'new-subdir',
+      );
       const writtenData = JSON.parse(
         (mockedFs.writeFile as jest.Mock).mock.calls[0][1],
       );
