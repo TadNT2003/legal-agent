@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { eq, isNull } from 'drizzle-orm';
+import { and, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import { DocumentRepository } from '../persistence/document.repository';
 import { document, documentReference } from '../persistence/schema';
 import { extractCitationFromTitle } from '../crawl/vbpl.parser';
@@ -221,5 +221,97 @@ export class SyncService {
 
     this.logger.log(`Healed ${healed.length} dangling references`);
     return healed;
+  }
+
+  /**
+   * Lists all dangling (unresolved) document_reference rows with optional
+   * filters. Read-only — does not modify any data.
+   */
+  async listDanglingRefs(filters: {
+    sourceDocumentId?: string;
+    referenceType?: string;
+    rawCitationText?: string;
+  }): Promise<{
+    total: number;
+    items: Array<{
+      id: string;
+      sourceDocumentId: string | null;
+      sourceCitationId: string | null;
+      sourceTitle: string | null;
+      referenceType: string;
+      rawCitationText: string;
+      createdAt: string;
+    }>;
+  }> {
+    const db = this.docRepo.getDb();
+    const conditions = [isNull(documentReference.targetDocumentId)];
+
+    if (filters.sourceDocumentId) {
+      conditions.push(
+        eq(documentReference.sourceDocumentId, filters.sourceDocumentId),
+      );
+    }
+    if (filters.referenceType) {
+      conditions.push(
+        eq(
+          documentReference.referenceType,
+          filters.referenceType as (typeof documentReference.$inferSelect)['referenceType'],
+        ),
+      );
+    }
+    if (filters.rawCitationText) {
+      conditions.push(
+        ilike(documentReference.rawCitationText, `%${filters.rawCitationText}%`),
+      );
+    }
+
+    const where = conditions.length > 1 ? and(...conditions) : conditions[0];
+
+    const rows = await db
+      .select({
+        id: documentReference.id,
+        sourceDocumentId: documentReference.sourceDocumentId,
+        referenceType: documentReference.referenceType,
+        rawCitationText: documentReference.rawCitationText,
+        createdAt: documentReference.createdAt,
+      })
+      .from(documentReference)
+      .where(where)
+      .orderBy(sql`${documentReference.createdAt} DESC`);
+
+    const sourceIds = [...new Set(rows.map((r) => r.sourceDocumentId).filter((id): id is string => id !== null))];
+
+    const docMap = new Map<string, { citationId: string; title: string }>();
+    if (sourceIds.length > 0) {
+      const docs = await db
+        .select({
+          id: document.id,
+          citationId: document.citationId,
+          title: document.title,
+        })
+        .from(document)
+        .where(inArray(document.id, sourceIds));
+      for (const d of docs) {
+        docMap.set(d.id, { citationId: d.citationId, title: d.title });
+      }
+    }
+
+    const items = rows.map((row) => {
+      const src = row.sourceDocumentId ? docMap.get(row.sourceDocumentId) : null;
+      return {
+        id: row.id,
+        sourceDocumentId: row.sourceDocumentId,
+        sourceCitationId: src?.citationId ?? null,
+        sourceTitle: src?.title ?? null,
+        referenceType: row.referenceType,
+        rawCitationText: row.rawCitationText,
+        createdAt: row.createdAt.toISOString(),
+      };
+    });
+
+    return {
+      total: items.length,
+      items,
+    };
   }
 }

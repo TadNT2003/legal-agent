@@ -1,4 +1,4 @@
-import { Body, Controller, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiCreatedResponse,
   ApiNotFoundResponse,
@@ -6,6 +6,8 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { ListDanglingRefsDto } from './dto/list-dangling-refs.dto';
+import { ListDanglingRefsResponseDto } from './dto/list-dangling-refs-response.dto';
 import { SyncRefsBulkByCitationDto } from './dto/sync-refs-bulk-by-citation.dto';
 import { SyncRefsBulkByCitationResponseDto } from './dto/sync-refs-bulk-by-citation-response.dto';
 import { SyncRefsByCitationDto } from './dto/sync-refs-by-citation.dto';
@@ -66,5 +68,19 @@ export class SyncController {
   @Patch('refs')
   syncRefsBulkByCitation(@Body() dto: SyncRefsBulkByCitationDto) {
     return this.service.syncRefsBulkByCitation(dto.citations);
+  }
+
+  @ApiOperation({
+    summary: 'List dangling (unresolved) document references',
+    description:
+      'Returns document_reference rows where target_document_id IS NULL, ' +
+      'optionally filtered by source document, reference type, or raw citation ' +
+      'text substring. Read-only — does not modify any data. Useful for ' +
+      'auditing unresolved references before running a heal.',
+  })
+  @ApiOkResponse({ type: ListDanglingRefsResponseDto })
+  @Get('refs/dangling')
+  listDanglingRefs(@Query() dto: ListDanglingRefsDto) {
+    return this.service.listDanglingRefs(dto);
   }
 }
