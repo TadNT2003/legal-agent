@@ -1,13 +1,13 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Patch, Post } from '@nestjs/common';
 import {
-  ApiBadRequestResponse,
   ApiCreatedResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
-  ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import { SyncRefsBulkByCitationDto } from './dto/sync-refs-bulk-by-citation.dto';
+import { SyncRefsBulkByCitationResponseDto } from './dto/sync-refs-bulk-by-citation-response.dto';
 import { SyncRefsByCitationDto } from './dto/sync-refs-by-citation.dto';
 import { SyncRefsByCitationResponseDto } from './dto/sync-refs-response.dto';
 import { SyncRefsAllResponseDto } from './dto/sync-refs-all-response.dto';
@@ -50,5 +50,21 @@ export class SyncController {
   @Post('refs/all')
   healAllDanglingRefs() {
     return this.service.healAllDanglingRefs();
+  }
+
+  @ApiOperation({
+    summary: 'Bulk heal dangling references for multiple citations',
+    description:
+      'Accepts an array of citation IDs, resolves dangling document_reference ' +
+      'rows for each citation in a single pass. Unlike POST /refs/document ' +
+      '(single citation) and POST /refs/all (global), this targets a specific ' +
+      'set of citations. Each citation is resolved independently — a missing ' +
+      'citation produces an error entry rather than aborting the batch. Does ' +
+      'not scrape vbpl.vn — operates entirely on existing Postgres data.',
+  })
+  @ApiCreatedResponse({ type: SyncRefsBulkByCitationResponseDto })
+  @Patch('refs')
+  syncRefsBulkByCitation(@Body() dto: SyncRefsBulkByCitationDto) {
+    return this.service.syncRefsBulkByCitation(dto.citations);
   }
 }

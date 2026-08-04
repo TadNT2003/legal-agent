@@ -43,6 +43,123 @@ export class SyncService {
   }
 
   /**
+   * Heals dangling refs for multiple citations in one pass. Each citation is
+   * resolved independently — a missing citation produces an error entry rather
+   * than aborting the batch. The underlying heal scans all dangling rows once,
+   * partitioning healed refs per citation target.
+   */
+  async syncRefsBulkByCitation(citations: string[]): Promise<{
+    healedReferences: number;
+    totalDangling: number;
+    results: Array<{
+      citation: string;
+      documentId: string | null;
+      title: string | null;
+      healedReferences: number;
+      healed: SyncRefsResultItem[];
+      error?: string | null;
+    }>;
+  }> {
+    const db = this.docRepo.getDb();
+
+    const dangling = await db.query.documentReference.findMany({
+      where: isNull(documentReference.targetDocumentId),
+    });
+    const totalDangling = dangling.length;
+
+    const docMap = new Map<string, { id: string; citationId: string; title: string }>();
+    for (const citation of citations) {
+      const doc = await db.query.document.findFirst({
+        where: eq(document.citationId, citation),
+        columns: { id: true, citationId: true, title: true },
+      });
+      if (doc) {
+        docMap.set(citation, doc);
+      }
+    }
+
+    const targetIds = new Set([...docMap.values()].map((d) => d.id));
+    const resultByCitation = new Map<string, SyncRefsResultItem[]>();
+    for (const citation of citations) {
+      resultByCitation.set(citation, []);
+    }
+
+    let totalHealed = 0;
+    const healedSourceCitations = new Map<string, string | null>();
+
+    for (const row of dangling) {
+      const rawCitation = extractCitationFromTitle(row.rawCitationText);
+      if (!rawCitation) continue;
+
+      if (!resultByCitation.has(rawCitation)) continue;
+
+      const targetDoc = docMap.get(rawCitation);
+      if (!targetDoc) continue;
+
+      await db
+        .update(documentReference)
+        .set({ targetDocumentId: targetDoc.id })
+        .where(eq(documentReference.id, row.id));
+
+      let sourceCitationId: string | null = null;
+      if (row.sourceDocumentId) {
+        const cached = healedSourceCitations.get(row.sourceDocumentId);
+        if (cached) {
+          sourceCitationId = cached;
+        } else {
+          const sourceDoc = await db.query.document.findFirst({
+            where: eq(document.id, row.sourceDocumentId),
+            columns: { citationId: true },
+          });
+          sourceCitationId = sourceDoc?.citationId ?? null;
+          healedSourceCitations.set(row.sourceDocumentId, sourceCitationId);
+        }
+      }
+
+      resultByCitation.get(rawCitation)!.push({
+        refId: row.id,
+        sourceDocumentId: row.sourceDocumentId,
+        sourceCitationId,
+        targetDocumentId: targetDoc.id,
+        rawCitationText: row.rawCitationText,
+        referenceType: row.referenceType,
+      });
+      totalHealed += 1;
+    }
+
+    this.logger.log(`Bulk heal: ${totalHealed} references healed across ${citations.length} citations`);
+
+    const results = citations.map((citation) => {
+      const doc = docMap.get(citation);
+      if (!doc) {
+        return {
+          citation,
+          documentId: null,
+          title: null,
+          healedReferences: 0,
+          healed: [],
+          error: `No document found with citation "${citation}"`,
+        };
+      }
+      const healed = resultByCitation.get(citation)!;
+      return {
+        citation,
+        documentId: doc.id,
+        title: doc.title,
+        healedReferences: healed.length,
+        healed,
+        error: null,
+      };
+    });
+
+    return {
+      healedReferences: totalHealed,
+      totalDangling,
+      results,
+    };
+  }
+
+  /**
    * Scans all document_reference rows where target_document_id IS NULL and
    * attempts to resolve each one by extracting the citation from
    * raw_citation_text and looking up the document. Returns details of all
