@@ -99,6 +99,13 @@ describe('parseAttributes', () => {
     expect(parsed.signerName).toBeNull();
   });
 
+  it('falls back to "Ngày ký xác thực" for issuedDateRaw when "Ngày ban hành" is absent (Văn bản hợp nhất)', () => {
+    const consolidated: RawAttributeEntry[] = ATTRIBUTES.filter(
+      (e) => e.label !== 'Ngày ban hành',
+    ).concat({ label: 'Ngày ký xác thực', value: '21/07/2025' });
+    expect(parseAttributes(consolidated).issuedDateRaw).toBe('21/07/2025');
+  });
+
   it('throws when a required field (citation/documentType/issuingBody) is missing', () => {
     const missingIssuingBody = ATTRIBUTES.filter(
       (e) => e.label !== 'Cơ quan ban hành',

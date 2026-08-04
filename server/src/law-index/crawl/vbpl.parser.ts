@@ -326,7 +326,13 @@ export function parseAttributes(
     ),
     signerTitle: get('Chức danh'),
     signerName: get('Người ký'),
-    issuedDateRaw: get('Ngày ban hành'),
+    // "Văn bản hợp nhất" (consolidated-text) documents have no "Ngày ban
+    // hành" row at all — confirmed live on 52/VBHN-VPQH (the consolidated
+    // Hiến pháp) — since they're compiled by an office, not promulgated.
+    // vbpl.vn's own attributes tab uses "Ngày ký xác thực" (certification
+    // date) in that slot instead; falling back to it keeps enactedDate
+    // (document.schema.ts, NOT NULL) populated instead of throwing.
+    issuedDateRaw: get('Ngày ban hành') ?? get('Ngày ký xác thực'),
     effectiveDateRaw: get('Ngày có hiệu lực'),
     expiryDateRaw: get('Ngày hết hiệu lực'),
     validityStatusRaw: get('Tình trạng hiệu lực'),
