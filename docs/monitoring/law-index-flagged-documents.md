@@ -10,26 +10,27 @@ CSV columns: `section` (matches `###` below) · `section_title` · `status` (`Re
 
 ## At a glance
 
-| # | Issue | Status | Docs | DB impact |
-|---|-------|--------|------|-----------|
-| [1](#1-annex-content-dropped-by-footer-strip-logic) | Annex text after the signature block silently dropped | ✅ Resolved | 2 | `document_node` missing annex content |
-| [2](#2-điều-header-without-a-period--zero-nodes) | Điều header without a period → parser produced no structure | ✅ Resolved | 17 | `document_node` tree entirely empty |
-| [3](#3-attributes-tab-content-leaked-into-fulltext) | Attributes table scraped as document body on docs with no digitized text | ✅ Resolved | 8 (+653 backfilled) | `document.rawSource.fullText` corrupted; `document.original_document_urls` |
-| [4](#4-citation-collision-documents-silently-overwritten-or-permanently-blocked) | Shared/reused vbpl.vn citations overwrite or permanently block documents | 🟡 Mixed — 4 Resolved, 66 Won't fix | 70 | `document` row silently overwritten, or row never created |
-| [5](#5-issuing_body-mis-attributed-to-the-drafting-ministry--a-vbplvn-data-quality-issue) | `issuing_body` attributed to the drafting ministry instead of the one legally mandated issuer — a vbpl.vn data-quality issue, confirmed on 2 tiers, same shape likely affects more | ✅ Resolved (2 tiers) — ⚠️ other tiers unaudited | 5 confirmed | `document.issuing_body` legally wrong; same defect shape may exist undetected on other tiers |
-| [6](#6-tier-3-100-document-pass--three-pipeline-bugs) | Tier-3 100-doc pass: `pageSize` ignored, page cache had no recovery, 2 docs lost their node tree — plus a 2026-08-03 follow-up (orphaned browser processes from a missing shutdown hook, a broken internal-id regex, an unhandled DOM shape) found re-attempting the §3 backfill | ✅ Resolved | 2 direct + corpus-wide reliability; internal-id bug alone affected ~48/653 docs | `document_node` missing on 2 docs; search truncated; `original_document_urls` silently staying empty on ~7% of the corpus |
-| [7](#7-quoted-multi-khoản-replacement-text-mis-nested) | Quoted replacement text spanning multiple Khoản gets mis-nested as top-level siblings | ⚠️ Unresolved | 1 confirmed | `document_node` tree shape wrong (extra/misplaced nodes, no data loss) |
+| #                                                                                        | Issue                                                                                                                                                                                                                                                                               | Status                                              | Docs                                                                            | DB impact                                                                                                                     |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| [1](#1-annex-content-dropped-by-footer-strip-logic)                                       | Annex text after the signature block silently dropped                                                                                                                                                                                                                               | ✅ Resolved                                         | 2                                                                               | `document_node` missing annex content                                                                                       |
+| [2](#2-điều-header-without-a-period--zero-nodes)                                        | Điều header without a period → parser produced no structure                                                                                                                                                                                                                      | ✅ Resolved                                         | 17                                                                              | `document_node` tree entirely empty                                                                                         |
+| [3](#3-attributes-tab-content-leaked-into-fulltext)                                       | Attributes table scraped as document body on docs with no digitized text                                                                                                                                                                                                            | ✅ Resolved                                         | 8 (+653 backfilled)                                                             | `document.rawSource.fullText` corrupted; `document.original_document_urls`                                                |
+| [4](#4-citation-collision-documents-silently-overwritten-or-permanently-blocked)          | Shared/reused vbpl.vn citations overwrite or permanently block documents                                                                                                                                                                                                            | 🟡 Mixed — 4 Resolved, 66 Won't fix                | 70                                                                              | `document` row silently overwritten, or row never created                                                                   |
+| [5](#5-issuing_body-mis-attributed-to-the-drafting-ministry--a-vbplvn-data-quality-issue) | `issuing_body` attributed to the drafting ministry instead of the one legally mandated issuer — a vbpl.vn data-quality issue, confirmed on 2 tiers, same shape likely affects more                                                                                               | ✅ Resolved (2 tiers) — ⚠️ other tiers unaudited | 5 confirmed                                                                     | `document.issuing_body` legally wrong; same defect shape may exist undetected on other tiers                                |
+| [6](#6-tier-3-100-document-pass--three-pipeline-bugs)                                     | Tier-3 100-doc pass:`pageSize` ignored, page cache had no recovery, 2 docs lost their node tree — plus a 2026-08-03 follow-up (orphaned browser processes from a missing shutdown hook, a broken internal-id regex, an unhandled DOM shape) found re-attempting the §3 backfill | ✅ Resolved                                         | 2 direct + corpus-wide reliability; internal-id bug alone affected ~48/653 docs | `document_node` missing on 2 docs; search truncated; `original_document_urls` silently staying empty on ~7% of the corpus |
+| [7](#7-quoted-multi-khoản-replacement-text-mis-nested)                                   | Quoted replacement text spanning multiple Khoản gets mis-nested as top-level siblings                                                                                                                                                                                              | ⚠️ Unresolved                                     | 1 confirmed                                                                     | `document_node` tree shape wrong (extra/misplaced nodes, no data loss)                                                      |
+| [8](#8-văn-bản-hợp-nhất-has-no-ngày-ban-hành--upsert-threw-instead-of-falling-back) | `upsertDocument` threw on any "Văn bản hợp nhất" (consolidated-text) document — no "Ngày ban hành" field on vbpl.vn's own attributes tab                                                                                                                                   | ✅ Resolved                                         | 1 confirmed (tier-1 pass)                                                       | Blocked ingestion entirely for this document type until fixed — no partial/corrupt data written                              |
 
 ---
 
 ## 1. Annex content dropped by footer-strip logic
 
-| | |
-|---|---|
-| **Status** | ✅ Resolved — 2026-07-30 |
-| **Found** | First 50-document `document_node` reindex |
-| **Docs affected** | 2 (`section=1` in CSV) |
-| **DB impact** | `document_node` tree missing the annex text entirely |
+|                         |                                                        |
+| ----------------------- | ------------------------------------------------------ |
+| **Status**        | ✅ Resolved — 2026-07-30                              |
+| **Found**         | First 50-document`document_node` reindex             |
+| **Docs affected** | 2 (`section=1` in CSV)                               |
+| **DB impact**     | `document_node` tree missing the annex text entirely |
 
 **Root cause:** the parser's footer-stripping logic only resumed structured parsing on the literal word "Phụ lục". Annexes placed after the signature block with other labels (a QCVN technical standard, a "Biểu số" report form) were silently dropped in full.
 
@@ -41,12 +42,12 @@ CSV columns: `section` (matches `###` below) · `section_title` · `status` (`Re
 
 ## 2. Điều header without a period → zero nodes
 
-| | |
-|---|---|
-| **Status** | ✅ Resolved — 2026-07-31 |
-| **Found** | `document_node` backfill for all Luật/Bộ luật documents |
-| **Docs affected** | 17 (`section=2` in CSV) |
-| **DB impact** | `document_node` tree entirely empty despite the document having real, parseable structure |
+|                         |                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| **Status**        | ✅ Resolved — 2026-07-31                                                                   |
+| **Found**         | `document_node` backfill for all Luật/Bộ luật documents                                |
+| **Docs affected** | 17 (`section=2` in CSV)                                                                   |
+| **DB impact**     | `document_node` tree entirely empty despite the document having real, parseable structure |
 
 **Root cause:** older "Luật sửa đổi, bổ sung" amendment laws (1962–2019 in this batch) write their Điều header without a period — bare `"Điều 1"`, `"Điều 1:"`, or `"Điều 1 <heading>"`. `DIEU_KHOAN_PATTERN` required a literal period, so none of these matched.
 
@@ -60,12 +61,12 @@ CSV columns: `section` (matches `###` below) · `section_title` · `status` (`Re
 
 ## 3. Attributes-tab content leaked into `fullText`
 
-| | |
-|---|---|
-| **Status** | ✅ Resolved — 2026-07-31 (a related backfill is still pending, see below) |
-| **Found** | Same Luật/Bộ luật backfill; recurred identically in the tier-3 (Pháp lệnh) 100-doc batch |
-| **Docs affected** | 8 (`section=3` in CSV) + 498 pending a related backfill (see below) |
-| **DB impact** | `document.rawSource.fullText` corrupted (305–440 chars of attributes-table text instead of real body); `document_node` build was meaningless on top of it |
+|                         |                                                                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**        | ✅ Resolved — 2026-07-31 (a related backfill is still pending, see below)                                                                                     |
+| **Found**         | Same Luật/Bộ luật backfill; recurred identically in the tier-3 (Pháp lệnh) 100-doc batch                                                                  |
+| **Docs affected** | 8 (`section=3` in CSV) + 498 pending a related backfill (see below)                                                                                          |
+| **DB impact**     | `document.rawSource.fullText` corrupted (305–440 chars of attributes-table text instead of real body); `document_node` build was meaningless on top of it |
 
 **Root cause:** none of these 8 documents has a "Nội dung" (full-text) tab on vbpl.vn at all — confirmed live — only Thuộc tính / Lược đồ / Văn bản gốc / Tải về. vbpl.vn has no digitized body for them; the only source is a scanned file behind "Văn bản gốc". `extractScopeTitleAndFullText()` read whichever tab pane was `.ant-tabs-tabpane-active` unconditionally, assuming Nội dung was always the default-active tab — but for these 8, Thuộc tính was, so its table got captured as `fullText`. 100% deterministic (all 8 re-synced independently and reproduced identically), not a timing flake.
 
@@ -81,14 +82,15 @@ CSV columns: `section` (matches `###` below) · `section_title` · `status` (`Re
 
 ## 4. Citation collision: documents silently overwritten or permanently blocked
 
-| | |
-|---|---|
-| **Status** | 🟡 Mixed — 2026-08-01: 4 Resolved, 66 Won't fix |
-| **Found** | Rechecking vbpl.vn Luật/Bộ luật coverage against Postgres — a 74-document gap (70 Luật + 4 Bộ luật) |
-| **Docs affected** | 70 (`section=4` in CSV) |
-| **DB impact** | A later "Không số" document's sync silently overwrote an earlier one's `document` row (title, dates, `raw_source`, cascaded `document_node` tree, all replaced); 69 documents were structurally unable to ever be stored |
+|                         |                                                                                                                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**        | 🟡 Mixed — 2026-08-01: 4 Resolved, 66 Won't fix (tier 2); 2026-08-03: 4 more Won't fix (tier 1)                                                                                                                                |
+| **Found**         | Rechecking vbpl.vn Luật/Bộ luật coverage against Postgres — a 74-document gap (70 Luật + 4 Bộ luật); recurred identically in the tier-1 (Hiến pháp) pass                                                               |
+| **Docs affected** | 74 (`section=4` in CSV) — 70 tier 2 (Luật/Bộ luật) + 4 tier 1 (historical Hiến pháp)                                                                                                                                    |
+| **DB impact**     | A later "Không số" document's sync silently overwrote an earlier one's`document` row (title, dates, `raw_source`, cascaded `document_node` tree, all replaced); 69 documents were structurally unable to ever be stored |
 
 **Root cause:** `document.citation_id` is `UNIQUE`, and `upsertDocument` looked up "already synced?" purely by matching `citation_id`. Two ways vbpl.vn's older (pre-1998) corpus breaks that assumption:
+
 - **"Không số" ("no number")** — every pre-Đổi Mới law is recorded under the literal citation string "Không số". 67 distinct real laws (1959–1997) share it; only whichever synced *last* survives.
 - **Reused batch instrument numbers** — at least 2 cases where vbpl.vn assigned the same citation to two different laws passed in the same batch (`270B-NQ/HĐNN8`, `3-LCT/HĐNN7`).
 
@@ -97,6 +99,7 @@ CSV columns: `section` (matches `###` below) · `section_title` · `status` (`Re
 **3 documents turned out to still be "Còn hiệu lực" (in force)** — pulled out and fixed individually rather than accepted into the won't-fix decision, since excluding live law is a correctness bug, not a scope call. The original "Không số" occupant (`Luật Cải cách ruộng đất`) got the same treatment for consistency.
 
 **Fix — now a permanent mechanism in `upsertDocument`, not a one-off:**
+
 - A document is recognized as a re-sync of *itself* by matching `rawSource.sourceUrl`, not citation (citation alone can't disambiguate two "Không số" documents).
 - A genuine collision against a document that is **not** "còn hiệu lực": skipped, not overwritten (`{ documentId: null, skippedReason }`).
 - A genuine collision against a document that **is** "còn hiệu lực": disambiguated by appending vbpl.vn's internal id — `"<citation> (vbpl-<id>)"` — and inserted as its own row.
@@ -105,16 +108,18 @@ CSV columns: `section` (matches `###` below) · `section_title` · `status` (`Re
 
 **Example:** `Luật Cải cách ruộng đất` (1953, id 1105) — renamed `Không số` → `Không số (vbpl-1105)`, resolved. `3-LCT/HĐNN7` (1981) — blocked by `Luật Tổ chức Tòa án nhân dân`'s identical citation, confirmed expired, won't fix.
 
+**2026-08-03 — same mechanism hit tier 1 (Hiến pháp), 4 more Won't fix.** All 6 of vbpl.vn's Hiến pháp-typed documents (1946/1959/1980/1992/1992-sửa-đổi-2001, plus the current consolidated `52/VBHN-VPQH`, which has its own citation and isn't affected) share the literal "Không số" citation — same pre-numbering-era pattern as tier 2. `Hiến pháp năm 1946` happened to sync first and holds the slot; the other 4 are all confirmed `Hết hiệu lực toàn bộ` (each superseded by the next), so the same won't-fix rationale applies without a separate decision. Unlike tier 2's 66, this set is small enough (4 documents, the entire population) that it's worth naming explicitly rather than leaving implicit: `Hiến pháp năm 1959` (id 889, hết hiệu lực 1980-12-19), `Hiến pháp năm 1980` (id 1534, hết hiệu lực 1992-04-15), `Hiến pháp năm 1992` (id 11234, hết hiệu lực 2014-01-01), `Hiến pháp năm 1992 (sửa đổi, bổ sung năm 2001)` (id 22313, hết hiệu lực 2014-01-01) — none currently retrievable from Postgres by this pass; only reachable today via vbpl.vn directly.
+
 ---
 
 ## 5. `issuing_body` mis-attributed to the drafting ministry — a vbpl.vn data-quality issue
 
-| | |
-|---|---|
-| **Status** | ✅ Resolved for the 2 tiers found — 2026-07-31. ⚠️ Same-shape risk on other tiers not yet audited (see below) |
-| **Found** | Postgres tier audit (tier 2: Luật/Bộ luật); extended after the same pattern turned up in the tier-3 (Pháp lệnh) 100-document pass |
-| **Docs affected** | 5 confirmed (`section=5` in CSV) — 3 tier 2 (Luật/Bộ luật), 2 tier 3 (Pháp lệnh) |
-| **DB impact** | `document.issuing_body` legally impossible for the 5 confirmed rows; the same corruption could be silently sitting in already-indexed tier 4–7 documents today, undetected |
+|                         |                                                                                                                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**        | ✅ Resolved for the 2 tiers found — 2026-07-31. ⚠️ Same-shape risk on other tiers not yet audited (see below)                                                              |
+| **Found**         | Postgres tier audit (tier 2: Luật/Bộ luật); extended after the same pattern turned up in the tier-3 (Pháp lệnh) 100-document pass                                        |
+| **Docs affected** | 5 confirmed (`section=5` in CSV) — 3 tier 2 (Luật/Bộ luật), 2 tier 3 (Pháp lệnh)                                                                                      |
+| **DB impact**     | `document.issuing_body` legally impossible for the 5 confirmed rows; the same corruption could be silently sitting in already-indexed tier 4–7 documents today, undetected |
 
 **Root cause — this is a vbpl.vn data-quality issue, not a law-index scrape bug.** vbpl.vn's own "Cơ quan ban hành" field sometimes reports the drafting/reviewing ministry instead of the body legally empowered to issue the document (confirmed live in every case found so far). Điều 4 of Luật 64/2025/QH15 restricts several document tiers to exactly *one* issuing body regardless of which ministry drafted the text — so the wrong value is always structurally detectable for those tiers by checking document type against Điều 4, independent of content. Confirmed wrong so far on tier 2 (`Luật`/`Bộ luật`/`Nghị quyết` → must be Quốc hội) and tier 3 (`Pháp lệnh`/`Nghị quyết` → must be UBTVQH).
 
@@ -143,12 +148,12 @@ Regression tests added in `vbpl.parser.spec.ts` for both bodies and the citation
 
 ## 6. Tier-3 100-document pass — three pipeline bugs
 
-| | |
-|---|---|
-| **Status** | ✅ Resolved — 2026-07-31; follow-up bugs found 2026-08-03 also resolved |
-| **Found** | Running the first 100 Pháp lệnh (tier 3) documents end to end; the 3 follow-up bugs (6d) surfaced re-attempting §3's corpus-wide backfill |
-| **Docs affected** | 2 direct data-loss cases (`section=6` in CSV); the page-cache fix (6b) and the two 6d fixes each protect/affect every future crawl — the internal-id bug alone silently affected ~7% of the corpus (48/653 documents) for `original_document_urls` |
-| **DB impact** | `document_node` silently missing on 2 documents; search results silently truncated below the requested `pageSize`; `original_document_urls` silently staying empty on real slug-URL/UUID-id documents even after an apparently-successful sync (6d) |
+|                         |                                                                                                                                                                                                                                                           |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**        | ✅ Resolved — 2026-07-31; follow-up bugs found 2026-08-03 also resolved                                                                                                                                                                                  |
+| **Found**         | Running the first 100 Pháp lệnh (tier 3) documents end to end; the 3 follow-up bugs (6d) surfaced re-attempting §3's corpus-wide backfill                                                                                                              |
+| **Docs affected** | 2 direct data-loss cases (`section=6` in CSV); the page-cache fix (6b) and the two 6d fixes each protect/affect every future crawl — the internal-id bug alone silently affected ~7% of the corpus (48/653 documents) for `original_document_urls`   |
+| **DB impact**     | `document_node` silently missing on 2 documents; search results silently truncated below the requested `pageSize`; `original_document_urls` silently staying empty on real slug-URL/UUID-id documents even after an apparently-successful sync (6d) |
 
 Four distinct findings surfaced in `server/src/law-index/crawl/`, listed in the order found:
 
@@ -179,18 +184,44 @@ Four distinct findings surfaced in `server/src/law-index/crawl/`, listed in the 
 
 ## 7. Quoted multi-Khoản replacement text mis-nested
 
-| | |
-|---|---|
-| **Status** | ⚠️ Unresolved |
-| **Found** | 2026-07-31, while investigating [§2](#2-điều-header-without-a-period--zero-nodes) |
-| **Docs affected** | 1 confirmed (`61/2014/QH13`, also listed under `section=2` in CSV — see its note) |
-| **DB impact** | `document_node` tree shape is wrong for affected documents: extra nodes appear as top-level siblings of the amending Điều instead of nested inside the quoted block. No data loss, but structure/hierarchy is incorrect. |
+|                         |                                                                                                                                                                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**        | ⚠️ Unresolved                                                                                                                                                                                                              |
+| **Found**         | 2026-07-31, while investigating[§2](#2-điều-header-without-a-period--zero-nodes)                                                                                                                                           |
+| **Docs affected** | 1 confirmed (`61/2014/QH13`, also listed under `section=2` in CSV — see its note)                                                                                                                                       |
+| **DB impact**     | `document_node` tree shape is wrong for affected documents: extra nodes appear as top-level siblings of the amending Điều instead of nested inside the quoted block. No data loss, but structure/hierarchy is incorrect. |
 
 **Root cause:** this is a parser shape issue, not a per-document data problem — it isn't a bounded checklist the way §1–3 are. When an amending Điều quotes a foreign document's replacement text that itself spans multiple numbered Khoản, only the *first* line of the quoted block carries a leading quote-mark character. That's the only signal `document-node.parser.ts` currently uses to treat content as quoted (opaque) rather than real structure — every subsequent quoted line has no such marker, so `KHOAN_PATTERN` picks up a quoted khoản and inserts it as a new top-level sibling of the amending Điều, rather than nesting it inside the quote.
 
 **Confirmed example:** `61/2014/QH13`, Điều 1 — quotes a full replacement "Điều 8" from Luật Hàng không dân dụng, itself containing Khoản 1–9.
 
 **Needed:** track quote-open/quote-close state across lines (open on a leading `"`/`"`, close on a trailing `"`/`"`) so everything inside a quoted span is treated as opaque text of the node that opened the quote, regardless of what it looks like structurally. Not attempted yet. Likely affects other "Luật sửa đổi, bổ sung" documents beyond the one confirmed case — actual scope not surveyed.
+
+---
+
+## 8. "Văn bản hợp nhất" has no "Ngày ban hành" — upsert threw instead of falling back
+
+|                         |                                                                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Status**        | ✅ Resolved — 2026-08-03                                                                                              |
+| **Found**         | Tier-1 (Hiến pháp) pass — syncing`52/VBHN-VPQH`, the consolidated current Hiến pháp text                        |
+| **Docs affected** | 1 confirmed live; generalizable to any "Văn bản hợp nhất" document, none of which had been synced before this pass |
+| **DB impact**     | None —`upsertDocument` threw before any write, so the failure was clean (500, no partial row), just blocking        |
+
+**Root cause:** `document.repository.ts`'s `upsertDocument` throws if `parsed.attributes.issuedDateRaw` (vbpl.vn's "Ngày ban hành") doesn't parse, since `document.schema.ts`'s `enactedDate` is `NOT NULL`. A "Văn bản hợp nhất" document — a consolidated text compiled by an office (e.g. Văn phòng Quốc hội) rather than promulgated by a legislative body — has no "Ngày ban hành" row on its attributes tab at all (confirmed live on `52/VBHN-VPQH`: the tab has "Ngày ký xác thực" — certification date — in that slot instead). `parseAttributes` returned `issuedDateRaw: null`, and the repo's own `NOT NULL` guard (`document.repository.ts:236`, a plain `throw new Error`, not a Nest `HttpException`) surfaced as an uncaught 500 with no domain-specific error message, since `main.ts` registers no global exception filter.
+
+**Fix:** `parseAttributes` (`vbpl.parser.ts`) now falls back to "Ngày ký xác thực" when "Ngày ban hành" is absent: `get('Ngày ban hành') ?? get('Ngày ký xác thực')`. Regression test added in `vbpl.parser.spec.ts`. No document type besides "Văn bản hợp nhất" has been observed missing "Ngày ban hành" — the fallback is a no-op for every other type since `get('Ngày ban hành')` is non-null for them.
+
+**Example:** `52/VBHN-VPQH` — synced successfully after the fix, `enactedDate` populated from "Ngày ký xác thực" (2025-07-21).
+
+**Related, not diagnosed:** two unexplained oddities surfaced in the same session while searching for tier-1/tier-3 documents via `GET /laws/index/crawl/search`, noted here rather than silently worked around:
+
+- `documentTypes=["Hiến pháp"]` reliably returned `total: 0` even though 6 real "Hiến pháp"-typed documents exist on vbpl.vn (confirmed by reading `sitemap.xml` directly and syncing them by URL instead) — the checkbox click didn't throw `BadRequestException` (which would mean the label wasn't found), so either the checkbox exists but doesn't actually filter to this type, or vbpl.vn's own "Hình thức văn bản" category for these documents doesn't line up with their "Loại văn bản" attribute value the way it does for other types. With `pageSize` set, the same query instead reliably timed out (502) rather than returning 0 — a second inconsistency on top of the first.
+- `keyword`-based search (e.g. `keyword=Hiến pháp&searchScope=tieu-de`) returned the same `total: 467` result set regardless of keyword content, and the returned titles didn't match the keyword at all — looked like a stale/cached unfiltered response being returned rather than the actual filtered query result.
+
+Neither blocked this pass (worked around via direct sitemap URLs and `documentTypes` filtering, which worked correctly for `"Pháp lệnh"`), but both are worth root-causing before relying on `crawl/search`'s `documentTypes`+`pageSize` combination or its `keyword` filter for future tier passes.
+
+**Tier-1/tier-3 backfill status — completed 2026-08-03.** Tier 1 (Hiến pháp) is fully synced — 2 documents: `Không số` (the "Hiến pháp năm 1946" survivor of the §4 citation-collision mechanism — see [§4&#39;s 2026-08-03 update](#4-citation-collision-documents-silently-overwritten-or-permanently-blocked) for the other 4 historical versions that were skipped by the same mechanism) and `52/VBHN-VPQH` (the current consolidated text, unblocked by this section's fix). Tier 3 (Pháp lệnh + Nghị quyết issued by Ủy ban Thường vụ Quốc hội) found 310 not-yet-synced candidates via `documentTypes` search, synced in six ~50-document passes (interrupted once mid-pass by request, resumed later) — final tally 264 synced (all `changed: true`), 3 skipped as citation collisions, 0 hard failures. `document_type` counts now: 136 Pháp lệnh + 269 Nghị quyết, both under Ủy ban Thường vụ Quốc hội. (The first pass's chunking script only removed successfully-*synced* rows from its own working queue between batches, not skipped ones — so all 3 collisions briefly got logged twice, once per pass, before the queue-update logic was fixed to also drop skips; the 3-distinct figure above is the corrected count, cross-checked against the net DB delta.) The interim tracking file (`law-index-pending-tier3-resync.csv`) is removed now that the backfill is complete, matching the same pattern as the §3 pending-backfill CSV.
 
 ---
 
