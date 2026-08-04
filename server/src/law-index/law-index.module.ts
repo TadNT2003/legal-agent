@@ -6,6 +6,7 @@ import { DocumentRepository } from './persistence/document.repository';
 import { DocumentNodeRepository } from './persistence/document-node.repository';
 import { LawIndexController } from './law-index.controller';
 import { LawIndexService } from './law-index.service';
+import { RetrieveModule } from './retrieve/retrieve.module';
 
 /**
  * Workflow B: production DB ingestion (vbpl.vn -> Postgres), kept fully
@@ -14,7 +15,7 @@ import { LawIndexService } from './law-index.service';
  * are deliberately decoupled, not meant to reconcile with each other.
  */
 @Module({
-  imports: [DbModule],
+  imports: [DbModule, RetrieveModule],
   controllers: [LawIndexController],
   providers: [
     VbplClientService,

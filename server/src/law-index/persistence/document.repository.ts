@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import {
   and,
@@ -27,6 +27,7 @@ import {
 } from '../crawl/vbpl.parser';
 import { DRIZZLE, type DrizzleDb } from './db.module';
 import { document, issuingBody, documentReference } from './schema';
+import { documentNode } from './schema/document-node.schema';
 
 /** `eq()` never matches NULL — use this for columns (like changeType) that are legitimately nullable. */
 function nullSafeEq(column: AnyPgColumn, value: string | null) {
@@ -62,6 +63,11 @@ function computeContentVersion(parsed: ParsedVbplDocument): string {
   hash.update(parsed.originalDocumentUrls.join(','));
   return hash.digest('hex');
 }
+
+/** Matches citation patterns in body text: "104/2016/QH13", "78/2025/NĐ-CP", "03/2009/TT-BNG", "203/2025/QH15", "216-NQ-QHK4". */
+const CITATION_RE =
+  /\b(\d{1,3}\/\d{4}\/(?:[A-Z]{2,5}(?:-\d+)?-CP|TT-[A-Z]{2,5}|QH\d+|NQ-[A-ZĐ]{1,3}\d+|QĐ-[A-Z]{2,5}))\b/;
+const CITATION_RE_GLOBAL = new RegExp(CITATION_RE.source, 'g');
 
 const VALIDITY_STATUS_MAP: Record<
   string,
@@ -108,6 +114,20 @@ export interface UpsertResult {
   changed: boolean;
   /** Set (and documentId left null) when the document was not persisted — see upsertDocument's citation-collision handling. */
   skippedReason?: string;
+}
+
+export interface ReferenceRow {
+  id: string;
+  sourceDocumentId: string | null;
+  sourceCitationId: string | null;
+  sourceTitle: string | null;
+  targetDocumentId: string | null;
+  targetCitationId: string | null;
+  targetTitle: string | null;
+  referenceType: string;
+  changeType: string | null;
+  rawCitationText: string;
+  createdAt: string;
 }
 
 /** Shape written into document.rawSource on every upsert (see upsertDocument
@@ -287,6 +307,56 @@ export class DocumentRepository {
   }
 
   /**
+   * Update-only variant of upsertDocument. Fetches the document from the URL,
+   * looks up the existing DB row by citationId, and updates in place.
+   * Returns { notFound: true, citationId } if no matching document exists.
+   * Returns { unchanged: true, ... } if content_version is the same.
+   */
+  async updateDocument(parsed: ParsedVbplDocument): Promise<
+    | { notFound: true; citationId: string }
+    | {
+        notFound: false;
+        unchanged: true;
+        documentId: string;
+        citationId: string;
+      }
+    | {
+        notFound: false;
+        unchanged: false;
+        documentId: string;
+        citationId: string;
+        changed: boolean;
+      }
+  > {
+    const citationId = parsed.attributes.citation;
+    const existing = await this.db.query.document.findFirst({
+      where: eq(document.citationId, citationId),
+    });
+    if (!existing) {
+      return { notFound: true, citationId };
+    }
+
+    const contentVersion = computeContentVersion(parsed);
+    if (existing.contentVersion === contentVersion) {
+      return {
+        notFound: false,
+        unchanged: true,
+        documentId: existing.id,
+        citationId,
+      };
+    }
+
+    const result = await this.upsertDocument(parsed);
+    return {
+      notFound: false,
+      unchanged: false,
+      documentId: result.documentId,
+      citationId,
+      changed: result.changed,
+    };
+  }
+
+  /**
    * Persists relations from the outbound (this-document-is-source) side only.
    * An inbound-labeled relation (e.g. "Văn bản được thay thế") is the exact
    * mirror of another document's outbound relation ("Văn bản thay thế") — if
@@ -406,23 +476,290 @@ export class DocumentRepository {
   }
 
   /**
-   * Search locally synced documents in Postgres using the same filter
-   * parameters as the vbpl.vn crawl search endpoint. Converts dd/mm/yyyy
-   * date strings to yyyy-MM-dd for DB comparison.
+   * Extracts all text-based references: "Căn cứ" preamble lines as
+   * `has_basis`, and inline body citations classified by surrounding
+   * context keywords. Only inserts rows that don't already exist from
+   * vbpl.vn data.
+   */
+  async extractTextReferences(
+    thisDocumentId: string,
+    parsed: ParsedVbplDocument,
+  ): Promise<void> {
+    await this.extractPreambleReferences(thisDocumentId, parsed.fullText);
+    await this.extractBodyReferences(
+      thisDocumentId,
+      parsed.fullText,
+      parsed.attributes.citation,
+    );
+  }
+
+  private async extractPreambleReferences(
+    thisDocumentId: string,
+    fullText: string,
+  ): Promise<void> {
+    const preamble = this.extractPreambleBlock(fullText);
+    if (!preamble) return;
+
+    const lines = preamble.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.toLowerCase().startsWith('căn cứ')) continue;
+      const citation = this.extractCitationFromBody(trimmed);
+      if (!citation) continue;
+      const targetId = await this.findDocumentIdByCitation(citation);
+      await this.insertReferenceIfNotExists({
+        sourceDocumentId: thisDocumentId,
+        targetDocumentId: targetId,
+        referenceType: 'has_basis',
+        changeType: null,
+        rawCitationText: trimmed,
+      });
+    }
+  }
+
+  private extractPreambleBlock(fullText: string): string | null {
+    const upper = fullText.toUpperCase();
+    const docTypeMarkers = [
+      'NGHỊ ĐỊNH',
+      'LUẬT',
+      'THÔNG TƯ',
+      'QUYẾT ĐỊNH',
+      'LỆNH',
+      'PHÁP LỆNH',
+      'NGHỊ QUYẾT',
+    ];
+    let docTypePos = -1;
+    for (const marker of docTypeMarkers) {
+      const idx = upper.indexOf(marker);
+      if (idx !== -1 && (docTypePos === -1 || idx < docTypePos)) {
+        docTypePos = idx;
+      }
+    }
+    if (docTypePos === -1) return null;
+    const afterDocType = fullText.substring(docTypePos);
+    const firstChapter = afterDocType.search(
+      /[\n\r]\s*CHƯƠNG\s*[\dIVXLC]+[.\s]/i,
+    );
+    if (firstChapter === -1) {
+      return afterDocType.trim();
+    }
+    return afterDocType.substring(0, firstChapter).trim();
+  }
+
+  private extractCitationFromBody(text: string): string | null {
+    const citation = extractCitationFromTitle(text);
+    if (citation) return citation;
+    const directMatch = text.match(CITATION_RE);
+    return directMatch ? directMatch[0] : null;
+  }
+
+  /**
+   * Scans the document body (post-preamble) for inline citations to other
+   * documents. Each match is classified by contextual keywords surrounding
+   * the citation: "sửa đổi"/"bãi bỏ"/"thay thế" → amends/repeals,
+   * "quy định tại"/"theo Điều" → cites (default).
+   */
+  private async extractBodyReferences(
+    thisDocumentId: string,
+    fullText: string,
+    ownCitationId: string,
+  ): Promise<void> {
+    const bodyStart = this.findBodyStart(fullText);
+    if (bodyStart === -1) return;
+    const body = fullText.substring(bodyStart);
+
+    const matches = [...body.matchAll(CITATION_RE_GLOBAL)];
+    const seen = new Set<string>();
+    for (const m of matches) {
+      const citation = m[0];
+      if (citation === ownCitationId || seen.has(citation)) continue;
+
+      const contextStart = Math.max(0, m.index - 80);
+      const contextEnd = Math.min(
+        body.length,
+        (m.index || 0) + citation.length + 80,
+      );
+      const context = body.substring(contextStart, contextEnd).toLowerCase();
+
+      const refType = this.classifyBodyReference(context);
+      if (refType === null) continue;
+
+      const targetId = await this.findDocumentIdByCitation(citation);
+      await this.insertReferenceIfNotExists({
+        sourceDocumentId: thisDocumentId,
+        targetDocumentId: targetId,
+        referenceType: refType,
+        changeType: null,
+        rawCitationText: context.trim(),
+      });
+      seen.add(citation);
+    }
+  }
+
+  private findBodyStart(fullText: string): number {
+    const chapterMatch = fullText.match(/[\n\r]\s*CHƯƠNG\s*[\dIVXLC]+[.\s]/i);
+    return chapterMatch ? chapterMatch.index! + chapterMatch[0].length : -1;
+  }
+
+  private classifyBodyReference(context: string): VbplReferenceType | null {
+    if (/sửa\s+đổi|bổ\s*sung/.test(context)) return 'amends';
+    if (/bãi\s+bỏ|hết\s+hiệu\s+lực/.test(context)) return 'repeals';
+    if (/thay\s+thế/.test(context)) return 'amends';
+    if (/đính\s+chính/.test(context)) return 'corrects';
+    if (/hướng\s+dẫn/.test(context)) return 'guides';
+    return 'cites';
+  }
+
+  /**
+   * Fetches document_reference rows for a given document, optionally
+   * filtered by direction and reference type. Joins source/target
+   * document metadata into each row.
+   */
+  async findReferences(
+    documentId: string,
+    direction: 'outgoing' | 'incoming' | 'all' = 'outgoing',
+    referenceType?: string,
+  ): Promise<{
+    citationId: string;
+    title: string;
+    references: ReferenceRow[];
+  }> {
+    const docInfo = await this.db.query.document.findFirst({
+      where: eq(document.id, documentId),
+      columns: { citationId: true, title: true },
+    });
+    if (!docInfo) {
+      throw new Error(`Document ${documentId} not found`);
+    }
+
+    const conditions: SQL[] = [];
+    if (direction === 'outgoing') {
+      conditions.push(eq(documentReference.sourceDocumentId, documentId));
+    } else if (direction === 'incoming') {
+      conditions.push(eq(documentReference.targetDocumentId, documentId));
+    } else {
+      const orResult = or(
+        eq(documentReference.sourceDocumentId, documentId),
+        eq(documentReference.targetDocumentId, documentId),
+      );
+      if (orResult) conditions.push(orResult);
+    }
+    if (referenceType) {
+      conditions.push(
+        eq(
+          documentReference.referenceType,
+          referenceType as (typeof documentReference.$inferInsert)['referenceType'],
+        ),
+      );
+    }
+
+    const where = conditions.length > 1 ? and(...conditions) : conditions[0];
+
+    const refs = await this.db
+      .select({
+        id: documentReference.id,
+        sourceDocumentId: documentReference.sourceDocumentId,
+        targetDocumentId: documentReference.targetDocumentId,
+        referenceType: documentReference.referenceType,
+        changeType: documentReference.changeType,
+        rawCitationText: documentReference.rawCitationText,
+        createdAt: documentReference.createdAt,
+      })
+      .from(documentReference)
+      .where(where)
+      .orderBy(documentReference.createdAt);
+
+    const sourceIds = refs
+      .map((r) => r.sourceDocumentId)
+      .filter((id): id is string => id !== null && id !== documentId);
+    const targetIds = refs
+      .map((r) => r.targetDocumentId)
+      .filter((id): id is string => id !== null && id !== documentId);
+    const allRelatedIds = [...new Set([...sourceIds, ...targetIds])];
+
+    const docMap = new Map<string, { citationId: string; title: string }>();
+    docMap.set(documentId, {
+      citationId: docInfo.citationId,
+      title: docInfo.title,
+    });
+    if (allRelatedIds.length > 0) {
+      const relatedDocs = await this.db
+        .select({
+          id: document.id,
+          citationId: document.citationId,
+          title: document.title,
+        })
+        .from(document)
+        .where(inArray(document.id, allRelatedIds));
+      for (const d of relatedDocs) {
+        docMap.set(d.id, { citationId: d.citationId, title: d.title });
+      }
+    }
+
+    const references: ReferenceRow[] = refs.map((ref) => {
+      const src = ref.sourceDocumentId
+        ? (docMap.get(ref.sourceDocumentId) ?? null)
+        : null;
+      const tgt = ref.targetDocumentId
+        ? (docMap.get(ref.targetDocumentId) ?? null)
+        : null;
+      return {
+        id: ref.id,
+        sourceDocumentId: ref.sourceDocumentId,
+        sourceCitationId: src?.citationId ?? null,
+        sourceTitle: src?.title ?? null,
+        targetDocumentId: ref.targetDocumentId,
+        targetCitationId: tgt?.citationId ?? null,
+        targetTitle: tgt?.title ?? null,
+        referenceType: ref.referenceType,
+        changeType: ref.changeType,
+        rawCitationText: ref.rawCitationText,
+        createdAt: ref.createdAt.toISOString(),
+      };
+    });
+
+    return {
+      citationId: docInfo.citationId,
+      title: docInfo.title,
+      references,
+    };
+  }
+
+  /**
+   * Search locally synced documents in Postgres. Converts dd/mm/yyyy date
+   * strings to yyyy-MM-dd for DB comparison.
    */
   async searchLocalDocuments(
-    filters: VbplSearchFilters,
+    filters: Omit<
+      VbplSearchFilters,
+      'documentGroups' | 'expiredFrom' | 'expiredTo'
+    >,
   ): Promise<VbplSearchResult> {
     const conditions: SQL[] = [];
 
     if (filters.keyword) {
-      // or() is typed as SQL | undefined generically (empty-args case) — always
-      // defined here since exactly 2 conditions are always passed.
-      const keywordCondition = or(
-        ilike(document.title, `%${filters.keyword}%`),
-        ilike(document.citationId, `%${filters.keyword}%`),
-      );
-      if (keywordCondition) conditions.push(keywordCondition);
+      const wildcard = filters.exactPhrase ? '' : '%';
+      const keywordLike = `${wildcard}${filters.keyword}${wildcard}`;
+      // searchScope determines which fields the keyword is matched against.
+      // Default (tieu-de) matches title + citation. noi-dung searches the full
+      // text stored in raw_source. so-hieu searches citation only.
+      const scope = filters.searchScope ?? 'tieu-de';
+      const matches: SQL[] = [];
+      if (scope === 'noi-dung') {
+        matches.push(sql`raw_source->>'fullText' ILIKE ${keywordLike}`);
+      }
+      if (scope === 'tieu-de') {
+        matches.push(ilike(document.title, keywordLike));
+        matches.push(ilike(document.citationId, keywordLike));
+      }
+      if (scope === 'so-hieu') {
+        matches.push(ilike(document.citationId, keywordLike));
+      }
+      if (matches.length > 0) {
+        // or() is typed as SQL | undefined generically (empty-args case).
+        const keywordCondition = or(...matches);
+        if (keywordCondition) conditions.push(keywordCondition);
+      }
     }
 
     if (filters.documentTypes?.length) {
@@ -517,6 +854,7 @@ export class DocumentRepository {
         }
 
         return {
+          documentId: row.id,
           sourceUrl: rawSource.sourceUrl,
           citation: row.citationId,
           title: row.title,
@@ -534,6 +872,285 @@ export class DocumentRepository {
         };
       }),
     };
+  }
+
+  /** Find a single document by UUID. */
+  async findOneById(documentId: string): Promise<{
+    id: string;
+    citationId: string;
+    title: string;
+    documentType: string;
+    issuingBody: string;
+    industry: string | null;
+    field: string | null;
+    signerName: string | null;
+    signerTitle: string | null;
+    enactedDate: string | null;
+    effectiveDate: string | null;
+    gazettePublishedDate: string | null;
+    status: (typeof document.$inferSelect)['status'];
+    isConsolidated: boolean;
+    consolidatesDocumentId: string | null;
+    sourceUrl: string;
+  } | null> {
+    const [row] = await this.db
+      .select({
+        id: document.id,
+        citationId: document.citationId,
+        title: document.title,
+        documentType: document.documentType,
+        issuingBody: issuingBody.name,
+        industry: document.industry,
+        field: document.field,
+        signerName: document.signerName,
+        signerTitle: document.signerTitle,
+        enactedDate: document.enactedDate,
+        effectiveDate: document.effectiveDate,
+        gazettePublishedDate: document.gazettePublishedDate,
+        status: document.status,
+        isConsolidated: document.isConsolidated,
+        consolidatesDocumentId: document.consolidatesDocumentId,
+        rawSource: document.rawSource,
+      })
+      .from(document)
+      .innerJoin(issuingBody, eq(document.issuingBodyId, issuingBody.id))
+      .where(eq(document.id, documentId));
+
+    if (!row) return null;
+
+    const rawSource = row.rawSource as { sourceUrl?: string } | null;
+    return {
+      id: row.id,
+      citationId: row.citationId,
+      title: row.title,
+      documentType: row.documentType,
+      issuingBody: row.issuingBody,
+      industry: row.industry,
+      field: row.field,
+      signerName: row.signerName,
+      signerTitle: row.signerTitle,
+      enactedDate: row.enactedDate,
+      effectiveDate: row.effectiveDate,
+      gazettePublishedDate: row.gazettePublishedDate,
+      status: row.status,
+      isConsolidated: row.isConsolidated,
+      consolidatesDocumentId: row.consolidatesDocumentId,
+      sourceUrl: rawSource?.sourceUrl ?? '',
+    };
+  }
+
+  /** List issuing bodies with optional keyword/scope filters and document counts. */
+  async findIssuingBodies(filters: {
+    keyword?: string;
+    scope?: 'national' | 'local';
+  }): Promise<{
+    items: Array<{
+      id: string;
+      name: string;
+      nameEn: string | null;
+      authorityRank: number;
+      scope: 'national' | 'local';
+      parentBodyId: string | null;
+      documentCount: number;
+    }>;
+    total: number;
+  }> {
+    const conditions: SQL[] = [];
+
+    if (filters.keyword) {
+      conditions.push(ilike(issuingBody.name, `%${filters.keyword}%`));
+    }
+
+    if (filters.scope) {
+      conditions.push(eq(issuingBody.scope, filters.scope));
+    }
+
+    const rows = await this.db
+      .select({
+        id: issuingBody.id,
+        name: issuingBody.name,
+        nameEn: issuingBody.nameEn,
+        authorityRank: issuingBody.authorityRank,
+        scope: issuingBody.scope,
+        parentBodyId: issuingBody.parentBodyId,
+        documentCount: sql<number>`count(${document.id})`,
+      })
+      .from(issuingBody)
+      .leftJoin(document, eq(issuingBody.id, document.issuingBodyId))
+      .where(conditions.length ? and(...conditions) : undefined)
+      .groupBy(
+        issuingBody.id,
+        issuingBody.name,
+        issuingBody.nameEn,
+        issuingBody.authorityRank,
+        issuingBody.scope,
+        issuingBody.parentBodyId,
+      )
+      .orderBy(issuingBody.authorityRank, issuingBody.name);
+
+    return {
+      items: rows.map((row) => ({
+        ...row,
+        documentCount: Number(row.documentCount),
+      })),
+      total: rows.length,
+    };
+  }
+
+  /** Build the same WHERE conditions as searchLocalDocuments, reuse for delete-by-search. */
+  private buildSearchConditions(
+    filters: Omit<
+      VbplSearchFilters,
+      'documentGroups' | 'expiredFrom' | 'expiredTo'
+    >,
+  ): SQL | undefined {
+    const conditions: SQL[] = [];
+
+    if (filters.keyword) {
+      const wildcard = filters.exactPhrase ? '' : '%';
+      const keywordLike = `${wildcard}${filters.keyword}${wildcard}`;
+      const scope = filters.searchScope ?? 'tieu-de';
+      const matches: SQL[] = [];
+      if (scope === 'noi-dung') {
+        matches.push(sql`raw_source->>'fullText' ILIKE ${keywordLike}`);
+      }
+      if (scope === 'tieu-de') {
+        matches.push(ilike(document.title, keywordLike));
+        matches.push(ilike(document.citationId, keywordLike));
+      }
+      if (scope === 'so-hieu') {
+        matches.push(ilike(document.citationId, keywordLike));
+      }
+      if (matches.length > 0) {
+        const keywordCondition = or(...matches);
+        if (keywordCondition) conditions.push(keywordCondition);
+      }
+    }
+
+    if (filters.documentTypes?.length) {
+      conditions.push(inArray(document.documentType, filters.documentTypes));
+    }
+    if (filters.issuingBodies?.length) {
+      conditions.push(inArray(issuingBody.name, filters.issuingBodies));
+    }
+    if (filters.validityStatus) {
+      const mappedStatus =
+        VALIDITY_STATUS_MAP[filters.validityStatus.toLowerCase()];
+      if (mappedStatus) {
+        conditions.push(eq(document.status, mappedStatus));
+      }
+    }
+    if (filters.issuedFrom) {
+      const date = parseVbplDate(filters.issuedFrom);
+      if (date) conditions.push(gte(document.enactedDate, date));
+    }
+    if (filters.issuedTo) {
+      const date = parseVbplDate(filters.issuedTo);
+      if (date) conditions.push(lte(document.enactedDate, date));
+    }
+    if (filters.effectiveFrom) {
+      const date = parseVbplDate(filters.effectiveFrom);
+      if (date) conditions.push(gte(document.effectiveDate, date));
+    }
+    if (filters.effectiveTo) {
+      const date = parseVbplDate(filters.effectiveTo);
+      if (date) conditions.push(lte(document.effectiveDate, date));
+    }
+
+    return conditions.length ? and(...conditions) : undefined;
+  }
+
+  /** Return all document IDs matching the given search filters. */
+  async findDocumentIdsByFilters(
+    filters: Omit<
+      VbplSearchFilters,
+      'documentGroups' | 'expiredFrom' | 'expiredTo'
+    >,
+  ): Promise<string[]> {
+    const where = this.buildSearchConditions(filters);
+    const rows = await this.db
+      .select({ id: document.id })
+      .from(document)
+      .innerJoin(issuingBody, eq(document.issuingBodyId, issuingBody.id))
+      .where(where);
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Delete a single document by UUID with cascade: removes document_node rows,
+   * document_reference rows (both source and target), and the document itself.
+   */
+  async deleteDocumentById(documentId: string): Promise<{
+    documentId: string;
+    citationId: string;
+    nodesDeleted: number;
+    referencesDeleted: number;
+  }> {
+    const doc = await this.db.query.document.findFirst({
+      where: eq(document.id, documentId),
+      columns: { id: true, citationId: true },
+    });
+    if (!doc) {
+      throw new NotFoundException(`Document with ID "${documentId}" not found`);
+    }
+
+    const citationId = doc.citationId;
+
+    const nodesDeleted = await this.db
+      .delete(documentNode)
+      .where(eq(documentNode.documentId, documentId))
+      .returning({ id: documentNode.id });
+
+    const refsDeleted = await this.db
+      .delete(documentReference)
+      .where(
+        or(
+          eq(documentReference.sourceDocumentId, documentId),
+          eq(documentReference.targetDocumentId, documentId),
+        ),
+      )
+      .returning({ id: documentReference.id });
+
+    await this.db.delete(document).where(eq(document.id, documentId));
+
+    return {
+      documentId,
+      citationId,
+      nodesDeleted: nodesDeleted.length,
+      referencesDeleted: refsDeleted.length,
+    };
+  }
+
+  /** Delete multiple documents by UUID array with cascade. */
+  async deleteDocumentsByIds(documentIds: string[]): Promise<
+    Array<{
+      documentId: string;
+      citationId: string;
+      nodesDeleted: number;
+      referencesDeleted: number;
+    }>
+  > {
+    const results: Array<{
+      documentId: string;
+      citationId: string;
+      nodesDeleted: number;
+      referencesDeleted: number;
+    }> = [];
+
+    for (const id of documentIds) {
+      try {
+        results.push(await this.deleteDocumentById(id));
+      } catch {
+        results.push({
+          documentId: id,
+          citationId: '',
+          nodesDeleted: 0,
+          referencesDeleted: 0,
+        });
+      }
+    }
+
+    return results;
   }
 }
 
