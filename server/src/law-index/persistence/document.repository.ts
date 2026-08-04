@@ -141,6 +141,10 @@ interface DocumentRawSource {
 export class DocumentRepository {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
+  getDb(): DrizzleDb {
+    return this.db;
+  }
+
   async findDocumentIdByCitation(citation: string): Promise<string | null> {
     const row = await this.db.query.document.findFirst({
       where: eq(document.citationId, citation),
@@ -410,6 +414,49 @@ export class DocumentRepository {
   }
 
   /**
+   * Like insertReferenceIfNotExists but returns true if the row already
+   * existed, false if it was inserted. Used by reExtractTextReferences
+   * to count newly inserted references.
+   */
+  private async insertReferenceIfNotExistsCheck(params: {
+    sourceDocumentId: string;
+    targetDocumentId: string | null;
+    referenceType: VbplReferenceType;
+    changeType: VbplChangeType;
+    rawCitationText: string;
+  }): Promise<boolean> {
+    const dedupWhere = params.targetDocumentId
+      ? and(
+          eq(documentReference.sourceDocumentId, params.sourceDocumentId),
+          eq(documentReference.targetDocumentId, params.targetDocumentId),
+          eq(documentReference.referenceType, params.referenceType),
+          nullSafeEq(documentReference.changeType, params.changeType),
+        )
+      : and(
+          eq(documentReference.sourceDocumentId, params.sourceDocumentId),
+          isNull(documentReference.targetDocumentId),
+          eq(documentReference.referenceType, params.referenceType),
+          nullSafeEq(documentReference.changeType, params.changeType),
+          eq(documentReference.rawCitationText, params.rawCitationText),
+        );
+
+    const existing = await this.db.query.documentReference.findFirst({
+      where: dedupWhere,
+      columns: { id: true },
+    });
+    if (existing) return true;
+
+    await this.db.insert(documentReference).values({
+      sourceDocumentId: params.sourceDocumentId,
+      targetDocumentId: params.targetDocumentId,
+      referenceType: params.referenceType,
+      changeType: params.changeType ?? undefined,
+      rawCitationText: params.rawCitationText,
+    });
+    return false;
+  }
+
+  /**
    * Extracts all text-based references: "Căn cứ" preamble lines as
    * `has_basis`, and inline body citations classified by surrounding
    * context keywords. Only inserts rows that don't already exist from
@@ -425,6 +472,88 @@ export class DocumentRepository {
       parsed.fullText,
       parsed.attributes.citation,
     );
+  }
+
+  /**
+   * Re-extracts text-based references for an existing document using its
+   * stored raw_source fullText. Returns the count of new reference rows
+   * inserted. Useful when a document was scraped before text extraction
+   * logic existed or was improved, and new target documents have since
+   * been indexed into the database.
+   */
+  async reExtractTextReferences(
+    thisDocumentId: string,
+  ): Promise<number> {
+    const doc = await this.db.query.document.findFirst({
+      where: eq(document.id, thisDocumentId),
+      columns: { citationId: true, rawSource: true },
+    });
+
+    if (!doc) {
+      throw new Error(`Document ${thisDocumentId} not found`);
+    }
+
+    const rawSource = doc.rawSource as DocumentRawSource | null;
+    if (!rawSource?.fullText) {
+      return 0;
+    }
+
+    const ownCitationId = doc.citationId;
+    let inserted = 0;
+
+    const preamble = this.extractPreambleBlock(rawSource.fullText);
+    if (preamble) {
+      const lines = preamble.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.toLowerCase().startsWith('căn cứ')) continue;
+        const citation = this.extractCitationFromBody(trimmed);
+        if (!citation) continue;
+        const targetId = await this.findDocumentIdByCitation(citation);
+        const existed = await this.insertReferenceIfNotExistsCheck({
+          sourceDocumentId: thisDocumentId,
+          targetDocumentId: targetId,
+          referenceType: 'has_basis',
+          changeType: null,
+          rawCitationText: trimmed,
+        });
+        if (!existed) inserted += 1;
+      }
+    }
+
+    const bodyStart = this.findBodyStart(rawSource.fullText);
+    if (bodyStart !== -1) {
+      const body = rawSource.fullText.substring(bodyStart);
+      const matches = [...body.matchAll(CITATION_RE_GLOBAL)];
+      const seen = new Set<string>();
+      for (const m of matches) {
+        const citation = m[0];
+        if (citation === ownCitationId || seen.has(citation)) continue;
+
+        const contextStart = Math.max(0, m.index - 80);
+        const contextEnd = Math.min(
+          body.length,
+          (m.index || 0) + citation.length + 80,
+        );
+        const context = body.substring(contextStart, contextEnd).toLowerCase();
+
+        const refType = this.classifyBodyReference(context);
+        if (refType === null) continue;
+
+        const targetId = await this.findDocumentIdByCitation(citation);
+        const existed = await this.insertReferenceIfNotExistsCheck({
+          sourceDocumentId: thisDocumentId,
+          targetDocumentId: targetId,
+          referenceType: refType,
+          changeType: null,
+          rawCitationText: context.trim(),
+        });
+        if (!existed) inserted += 1;
+        seen.add(citation);
+      }
+    }
+
+    return inserted;
   }
 
   private async extractPreambleReferences(
