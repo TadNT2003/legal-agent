@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import {
   and,
@@ -23,6 +23,7 @@ import type {
 import { extractCitationFromTitle, parseVbplDate } from '../crawl/vbpl.parser';
 import { DRIZZLE, type DrizzleDb } from './db.module';
 import { document, issuingBody, documentReference } from './schema';
+import { documentNode } from './schema/document-node.schema';
 
 /** `eq()` never matches NULL — use this for columns (like changeType) that are legitimately nullable. */
 function nullSafeEq(column: AnyPgColumn, value: string | null) {
@@ -928,6 +929,162 @@ export class DocumentRepository {
       })),
       total: rows.length,
     };
+  }
+
+  /** Build the same WHERE conditions as searchLocalDocuments, reuse for delete-by-search. */
+  private buildSearchConditions(
+    filters: Omit<
+      VbplSearchFilters,
+      'documentGroups' | 'expiredFrom' | 'expiredTo'
+    >,
+  ): SQL | undefined {
+    const conditions: SQL[] = [];
+
+    if (filters.keyword) {
+      const wildcard = filters.exactPhrase ? '' : '%';
+      const keywordLike = `${wildcard}${filters.keyword}${wildcard}`;
+      const scope = filters.searchScope ?? 'tieu-de';
+      const matches: SQL[] = [];
+      if (scope === 'noi-dung') {
+        matches.push(sql`raw_source->>'fullText' ILIKE ${keywordLike}`);
+      }
+      if (scope === 'tieu-de') {
+        matches.push(ilike(document.title, keywordLike));
+        matches.push(ilike(document.citationId, keywordLike));
+      }
+      if (scope === 'so-hieu') {
+        matches.push(ilike(document.citationId, keywordLike));
+      }
+      if (matches.length > 0) {
+        const keywordCondition = or(...matches);
+        if (keywordCondition) conditions.push(keywordCondition);
+      }
+    }
+
+    if (filters.documentTypes?.length) {
+      conditions.push(inArray(document.documentType, filters.documentTypes));
+    }
+    if (filters.issuingBodies?.length) {
+      conditions.push(inArray(issuingBody.name, filters.issuingBodies));
+    }
+    if (filters.validityStatus) {
+      const mappedStatus =
+        VALIDITY_STATUS_MAP[filters.validityStatus.toLowerCase()];
+      if (mappedStatus) {
+        conditions.push(eq(document.status, mappedStatus));
+      }
+    }
+    if (filters.issuedFrom) {
+      const date = parseVbplDate(filters.issuedFrom);
+      if (date) conditions.push(gte(document.enactedDate, date));
+    }
+    if (filters.issuedTo) {
+      const date = parseVbplDate(filters.issuedTo);
+      if (date) conditions.push(lte(document.enactedDate, date));
+    }
+    if (filters.effectiveFrom) {
+      const date = parseVbplDate(filters.effectiveFrom);
+      if (date) conditions.push(gte(document.effectiveDate, date));
+    }
+    if (filters.effectiveTo) {
+      const date = parseVbplDate(filters.effectiveTo);
+      if (date) conditions.push(lte(document.effectiveDate, date));
+    }
+
+    return conditions.length ? and(...conditions) : undefined;
+  }
+
+  /** Return all document IDs matching the given search filters. */
+  async findDocumentIdsByFilters(
+    filters: Omit<
+      VbplSearchFilters,
+      'documentGroups' | 'expiredFrom' | 'expiredTo'
+    >,
+  ): Promise<string[]> {
+    const where = this.buildSearchConditions(filters);
+    const rows = await this.db
+      .select({ id: document.id })
+      .from(document)
+      .innerJoin(issuingBody, eq(document.issuingBodyId, issuingBody.id))
+      .where(where);
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Delete a single document by UUID with cascade: removes document_node rows,
+   * document_reference rows (both source and target), and the document itself.
+   */
+  async deleteDocumentById(documentId: string): Promise<{
+    documentId: string;
+    citationId: string;
+    nodesDeleted: number;
+    referencesDeleted: number;
+  }> {
+    const doc = await this.db.query.document.findFirst({
+      where: eq(document.id, documentId),
+      columns: { id: true, citationId: true },
+    });
+    if (!doc) {
+      throw new NotFoundException(`Document with ID "${documentId}" not found`);
+    }
+
+    const citationId = doc.citationId;
+
+    const nodesDeleted = await this.db
+      .delete(documentNode)
+      .where(eq(documentNode.documentId, documentId))
+      .returning({ id: documentNode.id });
+
+    const refsDeleted = await this.db
+      .delete(documentReference)
+      .where(
+        or(
+          eq(documentReference.sourceDocumentId, documentId),
+          eq(documentReference.targetDocumentId, documentId),
+        ),
+      )
+      .returning({ id: documentReference.id });
+
+    await this.db.delete(document).where(eq(document.id, documentId));
+
+    return {
+      documentId,
+      citationId,
+      nodesDeleted: nodesDeleted.length,
+      referencesDeleted: refsDeleted.length,
+    };
+  }
+
+  /** Delete multiple documents by UUID array with cascade. */
+  async deleteDocumentsByIds(documentIds: string[]): Promise<
+    Array<{
+      documentId: string;
+      citationId: string;
+      nodesDeleted: number;
+      referencesDeleted: number;
+    }>
+  > {
+    const results: Array<{
+      documentId: string;
+      citationId: string;
+      nodesDeleted: number;
+      referencesDeleted: number;
+    }> = [];
+
+    for (const id of documentIds) {
+      try {
+        results.push(await this.deleteDocumentById(id));
+      } catch {
+        results.push({
+          documentId: id,
+          citationId: '',
+          nodesDeleted: 0,
+          referencesDeleted: 0,
+        });
+      }
+    }
+
+    return results;
   }
 }
 

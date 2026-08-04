@@ -52,12 +52,51 @@ export class RetrieveService {
     return this.repo.findIssuingBodies(dto);
   }
 
-  async retrieveById(documentId: string): Promise<import('./dto/retrieve-document-response.dto').RetrieveDocumentResponseDto> {
+  async deleteById(
+    documentId: string,
+  ): Promise<
+    import('./dto/delete-document-response.dto').DeleteDocumentResultDto
+  > {
+    return this.repo.deleteDocumentById(documentId);
+  }
+
+  async deleteBySearch(
+    filters: RetrieveSearchDto,
+  ): Promise<
+    import('./dto/delete-document-response.dto').DeleteDocumentsBySearchResponseDto
+  > {
+    const documentIds = await this.repo.findDocumentIdsByFilters(filters);
+    const matched = documentIds.length;
+
+    if (matched === 0) {
+      return {
+        matched: 0,
+        deleted: 0,
+        notFound: 0,
+        results: [],
+      };
+    }
+
+    const results = await this.repo.deleteDocumentsByIds(documentIds);
+    const deleted = results.filter((r) => r.citationId).length;
+    const notFound = results.filter((r) => !r.citationId).length;
+
+    return {
+      matched,
+      deleted,
+      notFound,
+      results,
+    };
+  }
+
+  async retrieveById(
+    documentId: string,
+  ): Promise<
+    import('./dto/retrieve-document-response.dto').RetrieveDocumentResponseDto
+  > {
     const doc = await this.repo.findOneById(documentId);
     if (!doc) {
-      throw new NotFoundException(
-        `Document with ID "${documentId}" not found`,
-      );
+      throw new NotFoundException(`Document with ID "${documentId}" not found`);
     }
 
     const validityStatus = doc.status
@@ -90,9 +129,7 @@ export class RetrieveService {
     };
   }
 
-  private mapDbStatusToDisplay(
-    status: string,
-  ): string {
+  private mapDbStatusToDisplay(status: string): string {
     const map: Record<string, string> = {
       chua_co_hieu_luc: 'Chưa có hiệu lực',
       con_hieu_luc: 'Còn hiệu lực',
