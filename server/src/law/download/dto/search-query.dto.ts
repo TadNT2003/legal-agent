@@ -1,13 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  IsIn,
-  IsOptional,
-  IsString,
-  Matches,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsIn, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 import {
   ALLOWED_RECORDS_PER_PAGE,
   DEFAULT_MAX_RESULTS,
@@ -61,8 +54,7 @@ export class SearchQueryDto {
   recordsPerPage?: number = DEFAULT_RECORDS_PER_PAGE;
 
   @ApiPropertyOptional({
-    description:
-      'Upper bound on how many matching documents to return.',
+    description: 'Upper bound on how many matching documents to return.',
     minimum: 1,
     maximum: MAX_ALLOWED_RESULTS,
     default: DEFAULT_MAX_RESULTS,

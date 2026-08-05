@@ -2,6 +2,12 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class SearchDocumentItemDto {
   @ApiProperty({
+    description: 'Internal document UUID. Use with GET /laws/index/retrieve/nodes.',
+    example: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
+  })
+  documentId: string;
+
+  @ApiProperty({
     description:
       'A vbpl.vn document detail page URL, directly usable as syncDocument\'s `url`. The human-readable slug segment is a fixed placeholder, not vbpl.vn\'s real one — confirmed live that vbpl.vn resolves the document by the trailing "--<id>" alone.',
     example: 'https://vbpl.vn/van-ban/chi-tiet/van-ban--32833',
@@ -11,6 +17,7 @@ export class SearchDocumentItemDto {
   @ApiProperty({ description: '"Số hiệu" — the document\'s citation number.' })
   citation: string;
 
+  @ApiProperty({ description: 'Full document title.' })
   title: string;
 
   @ApiProperty({ description: '"Loại văn bản".' })
@@ -34,14 +41,14 @@ export class SearchDocumentItemDto {
 
 export class SearchDocumentsResponseDto {
   @ApiProperty({
-    description: 'Total matches across all pages, as reported by vbpl.vn.',
+    description: 'Total matches across all pages.',
   })
   total: number;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Current page number (1-based).' })
   page: number;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Results per page.' })
   pageSize: number;
 
   @ApiProperty({ type: [SearchDocumentItemDto] })

@@ -292,7 +292,11 @@ describe('parseDocumentBody', () => {
     ].join('\n');
 
     const [dieu] = parseDocumentBody(fullText);
-    expect(dieu).toMatchObject({ nodeType: 'dieu', ordinal: '1', label: 'Điều 1' });
+    expect(dieu).toMatchObject({
+      nodeType: 'dieu',
+      ordinal: '1',
+      label: 'Điều 1',
+    });
     expect(dieu.heading).toBe(
       'Sửa đổi, bổ sung một số điều của Luật hàng không dân dụng Việt Nam:',
     );
@@ -300,7 +304,8 @@ describe('parseDocumentBody', () => {
   });
 
   it('parses "Điều N: <heading>" (colon separator), confirmed against real vbpl.vn output (Luật 46/2005/QH11)', () => {
-    const fullText = 'Điều 1: Sửa đổi, bổ sung một số điều của Luật khoáng sản như sau:';
+    const fullText =
+      'Điều 1: Sửa đổi, bổ sung một số điều của Luật khoáng sản như sau:';
 
     const [dieu] = parseDocumentBody(fullText);
     expect(dieu).toMatchObject({
@@ -318,7 +323,8 @@ describe('parseDocumentBody', () => {
     expect(dieu).toMatchObject({
       nodeType: 'dieu',
       ordinal: '1',
-      heading: 'Sửa đổi, bổ sung một số điều của Luật thuế xuất khẩu, thuế nhập khẩu:',
+      heading:
+        'Sửa đổi, bổ sung một số điều của Luật thuế xuất khẩu, thuế nhập khẩu:',
     });
   });
 
