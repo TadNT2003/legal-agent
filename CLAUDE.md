@@ -40,6 +40,8 @@ Server config: copy `server/.env.example` to `server/.env` (separate from the ro
 
 Swagger/OpenAPI UI is served at `/api` once the server is running.
 
+**Find the server port from this worktree's `server/.env`, never by probing ports or hunting for a process.** This repo is checked out as several git worktrees at once (`git worktree list` — e.g. `.kilo/worktrees/secondary-workdesk`, `.kilo/worktrees/test-workdesk`), each on its own branch, each with its own `server/.env` and its own `PORT`. A server answering on some port is therefore *not* evidence it belongs to the worktree you're working in — it is usually a sibling worktree running different code against the same Postgres. Read `PORT` from the `server/.env` of the directory you are actually in (the primary worktree is `PORT=3000`) and use only that one. Never start a server on a port you picked yourself: that collides with whichever worktree owns it. If a change doesn't appear to take effect, the cause is almost always a failing `npm run build` — `nest start --watch` keeps serving the last good compile silently — so run `npm run build` before concluding anything about the running server.
+
 ## Architecture
 
 ### `server/src/law/` — the one fully-implemented module

@@ -23,17 +23,17 @@
 
 ### 1a. Nhà cung cấp AI pháp lý thương mại
 
-| Hệ thống | Hướng tiếp cận truy xuất | Mức kiểm chứng |
-| - | - | - |
-| Harvey AI | Hybrid sparse+dense, agentic với độ sâu thích ứng | Cao — blog kỹ thuật của chính họ |
-| Lexis+ AI | Hybrid + pipeline 5 chốt kiểm, có kiểm định trích dẫn | Trung bình — công bố pipeline, không có nội tại |
-| vLex / Vincent | RAG + duyệt đồ thị trích dẫn, citator tách riêng | Trung bình — tài liệu hỗ trợ |
-| CoCounsel | RAG trên kho Westlaw/Practical Law đã biên tập | Thấp — chỉ tiếp thị |
-| Robin AI | Hybrid, chunk được bổ sung metadata | Cao — có công bố đánh giá |
-| Legora | Đa tác tử (multi-agent) + RAG trên Azure OpenAI | Thấp — tường thuật sản phẩm |
-| Spellbook | GPT-4o fine-tuned + prompting, không công bố RAG | Thấp |
-| DoNotPay | Cây hội thoại mẫu + sinh văn bản bằng LLM | Không — coi là chưa kiểm chứng |
-| Genie AI | Tuyên bố có "semantic graph" + "Eidetic Intelligence" | **Không — thuật ngữ tiếp thị, không có phương pháp luận** |
+| Hệ thống     | Hướng tiếp cận truy xuất                                 | Mức kiểm chứng                                                           |
+| -------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Harvey AI      | Hybrid sparse+dense, agentic với độ sâu thích ứng       | Cao — blog kỹ thuật của chính họ                                      |
+| Lexis+ AI      | Hybrid + pipeline 5 chốt kiểm, có kiểm định trích dẫn | Trung bình — công bố pipeline, không có nội tại                     |
+| vLex / Vincent | RAG + duyệt đồ thị trích dẫn, citator tách riêng      | Trung bình — tài liệu hỗ trợ                                          |
+| CoCounsel      | RAG trên kho Westlaw/Practical Law đã biên tập           | Thấp — chỉ tiếp thị                                                    |
+| Robin AI       | Hybrid, chunk được bổ sung metadata                       | Cao — có công bố đánh giá                                            |
+| Legora         | Đa tác tử (multi-agent) + RAG trên Azure OpenAI           | Thấp — tường thuật sản phẩm                                          |
+| Spellbook      | GPT-4o fine-tuned + prompting, không công bố RAG           | Thấp                                                                       |
+| DoNotPay       | Cây hội thoại mẫu + sinh văn bản bằng LLM              | Không — coi là chưa kiểm chứng                                        |
+| Genie AI       | Tuyên bố có "semantic graph" + "Eidetic Intelligence"      | **Không — thuật ngữ tiếp thị, không có phương pháp luận** |
 
 **Harvey AI** là bên minh bạch kỹ thuật nhất. Truy xuất được nêu rõ là hybrid, với lý do "embedding thuần dense có thể gặp khó với các thuật ngữ hiếm như mã số vụ án và thực thể có tên" — đúng lập luận mà dự án này dùng để giữ OpenSearch song song với vector store. Vector store trong môi trường production là LanceDB Enterprise và Postgres+pgvector. Harvey hợp tác với Voyage AI để fine-tune `voyage-law-2-harvey` trên hơn 20 tỷ token án lệ (tự giám sát trên án lệ thô, cộng giám sát có nhãn trên cặp truy vấn/nội dung do chuyên gia gán nhãn), đánh giá bằng NDCG@10 và Recall@100, tuyên bố giảm ~25% kết quả top không liên quan với số chiều embedding chỉ bằng một phần ba mô hình đa dụng. Điều phối là vòng lặp kiểu ReAct 5 giai đoạn (lập kế hoạch → chọn công cụ/truy xuất → suy luận/tổng hợp → kiểm tra đầy đủ → trích dẫn) với **độ sâu truy xuất co giãn theo độ phức tạp truy vấn** (3–10 lượt gọi công cụ). Chiến lược chunking không hề được công bố qua cả ba bài blog, dù có mô tả việc bổ sung metadata vào chunk.
 
@@ -162,26 +162,23 @@ Không tồn tại nhánh COLIEE dành riêng cho Việt Nam — COLIEE vẫn ch
 
 ### 3a. Những chỗ thiết kế đã khớp với ngành
 
-| Hạng mục | Đồng thuận của ngành | Dự án này |
-| - | - | - |
-| Truy xuất | Hybrid từ khóa + ngữ nghĩa, có hợp nhất | OpenSearch + vector store qua RRF ([../../README.md](../../README.md)) — khớp, và được Nigam và cộng sự kiểm chứng ngay trong miền pháp lý |
-| Chunking | Bám cấu trúc, không dùng token cố định | `document_node` ở mức Khoản / Điều trần (§4) — **đi trước phần lớn hệ production**, vốn không công bố hoặc vẫn dùng cửa sổ cố định |
-| Đơn vị lập chỉ mục | Trả về đoạn tối thiểu chính xác; truy xuất theo tài liệu cha | Tài liệu ở mức Điều với Khoản lồng bên trong + `inner_hits` (§3a, §3d) — trích dẫn chính xác tới đoạn nhưng vẫn có ngữ cảnh đọc được |
-| Độ mịn của hiệu lực | Theo thời điểm, theo từng điều khoản (legislation.gov.uk) | `status`/`valid_from`/`valid_to`/`superseded_by_node_id` theo từng `document_node` — **gần với độ mịn của legislation.gov.uk hơn là mức hợp nhất theo tài liệu của EUR-Lex** |
-| Mô hình hóa quan hệ | Ngành đang rời bỏ cạnh `CITES` phẳng | `reference_type` 10 giá trị + `change_type` đã mã hóa sẵn đúng thứ mà tài liệu khoa học phê phán đồ thị phẳng là thiếu |
-| Hiệu lực vs. truy xuất | Citator là hệ thống con tách rời | Hiệu lực nằm ở Postgres/đồ thị, không nằm trong xếp hạng độ liên quan — khớp với cách tách Shepard's/vCite |
-| Điều phối | Agentic gọi công cụ (xu hướng 2025–26) | Kiến trúc mục tiêu là agentic — đã khớp, chưa xây |
+| Hạng mục                | Đồng thuận của ngành                                               | Dự án này                                                                                                                                                                                                 |
+| ------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Truy xuất                | Hybrid từ khóa + ngữ nghĩa, có hợp nhất                          | OpenSearch + vector store qua RRF ([../../README.md](../../README.md)) — khớp, và được Nigam và cộng sự kiểm chứng ngay trong miền pháp lý                                                      |
+| Chunking                  | Bám cấu trúc, không dùng token cố định                          | `document_node` ở mức Khoản / Điều trần (§4) — **đi trước phần lớn hệ production**, vốn không công bố hoặc vẫn dùng cửa sổ cố định                                         |
+| Đơn vị lập chỉ mục  | Trả về đoạn tối thiểu chính xác; truy xuất theo tài liệu cha | Tài liệu ở mức Điều với Khoản lồng bên trong +`inner_hits` (§3a, §3d) — trích dẫn chính xác tới đoạn nhưng vẫn có ngữ cảnh đọc được                                          |
+| Độ mịn của hiệu lực | Theo thời điểm, theo từng điều khoản (legislation.gov.uk)        | `status`/`valid_from`/`valid_to`/`superseded_by_node_id` theo từng `document_node` — **gần với độ mịn của legislation.gov.uk hơn là mức hợp nhất theo tài liệu của EUR-Lex** |
+| Mô hình hóa quan hệ   | Ngành đang rời bỏ cạnh`CITES` phẳng                             | `reference_type` 10 giá trị + `change_type` đã mã hóa sẵn đúng thứ mà tài liệu khoa học phê phán đồ thị phẳng là thiếu                                                             |
+| Hiệu lực vs. truy xuất | Citator là hệ thống con tách rời                                   | Hiệu lực nằm ở Postgres/đồ thị, không nằm trong xếp hạng độ liên quan — khớp với cách tách Shepard's/vCite                                                                                |
+| Điều phối              | Agentic gọi công cụ (xu hướng 2025–26)                            | Kiến trúc mục tiêu là agentic — đã khớp, chưa xây                                                                                                                                                 |
 
 Tóm lại: **các quyết định về hợp nhất truy xuất và chunking đã đưa ra đều được cả thực tiễn ngành lẫn nghiên cứu hiện tại xác nhận**, và về độ mịn chunking cùng độ biểu đạt của kiểu quan hệ, dự án này đang đi trước một số nhà cung cấp thương mại.
 
 ### 3b. Các khoảng trống — và đó là những bài toán khó của ngành, không chỉ là phần hạ tầng chưa làm
 
 1. **CDC + sync-state + đối soát (chưa bắt đầu).** Thiết kế `content_version` + `document_sync_state` đã có trong [../../README.md](../../README.md). Cảnh báo từ tài liệu khoa học là: phần khó hơn không phải khâu lan truyền mà là **cưỡng chế tại thời điểm truy xuất** — một kho đồng bộ hoàn hảo vẫn sẽ tự tin trả về một Điều đã hết hiệu lực nếu không có gì lọc theo hiệu lực trước khi xếp hạng. Nên viết ràng buộc lọc hiệu lực vào hợp đồng của công cụ truy xuất *trước khi* tầng agent được xây.
-
 2. **Chưa có giai đoạn kiểm định trích dẫn.** Với tỷ lệ ảo giác 17–33% ở các công cụ thương mại có RAG, và [arXiv:2606.00898](https://arxiv.org/abs/2606.00898) đề xuất đúng việc này, lược đồ hiện tại đã sẵn sàng: phân giải mọi `citation_id`/`node_key` được sinh ra ngược về một hàng `document_node` thật rồi đối chiếu nội dung được khẳng định với `text_content`.
-
 3. **Mô hình embedding vẫn còn bỏ ngỏ.** §2f cho thấy nên rời khỏi embedding đa ngôn ngữ đa dụng để hướng tới mô hình tinh chỉnh cho tiếng Việt.
-
 4. **Rủi ro của điều phối agentic.** Kiểm chứng bằng log truy vấn thật thay vì mặc định tin rằng agentic luôn thắng pipeline cố định đã tinh chỉnh tốt.
 
 ---
@@ -255,15 +252,15 @@ Nhánh lâu đời nhất: **LegalRuleML**, một ngôn ngữ đánh dấu XML c
 
 Về mặt khái niệm đây là tầng sâu nhất — chính là cấu trúc điều kiện→hệ quả→ngoại lệ mà de Martim lập luận rằng embedding về cấu trúc không thể biểu diễn. **Kết quả thực nghiệm là một biển báo dừng:**
 
-| Chỉ số (NormBench, 2.290 mục / 9.019 nhánh) | LLM tiên tiến |
-| - | - |
-| Độ trung thực của đoạn trích (span faithfulness) | 0,77–0,79 |
-| NodeSpan-F1 (có lấy đúng các đoạn không) | ~0,45 |
+| Chỉ số (NormBench, 2.290 mục / 9.019 nhánh)                       | LLM tiên tiến      |
+| --------------------------------------------------------------------- | -------------------- |
+| Độ trung thực của đoạn trích (span faithfulness)               | 0,77–0,79           |
+| NodeSpan-F1 (có lấy đúng các đoạn không)                      | ~0,45                |
 | **Edge-F1 (các đoạn có gắn đúng nút cha logic không)** | **0,21–0,24** |
-| Edge-F1 ở độ lồng ≥ 2 | **0,07** |
-| DefRec@Gold (khôi phục được điều kiện ngoại lệ) | 0,55–0,64 |
-| DefRec@Gold, LLM *đã tinh chỉnh chuyên ngành luật* | **~0,006** |
-| Đẳng cấu cấu trúc liên ngôn ngữ (Iso-F1) | < 0,40 |
+| Edge-F1 ở độ lồng ≥ 2                                            | **0,07**       |
+| DefRec@Gold (khôi phục được điều kiện ngoại lệ)             | 0,55–0,64           |
+| DefRec@Gold, LLM*đã tinh chỉnh chuyên ngành luật*             | **~0,006**     |
+| Đẳng cấu cấu trúc liên ngôn ngữ (Iso-F1)                      | < 0,40               |
 
 Nhận định của nhóm tác giả: mô hình "lấy đúng văn bản nhưng nối dây sai" — khoảng trống *structure-grounding*. Hai phát hiện đặc biệt đáng lưu tâm ở đây: hiệu năng sụp đổ với ngoại lệ lồng nhau (văn bản luật Việt Nam đầy các mệnh đề `trừ trường hợp...` lồng nhau), và mô hình đã tinh chỉnh chuyên ngành luật lại *kém hơn hẳn* mô hình đa dụng ở khâu phân tích cấu trúc. **Trục này chưa sẵn sàng.** Theo dõi tài liệu; đừng xây.
 
@@ -273,19 +270,18 @@ Nhận định của nhóm tác giả: mô hình "lấy đúng văn bản nhưng
 
 **Ontology** (dẫn xuất từ LRMoo):
 
-| Nút | Vai trò |
-| - | - |
-| **Norm (Work)** | Quy phạm pháp luật ở dạng trừu tượng — ví dụ chính bản Hiến pháp (LRMoo F1) |
-| **Component (Component Work)** | Các thành phần thứ bậc (phần, chương, điều) **giữ nguyên danh tính khái niệm xuyên suốt các lần sửa đổi** |
-| **Temporal Version (TV/CTV)** | Ảnh chụp không phụ thuộc ngôn ngữ của một Norm hoặc Component tại một thời điểm (LRMoo F2 Expression) |
-| **Language Version (LV/CLV)** | Hiện thực hóa văn bản cụ thể trong một ngôn ngữ |
-| **Action** | Sự kiện lập pháp được vật thể hóa thành nút |
-| **Theme** | Phân loại chủ đề |
+| Nút                                 | Vai trò                                                                                                                             |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **Norm (Work)**                | Quy phạm pháp luật ở dạng trừu tượng — ví dụ chính bản Hiến pháp (LRMoo F1)                                           |
+| **Component (Component Work)** | Các thành phần thứ bậc (phần, chương, điều)**giữ nguyên danh tính khái niệm xuyên suốt các lần sửa đổi** |
+| **Temporal Version (TV/CTV)**  | Ảnh chụp không phụ thuộc ngôn ngữ của một Norm hoặc Component tại một thời điểm (LRMoo F2 Expression)                 |
+| **Language Version (LV/CLV)**  | Hiện thực hóa văn bản cụ thể trong một ngôn ngữ                                                                            |
+| **Action**                     | Sự kiện lập pháp được vật thể hóa thành nút                                                                              |
+| **Theme**                      | Phân loại chủ đề                                                                                                                |
 
 **Hai ý tưởng liên quan trực tiếp tới các quyết định đã có ở đây:**
 
 1. **Danh tính điều khoản được tách khỏi phiên bản điều khoản.** Một Component Work là "Điều 5 của Luật X" ổn định, tồn tại xuyên mọi lần sửa đổi, với các Temporal Version treo bên dưới. Thiết kế hiện tại tại [../database-design.md](../database-design.md) §2b đặt `valid_from`/`valid_to` trực tiếp lên `:Provision`, làm hai thứ nhập một — `MERGE` theo `node_key` nghĩa là nút chỉ có thể giữ phiên bản hiện hành, còn lịch sử được tái dựng gián tiếp từ các cạnh `MODIFIES` cộng ngày tháng (đúng như §2b thừa nhận). Cách đó chạy được, nhưng có nghĩa "Điều 5 nói gì hồi năm 2020" vĩnh viễn là một truy vấn Postgres, không bao giờ là truy vấn đồ thị. **Đây là ngã rẽ thực sự, đáng quyết định có chủ đích khi `:Provision` còn chưa được xây — sửa lại sau khi projector Neo4j đã tồn tại sẽ rất tốn kém.**
-
 2. **Sự kiện lập pháp được vật thể hóa thành nút `Action` hạng nhất.** Thay vì để việc sửa đổi là một *thuộc tính trên cạnh* (`MODIFIES {change_type, effective_date}`), bản thân sự kiện sửa đổi là một nút nối điều khoản nguồn → phiên bản bị chấm dứt → phiên bản được tạo, kèm một Text Unit mô tả được sinh ra để nó trở nên truy xuất được. Điều này khiến câu hỏi *"cái gì đã gây ra thay đổi này?"* truy vấn được trực tiếp thay vì phải suy diễn. Liên quan: **trạng thái thời gian được mô hình hóa bằng gộp (aggregation), không phải hợp thành (composition)** — khi Điều 6 bị sửa, phiên bản mới ở cấp Chương *tái sử dụng* phiên bản chưa đổi của Điều 7 thay vì nhân bản nó, cho phép tái dựng theo thời điểm một cách tất định mà không trùng lặp dữ liệu. Đây là một câu trả lời hữu ích cho nỗi lo trùng lặp trong bất kỳ thiết kế theo thời điểm nào.
 
 **Luận điểm cốt lõi của bài báo xác nhận độc lập hướng đi ở đây:** duyệt đồ thị tất định xác định chính xác các phiên bản còn hiệu lực, lấy về text unit tương ứng, và lắp ghép chuỗi xuất xứ thành dữ liệu có cấu trúc; **LLM chỉ tổng hợp từ ngữ cảnh đã bị ràng buộc sẵn bởi các thao tác tất định.** Đánh giá của bài báo được nêu rõ là *định tính, dựa trên vết thực thi (trace-based)*, nên hãy coi kiến trúc này là được lập luận tốt chứ chưa được đo đạc.
@@ -330,11 +326,11 @@ truy vấn ─► router ┤
 
 Bước thứ ba trong pipeline của SAT-Graph là **chọn chiến lược — ưu tiên cấu trúc / ưu tiên đoạn văn / ưu tiên thời gian** — mô tả rõ ràng nhất hiện có về việc tầng agentic đang được lên kế hoạch thực sự cần quyết định điều gì:
 
-| Dạng truy vấn | Chiến lược | Nhánh chạy trước |
-| - | - | - |
-| "Điều 5 Luật 45/2019/QH14 quy định gì?" | ưu tiên cấu trúc | Đồ thị phân giải trích dẫn; tìm kiếm hybrid có thể không cần chạy |
-| "quy định về bảo vệ dữ liệu cá nhân" | ưu tiên đoạn văn | Hybrid+RRF dẫn đầu; đồ thị làm giàu sau |
-| "quy định này năm 2020 thế nào?" | ưu tiên thời gian | Chọn phiên bản theo thời gian thu hẹp kho, rồi tìm trong đó |
+| Dạng truy vấn                               | Chiến lược         | Nhánh chạy trước                                                            |
+| --------------------------------------------- | --------------------- | ------------------------------------------------------------------------------- |
+| "Điều 5 Luật 45/2019/QH14 quy định gì?" | ưu tiên cấu trúc  | Đồ thị phân giải trích dẫn; tìm kiếm hybrid có thể không cần chạy |
+| "quy định về bảo vệ dữ liệu cá nhân" | ưu tiên đoạn văn | Hybrid+RRF dẫn đầu; đồ thị làm giàu sau                                 |
+| "quy định này năm 2020 thế nào?"        | ưu tiên thời gian  | Chọn phiên bản theo thời gian thu hẹp kho, rồi tìm trong đó            |
 
 **Một trục thứ hai, trực giao: độ phức tạp.** HyPA-RAG (§2g) định tuyến theo *tiêu tốn bao nhiêu công truy xuất* thay vì *nhánh nào dẫn đầu* — truy vấn đơn giản chỉ dùng sparse retrieval với ít chunk, truy vấn phức tạp dùng toàn bộ ngăn xếp dense+sparse+KG với nhiều chunk hơn và tham số được tinh chỉnh. Hai trục này ghép với nhau rất gọn: **hình dạng quyết định nhánh nào dẫn đầu, độ phức tạp quyết định đi sâu tới đâu.** Đây là đặc tả cụ thể hơn cho bộ định tuyến so với chỉ dùng hình dạng, và nó có tương đồng trong production — "3–10 lượt gọi công cụ co giãn theo độ phức tạp truy vấn" của Harvey (§1a) chính là ý tưởng này. Nó cũng là trục *đo đạc được* hơn trong hai trục: định tuyến theo độ phức tạp có sẵn một đánh đổi chi phí/độ chính xác để đo, trong khi định tuyến theo hình dạng chủ yếu phải đánh giá qua độ đúng của câu trả lời.
 
@@ -367,84 +363,84 @@ Xếp theo giá trị trên công sức, đối chiếu với phần việc đã
 
 ### Hệ thống và benchmark RAG pháp lý
 
-| Tài liệu | Liên kết |
-| - | - |
-| LegalBench-RAG — benchmark tách riêng bước truy xuất | [arXiv:2408.10343](https://arxiv.org/abs/2408.10343) |
-| LexRAG — benchmark tư vấn pháp lý nhiều lượt | [arXiv:2502.20640](https://arxiv.org/abs/2502.20640) |
-| LegalBench — 162 tác vụ lập luận pháp lý | [arXiv:2308.11462](https://arxiv.org/abs/2308.11462) |
-| LexGLUE — benchmark hiểu ngôn ngữ pháp lý (ACL 2022) | [arXiv:2110.00976](https://arxiv.org/abs/2110.00976) |
+| Tài liệu                                                      | Liên kết                                          |
+| --------------------------------------------------------------- | --------------------------------------------------- |
+| LegalBench-RAG — benchmark tách riêng bước truy xuất      | [arXiv:2408.10343](https://arxiv.org/abs/2408.10343) |
+| LexRAG — benchmark tư vấn pháp lý nhiều lượt            | [arXiv:2502.20640](https://arxiv.org/abs/2502.20640) |
+| LegalBench — 162 tác vụ lập luận pháp lý                 | [arXiv:2308.11462](https://arxiv.org/abs/2308.11462) |
+| LexGLUE — benchmark hiểu ngôn ngữ pháp lý (ACL 2022)      | [arXiv:2110.00976](https://arxiv.org/abs/2110.00976) |
 | DISC-LawLLM — LLM pháp lý Trung Quốc dùng tam đoạn luận | [arXiv:2309.11325](https://arxiv.org/abs/2309.11325) |
-| SaulLM-7B — LLM pháp lý giấy phép MIT | [arXiv:2403.03883](https://arxiv.org/abs/2403.03883) |
-| ChatLaw — RA-MoE đa tác tử + KG | [arXiv:2306.16092](https://arxiv.org/abs/2306.16092) |
-| LawGPT — thích ứng miền pháp lý tiếng Trung | [arXiv:2406.04614](https://arxiv.org/abs/2406.04614) |
+| SaulLM-7B — LLM pháp lý giấy phép MIT                      | [arXiv:2403.03883](https://arxiv.org/abs/2403.03883) |
+| ChatLaw — RA-MoE đa tác tử + KG                             | [arXiv:2306.16092](https://arxiv.org/abs/2306.16092) |
+| LawGPT — thích ứng miền pháp lý tiếng Trung              | [arXiv:2406.04614](https://arxiv.org/abs/2406.04614) |
 
 ### Truy xuất, hợp nhất, chunking
 
-| Tài liệu | Liên kết |
-| - | - |
+| Tài liệu                                                                          | Liên kết                                          |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------- |
 | Segment First, Retrieve Better — BM25+dense+RRF, phân đoạn theo vai trò tu từ | [arXiv:2508.00679](https://arxiv.org/pdf/2508.00679) |
-| Towards Reliable Retrieval in RAG for Large Legal Datasets — ablation chunking | [arXiv:2510.06999](https://arxiv.org/abs/2510.06999) |
+| Towards Reliable Retrieval in RAG for Large Legal Datasets — ablation chunking     | [arXiv:2510.06999](https://arxiv.org/abs/2510.06999) |
 
 ### RAG pháp lý tăng cường bằng đồ thị
 
-| Tài liệu | Liên kết |
-| - | - |
-| **SAT-Graph RAG — dựa ontology, phân cấp, theo thời gian, tất định** | [arXiv:2505.00039](https://arxiv.org/abs/2505.00039) · [JURIX 2025](https://journals.sagepub.com/doi/10.3233/FAIA251598) |
-| LegalGraphRAG — chunk/khái niệm/góc nhìn + kiểm định 3 tác tử | [arXiv:2605.28120](https://arxiv.org/abs/2605.28120) |
-| Bridging Legal Knowledge and AI — vector store + KG dựng bằng NMF phân cấp | [arXiv:2502.20364](https://arxiv.org/abs/2502.20364) |
-| Domain-Partitioned Hybrid RAG / KG-LegalRAG / LexGraph | [arXiv:2602.23371](https://arxiv.org/pdf/2602.23371) |
-| Falkor-IRAC | [arXiv:2605.14665](https://arxiv.org/abs/2605.14665) |
-| LKIF-Core — ontology các khái niệm pháp lý nền tảng | [CEUR Vol-321](https://ceur-ws.org/Vol-321/paper3.pdf) |
-| Biểu diễn quy phạm pháp luật với phạm vi và phương thức deontic tường minh | [Springer](https://link.springer.com/chapter/10.1007/978-981-92-0071-9_20) |
+| Tài liệu                                                                              | Liên kết                                                                                                              |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **SAT-Graph RAG — dựa ontology, phân cấp, theo thời gian, tất định**      | [arXiv:2505.00039](https://arxiv.org/abs/2505.00039) · [JURIX 2025](https://journals.sagepub.com/doi/10.3233/FAIA251598) |
+| LegalGraphRAG — chunk/khái niệm/góc nhìn + kiểm định 3 tác tử                 | [arXiv:2605.28120](https://arxiv.org/abs/2605.28120)                                                                     |
+| Bridging Legal Knowledge and AI — vector store + KG dựng bằng NMF phân cấp         | [arXiv:2502.20364](https://arxiv.org/abs/2502.20364)                                                                     |
+| Domain-Partitioned Hybrid RAG / KG-LegalRAG / LexGraph                                  | [arXiv:2602.23371](https://arxiv.org/pdf/2602.23371)                                                                     |
+| Falkor-IRAC                                                                             | [arXiv:2605.14665](https://arxiv.org/abs/2605.14665)                                                                     |
+| LKIF-Core — ontology các khái niệm pháp lý nền tảng                             | [CEUR Vol-321](https://ceur-ws.org/Vol-321/paper3.pdf)                                                                   |
+| Biểu diễn quy phạm pháp luật với phạm vi và phương thức deontic tường minh | [Springer](https://link.springer.com/chapter/10.1007/978-981-92-0071-9_20)                                               |
 
 ### Hiệu lực theo thời gian
 
-| Tài liệu | Liên kết |
-| - | - |
-| Mô hình FRBR/FRBRoo theo thời gian cho quản lý phiên bản ở cấp thành phần | [arXiv:2506.07853](https://arxiv.org/abs/2506.07853) |
-| Beyond Probabilistic Similarity — giới hạn cấu trúc/thời gian/nhân quả của RAG | [arXiv:2606.09724](https://arxiv.org/abs/2606.09724) |
+| Tài liệu                                                                                             | Liên kết                                          |
+| ------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| Mô hình FRBR/FRBRoo theo thời gian cho quản lý phiên bản ở cấp thành phần                   | [arXiv:2506.07853](https://arxiv.org/abs/2506.07853) |
+| Beyond Probabilistic Similarity — giới hạn cấu trúc/thời gian/nhân quả của RAG                | [arXiv:2606.09724](https://arxiv.org/abs/2606.09724) |
 | Asking For An Old Friend — kiểu lỗi theo thời gian trong hỏi đáp luật thành văn (ICAIL 2026) | [arXiv:2605.23497](https://arxiv.org/abs/2605.23497) |
-| Can LLMs Time Travel? — dùng RL cải thiện nhất quán thời gian | [arXiv:2605.25920](https://arxiv.org/abs/2605.25920) |
+| Can LLMs Time Travel? — dùng RL cải thiện nhất quán thời gian                                   | [arXiv:2605.25920](https://arxiv.org/abs/2605.25920) |
 
 ### Ảo giác và kiểm định
 
-| Tài liệu | Liên kết |
-| - | - |
-| **Large Legal Fictions — ảo giác 58–88% ở LLM đa dụng** | [arXiv:2401.01301](https://arxiv.org/abs/2401.01301) |
+| Tài liệu                                                                                    | Liên kết                                                                                                                |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Large Legal Fictions — ảo giác 58–88% ở LLM đa dụng**                          | [arXiv:2401.01301](https://arxiv.org/abs/2401.01301)                                                                       |
 | **Hallucination-Free? — 17–33% ở công cụ RAG pháp lý thương mại (JELS 2025)** | [arXiv:2405.20362](https://arxiv.org/abs/2405.20362) · [JELS](https://onlinelibrary.wiley.com/doi/full/10.1111/jels.12413) |
-| Citation Grounding qua đồ thị trích dẫn pháp lý | [arXiv:2606.00898](https://arxiv.org/abs/2606.00898) |
-| Span-Grounded Deontic Trees + NormBench | [arXiv:2606.08932](https://arxiv.org/html/2606.08932) |
+| Citation Grounding qua đồ thị trích dẫn pháp lý                                        | [arXiv:2606.00898](https://arxiv.org/abs/2606.00898)                                                                       |
+| Span-Grounded Deontic Trees + NormBench                                                       | [arXiv:2606.08932](https://arxiv.org/html/2606.08932)                                                                      |
 
 ### NLP pháp lý tiếng Việt
 
-| Tài liệu | Liên kết |
-| - | - |
-| ALQAC — Automated Legal Question Answering Competition | [alqac.github.io](https://alqac.github.io/) |
-| VLQA — benchmark hỏi đáp pháp luật tiếng Việt | [arXiv:2507.19995](https://arxiv.org/abs/2507.19995) |
+| Tài liệu                                                                            | Liên kết                                          |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| ALQAC — Automated Legal Question Answering Competition                               | [alqac.github.io](https://alqac.github.io/)          |
+| VLQA — benchmark hỏi đáp pháp luật tiếng Việt                                 | [arXiv:2507.19995](https://arxiv.org/abs/2507.19995) |
 | Truy xuất đa giai đoạn cho văn bản pháp luật tiếng Việt (BM25+ → SPhoBERT) | [arXiv:2209.14494](https://arxiv.org/abs/2209.14494) |
-| Khai thác mẫu âm bán khó cho truy xuất pháp lý tiếng Việt | [arXiv:2507.14619](https://arxiv.org/abs/2507.14619) |
-| Dữ liệu tổng hợp cho truy xuất pháp lý tiếng Việt | [arXiv:2412.00657](https://arxiv.org/abs/2412.00657) |
-| Mạng nơ-ron sâu có cơ chế chú ý cho truy xuất văn bản pháp luật | [arXiv:2212.13899](https://arxiv.org/abs/2212.13899) |
+| Khai thác mẫu âm bán khó cho truy xuất pháp lý tiếng Việt                   | [arXiv:2507.14619](https://arxiv.org/abs/2507.14619) |
+| Dữ liệu tổng hợp cho truy xuất pháp lý tiếng Việt                            | [arXiv:2412.00657](https://arxiv.org/abs/2412.00657) |
+| Mạng nơ-ron sâu có cơ chế chú ý cho truy xuất văn bản pháp luật          | [arXiv:2212.13899](https://arxiv.org/abs/2212.13899) |
 
 ### Điều phối agentic
 
-| Tài liệu | Liên kết |
-| - | - |
-| Agentic RAG: A Survey | [arXiv:2501.09136](https://arxiv.org/abs/2501.09136) |
-| All for Law and Law for All — RAG pháp lý thích ứng (NLLP 2025) | [arXiv:2508.13107](https://arxiv.org/abs/2508.13107) |
+| Tài liệu                                                                                                  | Liên kết                                                                  |
+| ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Agentic RAG: A Survey                                                                                       | [arXiv:2501.09136](https://arxiv.org/abs/2501.09136)                         |
+| All for Law and Law for All — RAG pháp lý thích ứng (NLLP 2025)                                        | [arXiv:2508.13107](https://arxiv.org/abs/2508.13107)                         |
 | **HyPA-RAG — hybrid (dense+sparse+KG) thích ứng theo độ phức tạp truy vấn, CustomNLP4U 2024** | [ACL:2024.customnlp4u-1.18](https://aclanthology.org/2024.customnlp4u-1.18/) |
 
 ### Hệ thống thương mại và chính phủ
 
-| Nguồn | Liên kết |
-| - | - |
-| Harvey — RAG cấp doanh nghiệp | [harvey.ai/blog](https://www.harvey.ai/blog/enterprise-grade-rag-systems) |
-| Harvey — tìm kiếm agentic | [harvey.ai/blog](https://www.harvey.ai/blog/how-agentic-search-unlocks-legal-research-intelligence) |
-| Harvey — BigLaw Bench retrieval | [harvey.ai/blog](https://www.harvey.ai/blog/biglaw-bench-retrieval) |
-| Voyage AI — embedding pháp lý riêng cho Harvey | [blog.voyageai.com](https://blog.voyageai.com/2024/07/31/harvey-partners-with-voyage-to-build-custom-legal-embeddings/) |
-| Robin AI — đánh giá chunking/embedding cho RAG | [robinai.com](https://robinai.com/news-and-resources/blog/optimizing-rag-for-contract-analysis-our-research-findings-2) |
-| LexisNexis — pipeline trích dẫn pháp lý có liên kết | [lexisnexis.com](https://www.lexisnexis.com/blogs/au/b/insights/posts/hallucination-free-linked-legal-citations) |
-| vLex Vincent — mô hình và phân tích vụ án | [support.vlex.com](https://support.vlex.com/vincent-by-vlex/vincent/security-privacy-and-compliance/understanding-the-ai-models-used-by-vincent) |
-| EUR-Lex — văn bản hợp nhất | [eur-lex.europa.eu](https://eur-lex.europa.eu/collection/eu-law/consleg.html) |
-| legislation.gov.uk — API và quản lý phiên bản theo thời điểm | [legislation.github.io](https://legislation.github.io/data-documentation/api/overview.html) |
-| Singapore LawNet 4.0 / GPT-Legal Q&A | [govinsider.asia](https://govinsider.asia/intl-en/article/singapore-trials-agentic-ai-for-corporate-compliance-launches-genai-search-engine-for-lawyers) |
+| Nguồn                                                                | Liên kết                                                                                                                                              |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Harvey — RAG cấp doanh nghiệp                                      | [harvey.ai/blog](https://www.harvey.ai/blog/enterprise-grade-rag-systems)                                                                                |
+| Harvey — tìm kiếm agentic                                          | [harvey.ai/blog](https://www.harvey.ai/blog/how-agentic-search-unlocks-legal-research-intelligence)                                                      |
+| Harvey — BigLaw Bench retrieval                                      | [harvey.ai/blog](https://www.harvey.ai/blog/biglaw-bench-retrieval)                                                                                      |
+| Voyage AI — embedding pháp lý riêng cho Harvey                    | [blog.voyageai.com](https://blog.voyageai.com/2024/07/31/harvey-partners-with-voyage-to-build-custom-legal-embeddings/)                                  |
+| Robin AI — đánh giá chunking/embedding cho RAG                    | [robinai.com](https://robinai.com/news-and-resources/blog/optimizing-rag-for-contract-analysis-our-research-findings-2)                                  |
+| LexisNexis — pipeline trích dẫn pháp lý có liên kết           | [lexisnexis.com](https://www.lexisnexis.com/blogs/au/b/insights/posts/hallucination-free-linked-legal-citations)                                         |
+| vLex Vincent — mô hình và phân tích vụ án                     | [support.vlex.com](https://support.vlex.com/vincent-by-vlex/vincent/security-privacy-and-compliance/understanding-the-ai-models-used-by-vincent)         |
+| EUR-Lex — văn bản hợp nhất                                       | [eur-lex.europa.eu](https://eur-lex.europa.eu/collection/eu-law/consleg.html)                                                                            |
+| legislation.gov.uk — API và quản lý phiên bản theo thời điểm | [legislation.github.io](https://legislation.github.io/data-documentation/api/overview.html)                                                              |
+| Singapore LawNet 4.0 / GPT-Legal Q&A                                  | [govinsider.asia](https://govinsider.asia/intl-en/article/singapore-trials-agentic-ai-for-corporate-compliance-launches-genai-search-engine-for-lawyers) |
