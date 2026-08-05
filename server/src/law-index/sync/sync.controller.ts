@@ -87,7 +87,7 @@ export class SyncController {
   @ApiNotFoundResponse({
     description: 'Document not found.',
   })
-  @Post('refs/reextract')
+  @Post('refs/extract')
   reExtractTextRefs(@Body() dto: ReExtractTextRefsDto) {
     return this.service.reExtractTextRefs(dto.documentId);
   }

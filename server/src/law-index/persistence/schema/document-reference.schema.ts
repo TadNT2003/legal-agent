@@ -5,6 +5,7 @@ import {
   timestamp,
   uuid,
   real,
+  index,
 } from 'drizzle-orm/pg-core';
 import { document } from './document.schema';
 import { documentNode } from './document-node.schema';
@@ -72,6 +73,18 @@ export const documentReference = pgTable('document_reference', {
     .notNull()
     .defaultNow(),
 });
+
+// Performance indexes for the scraper's hot paths.
+// pgIndex + .where() is the Drizzle equivalent of a Postgres partial index —
+// the resolved-edge and unresolved-edge *unique* indexes from 0000 were dropped
+// in 0001 due to the NULL-in-unique-index footgun (see below), but plain
+// (non-unique) indexes on the same columns are safe and dramatically speed up
+// the per-document heal, insertReferenceIfNotExists dedup selects, and
+// upsertRelations lookups.
+export const refSourceDocIdx = index('document_reference_source_doc_idx')
+  .on(documentReference.sourceDocumentId);
+export const refTargetDocIdx = index('document_reference_target_doc_idx')
+  .on(documentReference.targetDocumentId);
 
 // Deliberately no DB-level unique index for dedup here. A pair of partial
 // unique indexes (source/target/type/changeType WHERE target IS NULL, and

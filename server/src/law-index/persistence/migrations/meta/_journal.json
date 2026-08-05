@@ -29,6 +29,13 @@
       "when": 1785403527162,
       "tag": "0003_material_kat_farrell",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785480000000,
+      "tag": "0006_quick_shockwave",
+      "breakpoints": true
     }
   ]
 }
