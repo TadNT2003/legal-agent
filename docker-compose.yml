@@ -21,7 +21,8 @@ services:
     restart: unless-stopped
 
   opensearch:
-    image: opensearchproject/opensearch:2.19.1
+    build:
+      context: ./docker/opensearch
     container_name: legal-agent-opensearch
     environment:
       - cluster.name=legal-agent-cluster
