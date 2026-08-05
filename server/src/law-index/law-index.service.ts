@@ -9,7 +9,7 @@ import type {
 } from './crawl/vbpl-document.interface';
 import { DocumentRepository } from './persistence/document.repository';
 import { DocumentNodeRepository } from './persistence/document-node.repository';
-import type { SearchSyncDocumentsDto } from './dto/search-sync-documents.dto';
+import type { SearchSyncDocumentsDto } from './crawl/dto/search-sync-documents.dto';
 
 export interface SyncDocumentResult {
   documentId: string | null;
@@ -18,11 +18,33 @@ export interface SyncDocumentResult {
   healedReferences: number;
 }
 
+export interface UpdateDocumentByUrlResult {
+  documentId: string;
+  citationId: string;
+  changed: boolean;
+  healedReferences: number;
+}
+
+export interface UpdateDocumentByUrlError {
+  message: string;
+  citationId: string;
+  url: string;
+}
+
 export interface SyncSummary {
   totalUrls: number;
   synced: number;
   skipped: number;
   healedReferences: number;
+  errors: Array<{ url: string; error: string }>;
+}
+
+export interface BatchUpdateSummary {
+  totalUrls: number;
+  updated: number;
+  unchanged: number;
+  healedReferences: number;
+  notFound: Array<{ url: string; citationId: string; message: string }>;
   errors: Array<{ url: string; error: string }>;
 }
 
@@ -78,6 +100,120 @@ export class LawIndexService {
     }
     const healedReferences = await this.repo.healDanglingReferences();
     return { documentId, changed, healedReferences };
+  }
+
+  /**
+   * Fetches a document from a vbpl.vn URL, finds the existing DB row by
+   * citationId, and updates it in place. Fails with a clear error if no
+   * matching document exists in the index. Does NOT create new documents.
+   */
+  async updateDocumentByUrl(
+    url: string,
+  ): Promise<UpdateDocumentByUrlResult | UpdateDocumentByUrlError> {
+    const raw = await this.client.fetchDocument(url);
+    const parsed = parseVbplPage(raw);
+
+    if (parsed.scope !== 'trung-uong') {
+      this.logger.warn(
+        `Skipping update ${url} — breadcrumb scope is "${parsed.scope}", not trung-uong`,
+      );
+      return {
+        message: `Document at URL has scope "${parsed.scope}", not trung-uong. Only trung-uong documents are indexed.`,
+        citationId: parsed.attributes.citation,
+        url,
+      };
+    }
+
+    const result = await this.repo.updateDocument(parsed);
+
+    if (result.notFound) {
+      this.logger.warn(
+        `Update failed: no document found for citation "${result.citationId}" (URL: ${url})`,
+      );
+      return {
+        message: `No document found in the index matching citation "${result.citationId}". Sync it first via POST /laws/index/crawl/url.`,
+        citationId: result.citationId,
+        url,
+      };
+    }
+
+    if (result.unchanged) {
+      this.logger.debug(
+        `Update skipped: document "${result.citationId}" unchanged (same content_version).`,
+      );
+      return {
+        documentId: result.documentId,
+        citationId: result.citationId,
+        changed: false,
+        healedReferences: 0,
+      };
+    }
+
+    await this.repo.upsertRelations(result.documentId, parsed);
+    try {
+      await this.repo.extractTextReferences(result.documentId, parsed);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to extract text references for update ${url}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    try {
+      await this.nodeRepo.syncNodes(result.documentId, parsed, true);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to update document_node tree for ${url}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const healedReferences = await this.repo.healDanglingReferences();
+    return {
+      documentId: result.documentId,
+      citationId: result.citationId,
+      changed: true,
+      healedReferences,
+    };
+  }
+
+  /**
+   * Updates a batch of documents from vbpl.vn URLs. Per-URL failures and
+   * not-found citations are collected rather than aborting the batch. Returns
+   * a summary with updated/unchanged/notFound/error counts and a final
+   * dangling-reference heal pass. Does NOT create new documents.
+   */
+  async updateDocumentsBatch(urls: string[]): Promise<BatchUpdateSummary> {
+    const summary: BatchUpdateSummary = {
+      totalUrls: urls.length,
+      updated: 0,
+      unchanged: 0,
+      healedReferences: 0,
+      notFound: [],
+      errors: [],
+    };
+
+    for (const url of urls) {
+      try {
+        const result = await this.updateDocumentByUrl(url);
+        if ('message' in result) {
+          summary.notFound.push({
+            url,
+            citationId: result.citationId,
+            message: result.message,
+          });
+        } else if (result.changed) {
+          summary.updated += 1;
+          summary.healedReferences += result.healedReferences;
+        } else {
+          summary.unchanged += 1;
+        }
+      } catch (err) {
+        summary.errors.push({
+          url,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    summary.healedReferences = await this.repo.healDanglingReferences();
+    return summary;
   }
 
   /**

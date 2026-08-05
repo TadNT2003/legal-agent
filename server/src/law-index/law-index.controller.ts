@@ -1,20 +1,34 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
   ApiBadGatewayResponse,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { BatchSyncDocumentDto } from './dto/batch-sync-document.dto';
-import { SearchDocumentsDto } from './dto/search-documents.dto';
+import { BatchSyncDocumentDto } from './crawl/dto/batch-sync-document.dto';
+import { BatchUpdateSummaryResponseDto } from './crawl/dto/batch-update-by-url-response.dto';
+import { SearchDocumentsDto } from './crawl/dto/search-documents.dto';
 import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
-import { SearchSyncDocumentsDto } from './dto/search-sync-documents.dto';
-import { SearchSyncDocumentsResponseDto } from './dto/search-sync-documents-response.dto';
-import { SyncAllDto } from './dto/sync-all.dto';
-import { SyncDocumentDto } from './dto/sync-document.dto';
-import { SyncDocumentResponseDto } from './dto/sync-document-response.dto';
-import { SyncSummaryResponseDto } from './dto/sync-summary-response.dto';
+import { SearchSyncDocumentsDto } from './crawl/dto/search-sync-documents.dto';
+import { SearchSyncDocumentsResponseDto } from './crawl/dto/search-sync-documents-response.dto';
+import { SyncAllDto } from './crawl/dto/sync-all.dto';
+import { SyncDocumentDto } from './crawl/dto/sync-document.dto';
+import { SyncDocumentResponseDto } from './crawl/dto/sync-document-response.dto';
+import {
+  UpdateDocumentByUrlResultDto,
+  UpdateDocumentByUrlErrorDto,
+} from './crawl/dto/update-document-by-url-response.dto';
+import { SyncSummaryResponseDto } from './crawl/dto/sync-summary-response.dto';
 import { LawIndexService } from './law-index.service';
 
 @ApiTags('law-index')
@@ -39,6 +53,55 @@ export class LawIndexController {
   @Post('crawl/url')
   syncDocument(@Body() dto: SyncDocumentDto) {
     return this.service.syncDocument(dto.url);
+  }
+
+  @ApiOperation({
+    summary: 'Update an existing document from vbpl.vn URL',
+    description:
+      'Scrapes the vbpl.vn document detail page (same as POST /crawl/url), ' +
+      'looks up the document in the local index by citationId, and updates it ' +
+      'in place if the content has changed (content_version differs). Does NOT ' +
+      'create new documents — returns 404 if the citation is not found in the ' +
+      'local index. Relations, text references, and node tree are also refreshed ' +
+      'on update.',
+  })
+  @ApiOkResponse({ type: UpdateDocumentByUrlResultDto })
+  @ApiBadRequestResponse({
+    type: UpdateDocumentByUrlErrorDto,
+    description:
+      'No matching document found in the local index for the citation extracted from the vbpl.vn page.',
+  })
+  @ApiBadGatewayResponse({
+    description:
+      'vbpl.vn failed to load or render the page (network error, timeout, or unexpected DOM shape).',
+  })
+  @Put('crawl/url')
+  async updateDocumentByUrl(@Body() dto: SyncDocumentDto) {
+    const result = await this.service.updateDocumentByUrl(dto.url);
+    if ('message' in result) {
+      throw new BadRequestException(result);
+    }
+    return result;
+  }
+
+  @ApiOperation({
+    summary: 'Update a batch of existing documents from vbpl.vn URLs',
+    description:
+      'Same as PUT /laws/index/crawl/url, for up to 100 vbpl.vn document ' +
+      'detail page URLs at once. Only updates documents that already exist in ' +
+      'the local index by citationId — does NOT create new documents. Per-URL ' +
+      'failures and not-found citations are collected rather than aborting the ' +
+      'whole batch. After processing all URLs, a cleanup pass heals any ' +
+      'dangling document_reference rows.',
+  })
+  @ApiOkResponse({ type: BatchUpdateSummaryResponseDto })
+  @ApiBadGatewayResponse({
+    description:
+      'vbpl.vn failed to load or render a page (network error, timeout, or unexpected DOM shape). Individual URL failures are collected, the batch still completes.',
+  })
+  @Put('crawl/batch')
+  updateDocumentsBatch(@Body() dto: BatchSyncDocumentDto) {
+    return this.service.updateDocumentsBatch(dto.urls.map((u) => u.url));
   }
 
   @ApiOperation({

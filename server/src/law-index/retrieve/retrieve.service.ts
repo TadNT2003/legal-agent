@@ -1,17 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type { VbplSearchResult } from '../crawl/vbpl-document.interface';
 import type {
   RetrieveIssuingBodiesDto,
   RetrieveIssuingBodiesResponseDto,
-} from '../dto/retrieve-issuing-bodies.dto';
-import { RetrieveNodeDto } from '../dto/retrieve-node.dto';
-import { RetrieveReferencesDto } from '../dto/retrieve-references.dto';
-import type { RetrieveReferencesResponseDto } from '../dto/retrieve-references-response.dto';
-import { RetrieveSearchDto } from '../dto/retrieve-search.dto';
+} from './dto/retrieve-issuing-bodies.dto';
+import { RetrieveNodeDto } from './dto/retrieve-node.dto';
+import { RetrieveReferencesDto } from './dto/retrieve-references.dto';
+import type { RetrieveReferencesResponseDto } from './dto/retrieve-references-response.dto';
+import { RetrieveSearchDto } from './dto/retrieve-search.dto';
 import type {
   RetrieveNodeItemDto,
   RetrieveNodeResponseDto,
-} from '../dto/retrieve-node-response.dto';
+} from './dto/retrieve-node-response.dto';
 import { DocumentRepository } from '../persistence/document.repository';
 import {
   DocumentNodeRepository,
@@ -50,6 +50,94 @@ export class RetrieveService {
     dto: RetrieveIssuingBodiesDto,
   ): Promise<RetrieveIssuingBodiesResponseDto> {
     return this.repo.findIssuingBodies(dto);
+  }
+
+  async deleteById(
+    documentId: string,
+  ): Promise<
+    import('./dto/delete-document-response.dto').DeleteDocumentResultDto
+  > {
+    return this.repo.deleteDocumentById(documentId);
+  }
+
+  async deleteBySearch(
+    filters: RetrieveSearchDto,
+  ): Promise<
+    import('./dto/delete-document-response.dto').DeleteDocumentsBySearchResponseDto
+  > {
+    const documentIds = await this.repo.findDocumentIdsByFilters(filters);
+    const matched = documentIds.length;
+
+    if (matched === 0) {
+      return {
+        matched: 0,
+        deleted: 0,
+        notFound: 0,
+        results: [],
+      };
+    }
+
+    const results = await this.repo.deleteDocumentsByIds(documentIds);
+    const deleted = results.filter((r) => r.citationId).length;
+    const notFound = results.filter((r) => !r.citationId).length;
+
+    return {
+      matched,
+      deleted,
+      notFound,
+      results,
+    };
+  }
+
+  async retrieveById(
+    documentId: string,
+  ): Promise<
+    import('./dto/retrieve-document-response.dto').RetrieveDocumentResponseDto
+  > {
+    const doc = await this.repo.findOneById(documentId);
+    if (!doc) {
+      throw new NotFoundException(`Document with ID "${documentId}" not found`);
+    }
+
+    const validityStatus = doc.status
+      ? this.mapDbStatusToDisplay(doc.status)
+      : 'Chưa xác định';
+
+    const format = (d: string | null) => {
+      if (!d) return null;
+      const [y, m, day] = d.split('-');
+      return `${day}/${m}/${y}`;
+    };
+
+    return {
+      id: doc.id,
+      citationId: doc.citationId,
+      title: doc.title,
+      documentType: doc.documentType,
+      issuingBody: doc.issuingBody,
+      industry: doc.industry,
+      field: doc.field,
+      signerName: doc.signerName,
+      signerTitle: doc.signerTitle,
+      enactedDate: format(doc.enactedDate),
+      effectiveDate: format(doc.effectiveDate),
+      gazettePublishedDate: format(doc.gazettePublishedDate),
+      validityStatus,
+      isConsolidated: doc.isConsolidated,
+      consolidatesDocumentId: doc.consolidatesDocumentId,
+      sourceUrl: doc.sourceUrl,
+    };
+  }
+
+  private mapDbStatusToDisplay(status: string): string {
+    const map: Record<string, string> = {
+      chua_co_hieu_luc: 'Chưa có hiệu lực',
+      con_hieu_luc: 'Còn hiệu lực',
+      het_hieu_luc: 'Hết hiệu lực',
+      het_hieu_luc_mot_phan: 'Hết hiệu lực một phần',
+      ngung_hieu_luc: 'Ngưng hiệu lực',
+    };
+    return map[status] ?? status;
   }
 
   /**

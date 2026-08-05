@@ -10,7 +10,7 @@ import {
   Matches,
   Min,
 } from 'class-validator';
-import type { VbplSearchScope } from '../crawl/vbpl-document.interface';
+import type { VbplSearchScope } from '../vbpl-document.interface';
 
 const SEARCH_SCOPES: VbplSearchScope[] = ['noi-dung', 'tieu-de', 'so-hieu'];
 const DATE_PATTERN = /^\d{2}\/\d{2}\/\d{4}$/;

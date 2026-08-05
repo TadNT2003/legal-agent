@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { SearchDocumentItemDto } from './search-documents-response.dto';
+import { SearchDocumentItemDto } from '../../dto/search-documents-response.dto';
 import { SyncErrorDto } from './sync-error.dto';
 
 export class SearchSyncDocumentItemDto extends SearchDocumentItemDto {

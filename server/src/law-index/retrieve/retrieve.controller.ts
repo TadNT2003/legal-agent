@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Delete, Get, Param, Query } from '@nestjs/common';
 import {
   ApiOkResponse,
   ApiOperation,
@@ -6,13 +6,20 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { SearchDocumentsResponseDto } from '../dto/search-documents-response.dto';
-import { RetrieveIssuingBodiesDto } from '../dto/retrieve-issuing-bodies.dto';
-import { RetrieveIssuingBodiesResponseDto } from '../dto/retrieve-issuing-bodies.dto';
-import { RetrieveNodeDto } from '../dto/retrieve-node.dto';
-import { RetrieveNodeResponseDto } from '../dto/retrieve-node-response.dto';
-import { RetrieveReferencesDto } from '../dto/retrieve-references.dto';
-import { RetrieveReferencesResponseDto } from '../dto/retrieve-references-response.dto';
-import { RetrieveSearchDto } from '../dto/retrieve-search.dto';
+import {
+  DeleteDocumentResultDto,
+  DeleteDocumentsBySearchResponseDto,
+} from './dto/delete-document-response.dto';
+import { RetrieveDocumentResponseDto } from './dto/retrieve-document-response.dto';
+import {
+  RetrieveIssuingBodiesDto,
+  RetrieveIssuingBodiesResponseDto,
+} from './dto/retrieve-issuing-bodies.dto';
+import { RetrieveNodeDto } from './dto/retrieve-node.dto';
+import { RetrieveNodeResponseDto } from './dto/retrieve-node-response.dto';
+import { RetrieveReferencesDto } from './dto/retrieve-references.dto';
+import { RetrieveReferencesResponseDto } from './dto/retrieve-references-response.dto';
+import { RetrieveSearchDto } from './dto/retrieve-search.dto';
 import { RetrieveService } from './retrieve.service';
 
 @ApiTags('law-index')
@@ -47,6 +54,26 @@ export class RetrieveController {
   @Get()
   search(@Query() dto: RetrieveSearchDto) {
     return this.service.search(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Retrieve a single document by ID',
+    description:
+      'Returns full metadata for a synced document by its internal UUID, ' +
+      'including citation, title, issuing body, dates, validity status, ' +
+      'consolidation info, and source URL.',
+  })
+  @ApiParam({
+    name: 'id',
+    required: true,
+    type: String,
+    description: 'Document UUID.',
+    example: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
+  })
+  @ApiOkResponse({ type: RetrieveDocumentResponseDto })
+  @Get(':id')
+  async retrieveById(@Param('id') id: string) {
+    return this.service.retrieveById(id);
   }
 
   @ApiOperation({
@@ -111,5 +138,40 @@ export class RetrieveController {
   @Get('issuing-bodies')
   async retrieveIssuingBodies(@Query() dto: RetrieveIssuingBodiesDto) {
     return this.service.findIssuingBodies(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Delete a single document by UUID with cascade',
+    description:
+      'Deletes a document from the local index by its internal UUID, ' +
+      'cascading to remove all associated document_node rows and ' +
+      'document_reference rows (both as source and target). Returns 404 if ' +
+      'the document does not exist.',
+  })
+  @ApiParam({
+    name: 'id',
+    required: true,
+    type: String,
+    description: 'Document UUID.',
+  })
+  @ApiOkResponse({ type: DeleteDocumentResultDto })
+  @Delete(':id')
+  async deleteById(@Param('id') id: string) {
+    return this.service.deleteById(id);
+  }
+
+  @ApiOperation({
+    summary: 'Delete documents matching search filters',
+    description:
+      'Uses the same search filters as GET /laws/index/retrieve to find ' +
+      'matching documents, then deletes all of them with cascade (nodes and ' +
+      'references). Returns a summary of matched, deleted, and not-found ' +
+      'documents. If no filters are provided, all documents in the index ' +
+      'will be deleted.',
+  })
+  @ApiOkResponse({ type: DeleteDocumentsBySearchResponseDto })
+  @Delete()
+  async deleteBySearch(@Query() dto: RetrieveSearchDto) {
+    return this.service.deleteBySearch(dto);
   }
 }

@@ -10,7 +10,7 @@ import {
   Matches,
   Min,
 } from 'class-validator';
-import type { VbplSearchScope } from '../crawl/vbpl-document.interface';
+import type { VbplSearchScope } from '../../crawl/vbpl-document.interface';
 
 const SEARCH_SCOPES: VbplSearchScope[] = ['noi-dung', 'tieu-de', 'so-hieu'];
 const DATE_PATTERN = /^\d{2}\/\d{2}\/\d{4}$/;
@@ -57,8 +57,7 @@ export class RetrieveSearchDto {
   exactPhrase?: boolean;
 
   @ApiPropertyOptional({
-    description:
-      '"Cơ quan ban hành" filter, e.g. ["Bộ Tư pháp"].',
+    description: '"Cơ quan ban hành" filter, e.g. ["Bộ Tư pháp"].',
     type: [String],
   })
   @IsOptional()
@@ -68,8 +67,7 @@ export class RetrieveSearchDto {
   issuingBodies?: string[];
 
   @ApiPropertyOptional({
-    description:
-      '"Hình thức văn bản" filter, e.g. ["Luật", "Nghị định"].',
+    description: '"Hình thức văn bản" filter, e.g. ["Luật", "Nghị định"].',
     type: [String],
   })
   @IsOptional()
