@@ -21,6 +21,8 @@ CSV columns: `section` (matches `###` below) · `section_title` · `status` (`Re
 | [7](#7-quoted-multi-khoản-replacement-text-mis-nested)                                   | Quoted replacement text spanning multiple Khoản gets mis-nested as top-level siblings                                                                                                                                                                                              | ⚠️ Unresolved                                     | 1 confirmed                                                                     | `document_node` tree shape wrong (extra/misplaced nodes, no data loss)                                                      |
 | [8](#8-văn-bản-hợp-nhất-has-no-ngày-ban-hành--upsert-threw-instead-of-falling-back) | `upsertDocument` threw on any "Văn bản hợp nhất" (consolidated-text) document — no "Ngày ban hành" field on vbpl.vn's own attributes tab                                                                                                                                   | ✅ Resolved                                         | 1 confirmed (tier-1 pass)                                                       | Blocked ingestion entirely for this document type until fixed — no partial/corrupt data written                              |
 | [9](#9-cross-search-citation-dedup-silently-undercounted-the-tier-3-backfill) | An ad-hoc backfill script deduplicated live search results across two `documentTypes` queries by `citation` — corrupted text per §4's mojibake bug — silently dropping real distinct documents that happened to share a colliding corrupted citation | ✅ Resolved | 56 (54 Pháp lệnh + 2 Nghị quyết) | The tier-3 backfill this log called "complete" in §8 was actually short 56 rows; no wrong data written, just missing rows |
+| [10](#10-validitystatus-advanced-dropdown-500s-instead-of-400ing) | `crawl/search`'s `validityStatus` filter 500s instead of a clean 400/success — a real Playwright click sits outside `selectAdvancedDropdown`'s try/catch | ⚠️ Unresolved | N/A (search-only, no doc data affected) | None — blocks the `validityStatus` filter only, worked around client-side |
+| [11](#11-server-crashed-and-self-recovered-repeatedly-during-the-tier-5-pass) | The dev server died mid-batch and came back on its own (new PID) 6 times across a ~2,000-document tier-5 pass — cause undiagnosed, no accessible crash log | ⚠️ Unresolved / undiagnosed | 0 — every occurrence recovered cleanly on retry, no data loss | None directly; wasted retries and paused the batch chain each time (~30–60s) |
 
 ---
 
@@ -222,6 +224,8 @@ Four distinct findings surfaced in `server/src/law-index/crawl/`, listed in the 
 
 Neither blocked this pass (worked around via direct sitemap URLs and `documentTypes` filtering, which worked correctly for `"Pháp lệnh"`), but both are worth root-causing before relying on `crawl/search`'s `documentTypes`+`pageSize` combination or its `keyword` filter for future tier passes.
 
+**Tier-5 backfill status — completed (`còn hiệu lực` scope) 2026-08-05.** Tier 4 (Lệnh, Quyết định của Chủ tịch nước) is deliberately out of scope — see `CLAUDE.md`'s `law-index` description (mostly procedural documents: công bố luật, bổ nhiệm, khen thưởng). Tier 5 (Nghị định + Nghị quyết của Chính phủ) is large — 4,836 Nghị định + 386 Nghị quyết total on vbpl.vn, vs. 21 + 1 in Postgres beforehand — so the pass was scoped to `còn hiệu lực` (still in force) only, narrowing the candidate set to 2,002 Nghị định + 366 Nghị quyết = 2,368. Synced in ~50-document batches (one 20-document stability check first), paused once mid-pass by request and resumed the next day: **all 2,368 `còn hiệu lực` candidates are now synced** — 0 skipped as citation collisions, 0 hard failures across the whole pass. `document_type` counts: 2,023 Nghị định + 367 Nghị quyết (Chính phủ) — up from the 21 + 1 baseline. The pending-tracking CSV is removed now that this scope is complete, matching the pattern used for previous completed passes. The still-`het_hieu_luc`/other-status Nghị định/Nghị quyết (2,834 + 20 respectively, per the original discovery numbers) were never in scope for this pass and aren't tracked anywhere — a future full backfill would need to re-run discovery without the `còn hiệu lực` filter. See §10 and §11 for two issues found during this pass — §11's crash pattern did not recur during the resumed second half (47 batches total, only the first half's ~2,000 documents saw the 6 occurrences), so it remains unresolved but may have been transient/environmental rather than load-triggered.
+
 **Tier-1/tier-3 backfill status — 2026-08-03.** Tier 1 (Hiến pháp) is fully synced — 2 documents: `Không số` (the "Hiến pháp năm 1946" survivor of the §4 citation-collision mechanism — see [§4's 2026-08-03 update](#4-citation-collision-documents-silently-overwritten-or-permanently-blocked) for the other 4 historical versions that were skipped by the same mechanism) and `52/VBHN-VPQH` (the current consolidated text, unblocked by this section's fix). Tier 3 (Pháp lệnh + Nghị quyết issued by Ủy ban Thường vụ Quốc hội) found 310 not-yet-synced candidates via `documentTypes` search, synced in six ~50-document passes (interrupted once mid-pass by request, resumed later) — 264 synced, 3 skipped as citation collisions, 0 hard failures. **This was declared "complete" prematurely — see [§9](#9-cross-search-citation-dedup-silently-undercounted-the-tier-3-backfill): the candidate-discovery step itself had a dedup bug that silently dropped 56 more real documents, found and fixed in a follow-up pass the same day.** Final `document_type` counts after both passes: 145 Pháp lệnh + 270 Nghị quyết, both under Ủy ban Thường vụ Quốc hội (plus 1 Nghị quyết under Chính phủ, tier 5, unrelated).
 
 ---
@@ -242,6 +246,42 @@ Neither blocked this pass (worked around via direct sitemap URLs and `documentTy
 **Fix — methodological, not code:** re-ran the candidate search per-type (no cross-type merge), diffed each type's results against Postgres independently by `sourceUrl`, and synced the union of gaps directly. No production code changed — `crawl/search`'s underlying mojibake bug (§4) is still unfixed and still corrupts response text; the fix here is procedural: **never deduplicate `crawl/search` results by `citation` across multiple queries — dedupe (or diff against Postgres) by `sourceUrl` only.** This is now called out explicitly in the root `CLAUDE.md`'s law-index scraping runbook.
 
 **Example:** of the 54 recovered Pháp lệnh documents, 44 turned out to be additional `"Không số"`-citation collisions against already-expired documents (correctly skipped, not overwritten — the §4 mechanism working as designed on a larger cluster than previously seen) and 10 were genuine new rows, including several pre-1976 `"Không số"`-citation Pháp lệnh that vbpl.vn marks `còn hiệu lực` (still in force) and which the disambiguation path (§4) correctly inserted as `"Không số (vbpl-<id>)"`.
+
+---
+
+## 10. `validityStatus` advanced-dropdown 500s instead of 400ing
+
+| | |
+|---|---|
+| **Status** | ⚠️ Unresolved |
+| **Found** | Tier-5 (Nghị định + Nghị quyết Chính phủ) candidate discovery, trying to narrow the search to `còn hiệu lực` documents only |
+| **Docs affected** | N/A — a `crawl/search` request bug, not a persistence bug; no `document` row is ever at risk |
+| **DB impact** | None |
+
+**Root cause:** `GET /laws/index/crawl/search?...&validityStatus=Còn hiệu lực` reliably returns a bare `{"statusCode":500,"message":"Internal server error"}`. In `VbplClientService.selectAdvancedDropdown` (`vbpl-client.service.ts:460-477`), the dropdown-opening click (`label.locator('xpath=following-sibling::*[1]').click()`, line 466) sits **outside** the function's own `try/catch` — only the subsequent option-click is guarded, converting a not-found *option* into a clean `BadRequestException`. If the click that opens the dropdown itself throws (e.g. a Playwright timeout/interception on the advanced panel not being fully settled), that raw error propagates uncaught all the way to Nest's default exception filter, which returns a generic 500 for any non-`HttpException` — the same class of bug as §8's `enactedDate` guard.
+
+**Fix — not applied, worked around instead.** For the tier-5 pass, `validityStatus` was avoided entirely: fetched the full unfiltered `documentTypes` result set and filtered client-side on each item's `validityStatus` field using its corrupted-but-deterministic mojibake form (`'CÃ²n hiá»‡u lá»±c'` — see §4's mojibake note; the corruption is a consistent 1:1 transform, so exact-matching the corrupted string is reliable). A real fix would wrap `selectAdvancedDropdown`'s opening click the same way §8 wraps its `NOT NULL` guard — a try/catch around the whole function body, not just the second half — but this hasn't been done since the client-side workaround was sufficient for this pass.
+
+---
+
+## 11. Server crashed and self-recovered repeatedly during the tier-5 pass
+
+| | |
+|---|---|
+| **Status** | ⚠️ Unresolved / undiagnosed |
+| **Found** | Tier-5 backfill, batches of ~50 documents run back-to-back over roughly 2,000 documents |
+| **Docs affected** | 0 — every occurrence was caught by the batch script (all 50 items in the affected chunk failed with `TypeError: fetch failed`) and fully recovered by retrying the same chunk once the server responded again; no partial writes, no data loss |
+| **DB impact** | None directly — cost was operational (each occurrence paused the batch chain for roughly 30–60 seconds until the server came back) |
+
+**Symptom:** 6 times across the ~2,000-document tier-5 pass, an entire in-flight batch of 50 `POST /laws/index/crawl/url` calls failed instantly and uniformly with `TypeError: fetch failed` (a client-side connection error, not an HTTP error response) — `curl http://localhost:3000/api` confirmed the port was unreachable (`000`) at the same moment. Within roughly 30 seconds to a couple of minutes, the server was reachable again on its own, under a **new PID** (confirmed via `netstat`), without any restart command issued by this session. Roughly one occurrence per ~300–400 documents processed, though not perfectly regular.
+
+**Investigated and ruled out:** checked for the exact failure mode already documented in §6d (orphaned Playwright/Chromium processes from a missing `enableShutdownHooks()`, causing memory exhaustion) — found none: every `chrome.exe` process running at the time belonged to the machine's own interactive Chrome browser (real user profile under `Program Files\Google\Chrome`), not a headless Playwright-launched instance, and no non-Chrome-app Chromium process was found at all while investigating. `main.ts` already calls `enableShutdownHooks()` (the §6d fix). Free memory was not critically low at the times checked.
+
+**Not diagnosed:** the actual crash cause is unknown. Nothing in this session started or supervised the dev server process directly enough to capture its stdout/stderr at the moment of failure — a log file set up earlier in the session (`server/_scratch_devserver.log`) had already been deleted during a prior cleanup pass by the time this pattern was noticed, and the process kept self-recovering before a new capture could be attached. Whatever is restarting it (Nest's own `--watch` file-watcher doesn't restart on an uncaught crash by default, so something else — an external supervisor, a scheduled task, or manual intervention — is more likely) was never identified either.
+
+**Mitigation applied:** none beyond retrying. The batch script already treats a fully-failed chunk as safe to blindly re-run (it only removes rows from its pending-CSV queue after a *successful* `changed`/`skippedReason` response), so no special handling was needed — just checking `curl .../api` before retrying.
+
+**Follow-up, not attempted:** capture `stdout`/`stderr` to a persistent, rotating log file for the dev server (not deleted between passes) so the next occurrence can actually be diagnosed instead of just retried.
 
 ---
 
