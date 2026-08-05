@@ -76,7 +76,7 @@ Enum node_type {
   dieu       [note: 'Điều — Article; the only mandatory level, numbered from 1']
   khoan      [note: 'Khoản — Clause; optional under Điều']
   diem       [note: 'Điểm — Point; optional under Khoản']
-  phu_luc    [note: 'Phụ lục — Appendix. Not in the original proposal — added because vbpl.vn documents commonly attach one or more appendices. Always a root-level sibling of the document''s top-level Chương/Điều nodes, never nested under one; see content_class below for how its content is gated for downstream indexing.']
+  phu_luc    [note: 'Phụ lục — Appendix. Not in the original proposal — added because vbpl.vn documents commonly attach one or more appendices. Always a root-level sibling of the document\'s top-level Chương/Điều nodes, never nested under one; see content_class below for how its content is gated for downstream indexing.']
 }
 // Order and optionality of phan..diem per Điều 63 khoản 1, Nghị định 78/2025/NĐ-CP.
 
@@ -192,7 +192,8 @@ Table document {
   signer_title              varchar [note: 'Chức danh — not in the original proposal, same rationale as industry']
   enacted_date            date [not null, note: 'ngày thông qua / ký ban hành']
   effective_date          date [note: 'nullable until published — Điều 53: no earlier than 45 days (central) / 10 days (local) after enacted_date, unless issued via rút gọn/đặc biệt procedure']
-  gazette_published_date  date [note: 'ngày đăng công báo điện tử']
+  expiry_date             date [note: 'Ngày hết hiệu lực — not in the original proposal. vbpl.vn exposed it all along and vbpl.parser.ts parsed it into expiryDateRaw (which is hashed into content_version), but there was no column to hold it, so the value was discarded on every scrape and the validity interval had a start with no end. Null is the intended value rather than a gap: a document still in force has no closing end, which is what makes `expiry_date IS NULL OR expiry_date > :as_of` the correct point-in-time filter — same convention as document_node.valid_to. Confirmed live that vbpl.vn supplies no date for het_hieu_luc_mot_phan or ngung_hieu_luc documents either (both remain in force as a whole), so only full expiry closes the interval; null alongside a het_hieu_luc status is therefore the one combination that does signal missing data, and is worth flagging at ingest.']
+  gazette_published_date  date [note: 'ngày đăng công báo điện tử. Column exists but nothing writes it — vbpl.vn does not render a công báo date on its attributes tab, so this stays null for every row scraped by law-index. Read back by the retrieve endpoints only. Either drop it or source it elsewhere; do not mistake it for a field with data.']
 
   // Lifecycle
   status                    validity_status [note: 'nullable — vbpl.vn omits the "Tình trạng hiệu lực" attribute entirely on some very-recently-issued documents (confirmed live, e.g. Luật Trí tuệ nhân tạo số 134/2025/QH15); an upstream data gap rather than a scrape failure, so the row is still persisted with status = null instead of being rejected']
