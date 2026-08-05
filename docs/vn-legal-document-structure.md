@@ -6,7 +6,7 @@ Nguồn: Điều 4 Luật Ban hành văn bản quy phạm pháp luật - số 64
 
 1. Hiến pháp.
 2. Bộ luật, luật (sau đây gọi chung là luật), nghị quyết của Quốc hội. (Luật)
-3. Pháp lệnh, nghị quyết của Ủy ban Thường vụ Quốc hội; nghị quyết liên tịch giữa Ủy ban Thường vụ Quốc hội với Đoàn Chủ tịch Ủy ban Trung ương Mặt trận Tổ quốc Việt Nam; nghị quyết liên tịch giữa Ủy ban Thường vụ Quốc hội, Chính phủ với Đoàn Chủ tịch Ủy ban Trung ương Mặt trận Tổ quốc Việt Nam. (Pháp lệch, nghị quyết của Quốc hội)
+3. Pháp lệnh, nghị quyết của Ủy ban Thường vụ Quốc hội; nghị quyết liên tịch giữa Ủy ban Thường vụ Quốc hội với Đoàn Chủ tịch Ủy ban Trung ương Mặt trận Tổ quốc Việt Nam; nghị quyết liên tịch giữa Ủy ban Thường vụ Quốc hội, Chính phủ với Đoàn Chủ tịch Ủy ban Trung ương Mặt trận Tổ quốc Việt Nam. (Pháp lệch, nghị quyết của UBTV Quốc hội)
 4. Lệnh, quyết định của Chủ tịch nước.
 5. Nghị định, nghị quyết của Chính phủ; nghị quyết liên tịch giữa Chính phủ với Đoàn Chủ tịch Ủy ban Trung ương Mặt trận Tổ quốc Việt Nam. (Nghị định, nghị quyết của Chính phủ)
 6. Quyết định của Thủ tướng Chính phủ.

@@ -1,0 +1,1 @@
+ALTER TABLE "document" ALTER COLUMN "status" DROP NOT NULL;
