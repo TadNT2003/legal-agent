@@ -36,6 +36,13 @@
       "when": 1785483875296,
       "tag": "0004_cloudy_warhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785896820115,
+      "tag": "0005_nifty_squadron_sinister",
+      "breakpoints": true
     }
   ]
 }

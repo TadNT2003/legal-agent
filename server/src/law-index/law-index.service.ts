@@ -83,7 +83,7 @@ export class LawIndexService {
       await this.repo.upsertDocument(parsed);
     if (!documentId) {
       this.logger.warn(`Skipping ${url} — ${skippedReason}`);
-      return { documentId: null, changed: false, skippedReason };
+      return { documentId: null, changed: false, skippedReason, healedReferences: 0 };
     }
 
     await this.repo.upsertRelations(documentId, parsed);
@@ -112,9 +112,15 @@ export class LawIndexService {
    * Fetches a document from a vbpl.vn URL, finds the existing DB row by
    * citationId, and updates it in place. Fails with a clear error if no
    * matching document exists in the index. Does NOT create new documents.
+   *
+   * `force` re-writes the row even when content_version matches — needed to
+   * backfill a column added after the document was last scraped, which an
+   * ordinary update cannot do (the hash is computed from the page, so a new
+   * column never changes it and the row is skipped as unchanged).
    */
   async updateDocumentByUrl(
     url: string,
+    force = false,
   ): Promise<UpdateDocumentByUrlResult | UpdateDocumentByUrlError> {
     const raw = await this.client.fetchDocument(url);
     const parsed = parseVbplPage(raw);
@@ -130,7 +136,7 @@ export class LawIndexService {
       };
     }
 
-    const result = await this.repo.updateDocument(parsed);
+    const result = await this.repo.updateDocument(parsed, force);
 
     if (result.notFound) {
       this.logger.warn(
@@ -184,8 +190,16 @@ export class LawIndexService {
    * not-found citations are collected rather than aborting the batch. Returns
    * a summary with updated/unchanged/notFound/error counts and a final
    * dangling-reference heal pass. Does NOT create new documents.
+   *
+   * `force` is passed straight through to updateDocumentByUrl — with it set,
+   * `unchanged` stays 0 and every URL costs a full re-scrape, so keep batches
+   * small (see docs/monitoring/law-index-flagged-documents.md §6 on unattended
+   * large batches).
    */
-  async updateDocumentsBatch(urls: string[]): Promise<BatchUpdateSummary> {
+  async updateDocumentsBatch(
+    urls: string[],
+    force = false,
+  ): Promise<BatchUpdateSummary> {
     const summary: BatchUpdateSummary = {
       totalUrls: urls.length,
       updated: 0,
@@ -197,7 +211,7 @@ export class LawIndexService {
 
     for (const url of urls) {
       try {
-        const result = await this.updateDocumentByUrl(url);
+        const result = await this.updateDocumentByUrl(url, force);
         if ('message' in result) {
           summary.notFound.push({
             url,

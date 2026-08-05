@@ -23,7 +23,8 @@ export class SyncController {
   constructor(private readonly service: SyncService) {}
 
   @ApiOperation({
-    summary: 'Sync document references by resolving dangling refs for a given citation',
+    summary:
+      'Sync document references by resolving dangling refs for a given citation',
     description:
       'Finds the document matching the given citation ID, then resolves all ' +
       'document_reference rows that point to this document but have a null ' +
@@ -77,7 +78,7 @@ export class SyncController {
     description:
       'Re-runs the text-based citation extraction (preamble "Căn cứ" lines ' +
       'and inline body citations) for an existing document using its stored ' +
-      'raw_source fullText. Inserts any new references that don\'t already ' +
+      "raw_source fullText. Inserts any new references that don't already " +
       'exist — useful when a document was scraped before text extraction ' +
       'logic existed or was improved, and new target documents have since ' +
       'been indexed. Returns the count of newly inserted references. Does ' +

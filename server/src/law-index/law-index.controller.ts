@@ -17,6 +17,7 @@ import {
 } from '@nestjs/swagger';
 import { BatchSyncDocumentDto } from './crawl/dto/batch-sync-document.dto';
 import { BatchUpdateSummaryResponseDto } from './crawl/dto/batch-update-by-url-response.dto';
+import { ForceUpdateDto } from './crawl/dto/force-update.dto';
 import { SearchDocumentsDto } from './crawl/dto/search-documents.dto';
 import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
 import { SearchSyncDocumentsDto } from './crawl/dto/search-sync-documents.dto';
@@ -63,7 +64,8 @@ export class LawIndexController {
       'in place if the content has changed (content_version differs). Does NOT ' +
       'create new documents — returns 404 if the citation is not found in the ' +
       'local index. Relations, text references, and node tree are also refreshed ' +
-      'on update.',
+      'on update. Pass `?force=true` to re-write the row even when ' +
+      'content_version is unchanged — see the `force` parameter.',
   })
   @ApiOkResponse({ type: UpdateDocumentByUrlResultDto })
   @ApiBadRequestResponse({
@@ -76,8 +78,14 @@ export class LawIndexController {
       'vbpl.vn failed to load or render the page (network error, timeout, or unexpected DOM shape).',
   })
   @Put('crawl/url')
-  async updateDocumentByUrl(@Body() dto: SyncDocumentDto) {
-    const result = await this.service.updateDocumentByUrl(dto.url);
+  async updateDocumentByUrl(
+    @Body() dto: SyncDocumentDto,
+    @Query() query: ForceUpdateDto,
+  ) {
+    const result = await this.service.updateDocumentByUrl(
+      dto.url,
+      query.force ?? false,
+    );
     if ('message' in result) {
       throw new BadRequestException(result);
     }
@@ -92,7 +100,10 @@ export class LawIndexController {
       'the local index by citationId — does NOT create new documents. Per-URL ' +
       'failures and not-found citations are collected rather than aborting the ' +
       'whole batch. After processing all URLs, a cleanup pass heals any ' +
-      'dangling document_reference rows.',
+      'dangling document_reference rows. Pass `?force=true` to re-write rows ' +
+      'whose content_version is unchanged (backfilling a newly added column); ' +
+      'with it set, `unchanged` is always 0 and every URL costs a full ' +
+      're-scrape, so keep forced batches small.',
   })
   @ApiOkResponse({ type: BatchUpdateSummaryResponseDto })
   @ApiBadGatewayResponse({
@@ -100,8 +111,14 @@ export class LawIndexController {
       'vbpl.vn failed to load or render a page (network error, timeout, or unexpected DOM shape). Individual URL failures are collected, the batch still completes.',
   })
   @Put('crawl/batch')
-  updateDocumentsBatch(@Body() dto: BatchSyncDocumentDto) {
-    return this.service.updateDocumentsBatch(dto.urls.map((u) => u.url));
+  updateDocumentsBatch(
+    @Body() dto: BatchSyncDocumentDto,
+    @Query() query: ForceUpdateDto,
+  ) {
+    return this.service.updateDocumentsBatch(
+      dto.urls.map((u) => u.url),
+      query.force ?? false,
+    );
   }
 
   @ApiOperation({

@@ -11,9 +11,7 @@ export class SyncService {
 
   constructor(private readonly docRepo: DocumentRepository) {}
 
-  async syncRefsByCitation(
-    citation: string,
-  ): Promise<{
+  async syncRefsByCitation(citation: string): Promise<{
     documentId: string;
     citationId: string;
     title: string;
@@ -67,7 +65,10 @@ export class SyncService {
     });
     const totalDangling = dangling.length;
 
-    const docMap = new Map<string, { id: string; citationId: string; title: string }>();
+    const docMap = new Map<
+      string,
+      { id: string; citationId: string; title: string }
+    >();
     for (const citation of citations) {
       const doc = await db.query.document.findFirst({
         where: eq(document.citationId, citation),
@@ -127,7 +128,9 @@ export class SyncService {
       totalHealed += 1;
     }
 
-    this.logger.log(`Bulk heal: ${totalHealed} references healed across ${citations.length} citations`);
+    this.logger.log(
+      `Bulk heal: ${totalHealed} references healed across ${citations.length} citations`,
+    );
 
     const results = citations.map((citation) => {
       const doc = docMap.get(citation);
@@ -261,7 +264,10 @@ export class SyncService {
     }
     if (filters.rawCitationText) {
       conditions.push(
-        ilike(documentReference.rawCitationText, `%${filters.rawCitationText}%`),
+        ilike(
+          documentReference.rawCitationText,
+          `%${filters.rawCitationText}%`,
+        ),
       );
     }
 
@@ -279,7 +285,13 @@ export class SyncService {
       .where(where)
       .orderBy(sql`${documentReference.createdAt} DESC`);
 
-    const sourceIds = [...new Set(rows.map((r) => r.sourceDocumentId).filter((id): id is string => id !== null))];
+    const sourceIds = [
+      ...new Set(
+        rows
+          .map((r) => r.sourceDocumentId)
+          .filter((id): id is string => id !== null),
+      ),
+    ];
 
     const docMap = new Map<string, { citationId: string; title: string }>();
     if (sourceIds.length > 0) {
@@ -297,7 +309,9 @@ export class SyncService {
     }
 
     const items = rows.map((row) => {
-      const src = row.sourceDocumentId ? docMap.get(row.sourceDocumentId) : null;
+      const src = row.sourceDocumentId
+        ? docMap.get(row.sourceDocumentId)
+        : null;
       return {
         id: row.id,
         sourceDocumentId: row.sourceDocumentId,

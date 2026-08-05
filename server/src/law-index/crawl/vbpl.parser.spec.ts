@@ -179,9 +179,9 @@ describe('correctQuocHoiIssuingBody', () => {
   });
 
   it('is a no-op when the issuing body is already "Quốc hội"', () => {
-    expect(
-      correctQuocHoiIssuingBody('Luật', '51/2024/QH15', 'Quốc hội'),
-    ).toBe('Quốc hội');
+    expect(correctQuocHoiIssuingBody('Luật', '51/2024/QH15', 'Quốc hội')).toBe(
+      'Quốc hội',
+    );
   });
 
   it('recognizes older batch-era "Nghị quyết" citations ("QHK<khóa>") as Quốc hội\'s own', () => {
@@ -191,9 +191,9 @@ describe('correctQuocHoiIssuingBody', () => {
   });
 
   it('corrects "Luật" to Quốc hội even for citations with no QH marker at all (pre-1998 numbering)', () => {
-    expect(
-      correctQuocHoiIssuingBody('Luật', '45/LCT', 'Chủ tịch nước'),
-    ).toBe('Quốc hội');
+    expect(correctQuocHoiIssuingBody('Luật', '45/LCT', 'Chủ tịch nước')).toBe(
+      'Quốc hội',
+    );
   });
 
   it('corrects "Pháp lệnh" to Ủy ban Thường vụ Quốc hội regardless of the reported issuing body', () => {
@@ -430,7 +430,7 @@ describe('extractVbplInternalId', () => {
     ).toBe('31de7cc0-898b-11f1-8268-a9294e958254');
   });
 
-  it('extracts a UUID-style id (vbpl.vn\'s newer id scheme) the same as a legacy numeric one', () => {
+  it("extracts a UUID-style id (vbpl.vn's newer id scheme) the same as a legacy numeric one", () => {
     expect(
       extractVbplInternalId(
         'https://vbpl.vn/van-ban/chi-tiet/van-ban--4978cbd0-6aee-11f1-980c-d3fdbd60ea75',

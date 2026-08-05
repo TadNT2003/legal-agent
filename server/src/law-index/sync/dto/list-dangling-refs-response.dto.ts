@@ -7,7 +7,8 @@ export class DanglingRefItem {
   id: string;
 
   @ApiProperty({
-    description: 'Source document UUID (the document that holds the dangling reference).',
+    description:
+      'Source document UUID (the document that holds the dangling reference).',
     nullable: true,
   })
   sourceDocumentId: string | null;
@@ -42,7 +43,8 @@ export class DanglingRefItem {
 
 export class ListDanglingRefsResponseDto {
   @ApiProperty({
-    description: 'Total number of dangling (unresolved) references matching the filters.',
+    description:
+      'Total number of dangling (unresolved) references matching the filters.',
   })
   total: number;
 

@@ -39,7 +39,8 @@ export class SyncRefsBulkItem {
 
 export class SyncRefsBulkByCitationResponseDto {
   @ApiProperty({
-    description: 'Total number of dangling references healed across all citations.',
+    description:
+      'Total number of dangling references healed across all citations.',
   })
   healedReferences: number;
 

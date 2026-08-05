@@ -51,6 +51,20 @@ export const document = pgTable('document', {
   signerTitle: text('signer_title'),
   enactedDate: date('enacted_date', { mode: 'string' }).notNull(),
   effectiveDate: date('effective_date', { mode: 'string' }),
+  // "Ngày hết hiệu lực" — the closing end of the validity interval. Parsed by
+  // vbpl.parser.ts all along (ParsedVbplAttributes.expiryDateRaw) and folded
+  // into content_version's hash, but until now had no column to land in, so
+  // the value was discarded on every scrape.
+  //
+  // Nullable *by design*, not as a data gap: a document still in force
+  // genuinely has no expiry date, so NULL is the open right endpoint that a
+  // validity filter reads as "still running" —
+  // `effective_date <= :as_of AND (expiry_date IS NULL OR expiry_date > :as_of)`
+  // — the same convention document_node.validTo already uses. The one
+  // combination that *is* a data gap is NULL alongside a het_hieu_luc /
+  // het_hieu_luc_mot_phan / ngung_hieu_luc status; treat that as a flag-worthy
+  // inconsistency rather than an open interval.
+  expiryDate: date('expiry_date', { mode: 'string' }),
   gazettePublishedDate: date('gazette_published_date', { mode: 'string' }),
   // Nullable: a handful of very-recently-issued documents (confirmed live,
   // e.g. Luật Trí tuệ nhân tạo số 134/2025/QH15) have no "Tình trạng hiệu
@@ -83,7 +97,10 @@ export const document = pgTable('document', {
   // see buildOriginalDocumentUrl in vbpl.parser.ts. Empty array, not null,
   // when vbpl.vn reports zero files (not observed live yet, but the "Danh
   // sách văn bản gốc (N file)" heading implies N can be 0).
-  originalDocumentUrls: text('original_document_urls').array().notNull().default([]),
+  originalDocumentUrls: text('original_document_urls')
+    .array()
+    .notNull()
+    .default([]),
   // SHA-256 of fullText + key attribute fields — cheap re-scrape idempotency
   // now (skip the write if unchanged), the CDC trigger later.
   contentVersion: text('content_version').notNull(),

@@ -247,25 +247,22 @@ export class VbplClientService implements OnModuleDestroy {
     // withPageRetry may swap in a fresh page on retry — the listener has to
     // move with it (attached inside the attempt, removed if that attempt
     // fails) so a retry doesn't leave a stale listener on a closed page.
-    const page = await this.withPageRetry(
-      `Loading ${searchUrl}`,
-      async (p) => {
-        p.on('response', onResponse);
-        try {
-          const response = await p.goto(searchUrl, {
-            waitUntil: 'domcontentloaded',
-          });
-          if (!response || !response.ok()) {
-            throw new Error(`HTTP ${response?.status() ?? 'unknown'}`);
-          }
-          await p.waitForSelector('.ant-collapse-item', { timeout: 15000 });
-          return p;
-        } catch (err) {
-          p.off('response', onResponse);
-          throw err;
+    const page = await this.withPageRetry(`Loading ${searchUrl}`, async (p) => {
+      p.on('response', onResponse);
+      try {
+        const response = await p.goto(searchUrl, {
+          waitUntil: 'domcontentloaded',
+        });
+        if (!response || !response.ok()) {
+          throw new Error(`HTTP ${response?.status() ?? 'unknown'}`);
         }
-      },
-    );
+        await p.waitForSelector('.ant-collapse-item', { timeout: 15000 });
+        return p;
+      } catch (err) {
+        p.off('response', onResponse);
+        throw err;
+      }
+    });
 
     try {
       return await this.applyFiltersAndCollect(
@@ -694,4 +691,3 @@ function extractRelations(): RawRelationSection[] {
     })
     .filter((s) => s.categoryLabel);
 }
-

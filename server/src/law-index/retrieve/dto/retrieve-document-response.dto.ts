@@ -22,7 +22,10 @@ export class RetrieveDocumentResponseDto {
   @ApiProperty({ nullable: true, description: 'Field/domain category.' })
   field: string | null;
 
-  @ApiProperty({ nullable: true, description: 'Name of the person who signed.' })
+  @ApiProperty({
+    nullable: true,
+    description: 'Name of the person who signed.',
+  })
   signerName: string | null;
 
   @ApiProperty({ nullable: true, description: 'Title/role of the signer.' })
@@ -34,16 +37,24 @@ export class RetrieveDocumentResponseDto {
   @ApiProperty({ nullable: true, description: 'Date effective (dd/mm/yyyy).' })
   effectiveDate: string | null;
 
-  @ApiProperty({ nullable: true, description: 'Date published in official gazette (dd/mm/yyyy).' })
+  @ApiProperty({
+    nullable: true,
+    description: 'Date published in official gazette (dd/mm/yyyy).',
+  })
   gazettePublishedDate: string | null;
 
   @ApiProperty({ description: 'Validity status (e.g. "Còn hiệu lực").' })
   validityStatus: string;
 
-  @ApiProperty({ description: 'Whether this is a consolidated document (văn bản hợp nhất).' })
+  @ApiProperty({
+    description: 'Whether this is a consolidated document (văn bản hợp nhất).',
+  })
   isConsolidated: boolean;
 
-  @ApiProperty({ nullable: true, description: 'UUID of the document this consolidates.' })
+  @ApiProperty({
+    nullable: true,
+    description: 'UUID of the document this consolidates.',
+  })
   consolidatesDocumentId: string | null;
 
   @ApiProperty({ description: 'vbpl.vn source URL.' })
