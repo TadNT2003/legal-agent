@@ -137,6 +137,39 @@ function classifyPhuLuc(heading: string | null): ContentClass {
   return 'normative';
 }
 
+/**
+ * Backstop against duplicate (document_id, path) rows — confirmed live
+ * across 636/3,338 documents (docs/monitoring/law-index-flagged-documents.md,
+ * Phase 0 entry). Two known root causes produce a sibling whose ordinal
+ * collides with one already opened at the same level: tabular/statistical
+ * data misread as "N." Khoản numbering (decimal land-classification codes,
+ * table row counters), and "sửa đổi, bổ sung ... như sau: <quoted text>"
+ * amendments whose quoted replacement carries the TARGET document's own
+ * numbering, restarting at 1 independently of this document's real
+ * structure. Neither is reliably distinguishable from a genuine new sibling
+ * by a line-based parser without real samples to calibrate a heuristic
+ * against (same posture as the rest of this file) — so this does not try to
+ * detect or fix the underlying misread. It only guarantees the resulting
+ * ltree path is unique: `label` is left exactly as parsed from the source
+ * text (still reads "Khoản 1" if that's what the line said), only the
+ * internal `ordinal` driving the path gets a counter suffix.
+ */
+function dedupeOrdinal(
+  existingSiblings: ParsedDocumentNode[],
+  nodeType: DocumentNodeType,
+  ordinal: string,
+): string {
+  const taken = new Set(
+    existingSiblings
+      .filter((s) => s.nodeType === nodeType)
+      .map((s) => s.ordinal),
+  );
+  if (!taken.has(ordinal)) return ordinal;
+  let suffix = 2;
+  while (taken.has(`${ordinal}_${suffix}`)) suffix++;
+  return `${ordinal}_${suffix}`;
+}
+
 function newNode(
   nodeType: DocumentNodeType,
   ordinal: string,
@@ -194,6 +227,12 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
   const roots: ParsedDocumentNode[] = [];
   const stack: { node: ParsedDocumentNode; level: number }[] = [];
   let phuLucNode: ParsedDocumentNode | null = null;
+  // The ordinal as computed from the match that opened phuLucNode, BEFORE
+  // dedupeOrdinal may have suffixed it. Repeated-header detection below must
+  // compare against this, not phuLucNode.ordinal — otherwise a phụ lục that
+  // already collided once (and so carries a "_2"-suffixed ordinal) would
+  // stop recognizing its own repeated running header on every subsequent line.
+  let phuLucRawOrdinal: string | null = null;
   let inFooter = false;
   let annexCounter = 0;
 
@@ -206,6 +245,8 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       stack.pop();
     }
     const parent = stack[stack.length - 1]?.node ?? null;
+    const siblings = parent ? parent.children : roots;
+    node.ordinal = dedupeOrdinal(siblings, nodeType, node.ordinal);
     if (parent) parent.children.push(node);
     else roots.push(node);
     stack.push({ node, level });
@@ -220,9 +261,16 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
     const ordinal = match[2] ? romanToArabic(match[2]) : String(annexCounter);
     const label = match[2] ? `${match[1]} ${match[2]}` : match[1];
     const [heading, skip] = resolveHeading(match[3], lines, lineIndex);
-    phuLucNode = newNode('phu_luc', ordinal, label, heading);
-    phuLucNode.contentClass = classifyPhuLuc(heading);
-    roots.push(phuLucNode);
+    const node = newNode(
+      'phu_luc',
+      dedupeOrdinal(roots, 'phu_luc', ordinal),
+      label,
+      heading,
+    );
+    node.contentClass = classifyPhuLuc(heading);
+    phuLucNode = node;
+    phuLucRawOrdinal = ordinal;
+    roots.push(node);
     return skip;
   };
 
@@ -236,14 +284,16 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
    */
   const openGenericAnnex = (firstLine: string): void => {
     annexCounter += 1;
+    const ordinal = String(annexCounter);
     const node = newNode(
       'phu_luc',
-      String(annexCounter),
+      dedupeOrdinal(roots, 'phu_luc', ordinal),
       `Phụ lục ${annexCounter}`,
       null,
     );
     node.contentClass = 'normative';
     phuLucNode = node;
+    phuLucRawOrdinal = ordinal;
     roots.push(node);
     appendText(node, firstLine);
   };
@@ -261,6 +311,23 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       // into several sibling nodes instead of staying one annex.
       const phuLucMatch = line.match(PHU_LUC_PATTERN);
       if (phuLucMatch) {
+        // A "Phụ lục N" line repeating the SAME numeral as the currently
+        // open annex is a running section/page header, not a new annex —
+        // confirmed live (e.g. 22/2026/NQ-CP: one phụ lục, 21 subsections,
+        // each preceded by its own "Phụ lục I" header restating the same
+        // numeral). Without this, one logical phụ lục fragments into dozens
+        // of document_node rows all colliding on the same ltree path. A
+        // DIFFERENT numeral is a genuinely new annex and still opens one.
+        const candidateOrdinal = phuLucMatch[2]
+          ? romanToArabic(phuLucMatch[2])
+          : null;
+        if (
+          candidateOrdinal !== null &&
+          candidateOrdinal === phuLucRawOrdinal
+        ) {
+          appendText(phuLucNode, line);
+          continue;
+        }
         i += openPhuLucFromMatch(phuLucMatch, i);
         continue;
       }

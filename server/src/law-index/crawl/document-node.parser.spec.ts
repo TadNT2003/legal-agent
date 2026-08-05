@@ -342,4 +342,81 @@ describe('parseDocumentBody', () => {
       textContent: 'Nội dung điều bổ sung.',
     });
   });
+
+  it('folds a repeated "Phụ lục N" running header into the currently open annex instead of opening a sibling, confirmed against real vbpl.vn output (22/2026/NQ-CP — 21 subsections each restating "Phụ lục I")', () => {
+    const fullText = [
+      'Phụ lục I',
+      '(Kèm theo Nghị quyết số 22/2026/NQ-CP ngày 29 tháng 4 năm 2026 của Chính phủ)',
+      'Cắt giảm thủ tục hành chính thuộc lĩnh vực cấp, quản lý căn cước',
+      'Phụ lục I',
+      'Cắt giảm thủ tục hành chính thuộc lĩnh vực định danh và xác thực điện tử',
+    ].join('\n');
+
+    const roots = parseDocumentBody(fullText);
+
+    // Not 2 — a second "Phụ lục I" restating the SAME numeral as the
+    // currently open annex must not fragment it into a sibling node (that
+    // was the root cause of 61 documents' worth of duplicate
+    // (document_id, path) rows — see law-index-flagged-documents.md).
+    expect(roots).toHaveLength(1);
+    expect(roots[0]).toMatchObject({ nodeType: 'phu_luc', ordinal: '1' });
+    expect(roots[0].textContent).toBe(
+      '(Kèm theo Nghị quyết số 22/2026/NQ-CP ngày 29 tháng 4 năm 2026 của Chính phủ)\n' +
+        'Cắt giảm thủ tục hành chính thuộc lĩnh vực cấp, quản lý căn cước\n' +
+        'Phụ lục I\n' +
+        'Cắt giảm thủ tục hành chính thuộc lĩnh vực định danh và xác thực điện tử',
+    );
+  });
+
+  it('opens a genuinely new Phụ lục when the numeral differs from the currently open one', () => {
+    const fullText = [
+      'Phụ lục I',
+      'DANH MỤC I',
+      'Nội dung phụ lục I.',
+      'Phụ lục II',
+      'DANH MỤC II',
+      'Nội dung phụ lục II.',
+    ].join('\n');
+
+    const roots = parseDocumentBody(fullText);
+
+    expect(roots).toHaveLength(2);
+    expect(roots[0]).toMatchObject({
+      ordinal: '1',
+      heading: 'DANH MỤC I',
+      textContent: 'Nội dung phụ lục I.',
+    });
+    expect(roots[1]).toMatchObject({
+      ordinal: '2',
+      heading: 'DANH MỤC II',
+      textContent: 'Nội dung phụ lục II.',
+    });
+  });
+
+  it('disambiguates a Khoản ordinal that collides with an already-open sibling via a counter suffix, without renaming its label — regression fixture for the "sửa đổi ... như sau: <quoted text>" shape confirmed live (07/2022/NĐ-CP): quoted replacement text restarts numbering at 1, independently of the amending Điều\'s own structure', () => {
+    const fullText = [
+      'Điều 1. Sửa đổi, bổ sung một số điều',
+      '1. Sửa đổi, bổ sung một số khoản của Điều 3 như sau:',
+      '1. Phạt tiền từ 1.000.000 đồng đến 5.000.000 đồng.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+
+    expect(dieu.children).toHaveLength(2);
+    expect(dieu.children[0]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '1',
+      label: 'Khoản 1',
+      textContent: 'Sửa đổi, bổ sung một số khoản của Điều 3 như sau:',
+    });
+    // The path-disambiguating suffix lives only on `ordinal` (what
+    // document-node.repository.ts builds the ltree path from) — `label`
+    // stays "Khoản 1", faithful to what the source text literally says.
+    expect(dieu.children[1]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '1_2',
+      label: 'Khoản 1',
+      textContent: 'Phạt tiền từ 1.000.000 đồng đến 5.000.000 đồng.',
+    });
+  });
 });
