@@ -2,7 +2,8 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class SearchDocumentItemDto {
   @ApiProperty({
-    description: 'Internal document UUID. Use with GET /laws/index/retrieve/nodes.',
+    description:
+      'Internal document UUID. Use with GET /laws/index/retrieve/nodes.',
     example: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
   })
   documentId: string;
@@ -32,7 +33,12 @@ export class SearchDocumentItemDto {
   @ApiProperty({ nullable: true, example: '2025-01-01' })
   effectiveDate: string | null;
 
-  @ApiProperty({ nullable: true, example: null })
+  @ApiProperty({
+    description:
+      '"Ngày hết hiệu lực". Null means the document has no closing end — i.e. it is still in force — not that the date is unknown.',
+    nullable: true,
+    example: '2025-01-01',
+  })
   expiryDate: string | null;
 
   @ApiProperty({ description: '"Tình trạng hiệu lực".' })

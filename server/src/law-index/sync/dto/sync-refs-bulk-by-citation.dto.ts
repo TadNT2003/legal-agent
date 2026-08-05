@@ -1,5 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, ArrayMinSize, ArrayMaxSize, IsString, ArrayUnique } from 'class-validator';
+import {
+  IsArray,
+  ArrayMinSize,
+  ArrayMaxSize,
+  IsString,
+  ArrayUnique,
+} from 'class-validator';
 
 export class SyncRefsBulkByCitationDto {
   @ApiProperty({

@@ -1,0 +1,1 @@
+ALTER TABLE "document" ADD COLUMN "original_document_urls" text[] DEFAULT '{}' NOT NULL;

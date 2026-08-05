@@ -238,6 +238,65 @@ export function normalizeCitation(raw: string): string {
   return value || raw.trim();
 }
 
+const QUOC_HOI_NAME = 'Quốc hội';
+// Exact spelling vbpl.vn itself uses ("Uỷ", not "Ủy") — must match byte-for-byte
+// or resolveOrCreateIssuingBody (exact-string lookup) would create a second,
+// duplicate issuing_body row instead of resolving to the existing one.
+const UBTVQH_NAME = 'Uỷ ban Thường vụ Quốc hội';
+
+/**
+ * Matches citations issued under Quốc hội's own numbering scheme: modern
+ * "<n>/<năm>/QH<khóa>" (e.g. "51/2024/QH15") and older batch-era
+ * "<n>-<loại>/QHK<khóa>" forms (e.g. "216-NQ/QHK4"). Anchored to the end of
+ * the string so it doesn't false-positive on citations that merely contain
+ * "QH" elsewhere, and excludes any citation ending in "UBTVQH<khóa>" (a
+ * negative lookbehind for a preceding letter) — "11/2016/UBTVQH13" ends in
+ * "QH13" too, but belongs to Ủy ban Thường vụ Quốc hội, not Quốc hội itself.
+ */
+const QUOC_HOI_CITATION_PATTERN = /(?<![A-ZĐ])QHK?\d+$/i;
+
+/** Matches citations issued under UBTVQH's own numbering scheme: modern
+ * "<n>/<năm>/UBTVQH<khóa>" (e.g. "11/2016/UBTVQH13") and "<n>/PL-UBTVQH<khóa>"
+ * (e.g. "15/2004/PL-UBTVQH11"). */
+const UBTVQH_CITATION_PATTERN = /UBTVQH\d+$/i;
+
+/**
+ * Điều 4 khoản 2–3, Luật 64/2025/QH15 restricts "Luật"/"Bộ luật" to Quốc hội
+ * and "Pháp lệnh" to Ủy ban Thường vụ Quốc hội exclusively — no other body
+ * can issue those document types, regardless of what vbpl.vn's "Cơ quan ban
+ * hành" attribute says. That attribute has been observed, on the live site
+ * itself, to sometimes carry the drafting ministry instead (e.g. "Bộ Xây
+ * dựng" on Luật Xây dựng số 135/2025/QH15, "Bộ Nông nghiệp và Môi trường" on
+ * Pháp lệnh Giống cây trồng số 15/2004/PL-UBTVQH11) or the wrong chamber
+ * (e.g. "Quốc hội" on Pháp lệnh số 11/2016/UBTVQH13) — a vbpl.vn source-data
+ * defect, not a scrape bug (see docs/monitoring/law-index-flagged-documents.md).
+ * "Nghị quyết" is ambiguous by itself (Chính phủ/Quốc hội/UBTVQH/HĐTP/HĐND
+ * all issue nghị quyết too), so it's only corrected when the citation also
+ * carries the matching chamber's own numbering — the same double signal
+ * (tier + citation) used to spot the mismatch in the first place.
+ */
+export function correctQuocHoiIssuingBody(
+  documentType: string,
+  citation: string,
+  issuingBodyRaw: string,
+): string {
+  const type = documentType.trim().toLowerCase();
+  const current = issuingBodyRaw.trim();
+
+  const isLawType = type === 'luật' || type === 'bộ luật';
+  if (isLawType) return QUOC_HOI_NAME;
+  if (type === 'pháp lệnh') return UBTVQH_NAME;
+
+  if (type === 'nghị quyết') {
+    if (current === QUOC_HOI_NAME || current === UBTVQH_NAME)
+      return issuingBodyRaw;
+    if (UBTVQH_CITATION_PATTERN.test(citation)) return UBTVQH_NAME;
+    if (QUOC_HOI_CITATION_PATTERN.test(citation)) return QUOC_HOI_NAME;
+  }
+
+  return issuingBodyRaw;
+}
+
 export function parseAttributes(
   raw: RawAttributeEntry[],
 ): ParsedVbplAttributes {
@@ -253,15 +312,27 @@ export function parseAttributes(
     );
   }
 
+  const normalizedCitation = normalizeCitation(citation);
+
   return {
-    citation: normalizeCitation(citation),
+    citation: normalizedCitation,
     documentType,
     industry: get('Ngành'),
     field: get('Lĩnh vực'),
-    issuingBody,
+    issuingBody: correctQuocHoiIssuingBody(
+      documentType,
+      normalizedCitation,
+      issuingBody,
+    ),
     signerTitle: get('Chức danh'),
     signerName: get('Người ký'),
-    issuedDateRaw: get('Ngày ban hành'),
+    // "Văn bản hợp nhất" (consolidated-text) documents have no "Ngày ban
+    // hành" row at all — confirmed live on 52/VBHN-VPQH (the consolidated
+    // Hiến pháp) — since they're compiled by an office, not promulgated.
+    // vbpl.vn's own attributes tab uses "Ngày ký xác thực" (certification
+    // date) in that slot instead; falling back to it keeps enactedDate
+    // (document.schema.ts, NOT NULL) populated instead of throwing.
+    issuedDateRaw: get('Ngày ban hành') ?? get('Ngày ký xác thực'),
     effectiveDateRaw: get('Ngày có hiệu lực'),
     expiryDateRaw: get('Ngày hết hiệu lực'),
     validityStatusRaw: get('Tình trạng hiệu lực'),
@@ -320,6 +391,7 @@ export function parseRelations(raw: RawRelationSection[]): {
 export function parseVbplPage(raw: RawVbplPage): ParsedVbplDocument {
   const attributes = parseAttributes(raw.attributes);
   const { relations, consolidation } = parseRelations(raw.relations);
+
   return {
     sourceUrl: raw.sourceUrl,
     scope: raw.scope,
@@ -328,6 +400,11 @@ export function parseVbplPage(raw: RawVbplPage): ParsedVbplDocument {
     attributes,
     relations,
     consolidation,
+    // Already real, absolute download URLs by this point — captured
+    // directly off the network response in
+    // vbpl-client.service.ts's fetchOriginalDocumentUrls, not reconstructed
+    // here from a scraped filename (see that method's comment for why).
+    originalDocumentUrls: raw.originalDocumentUrls,
   };
 }
 
@@ -371,6 +448,40 @@ export function extractRscJsonPayload(body: string): unknown {
  */
 export function buildSearchResultUrl(id: string): string {
   return `https://${VBPL_HOST}/van-ban/chi-tiet/van-ban--${id}`;
+}
+
+/**
+ * Pulls vbpl.vn's own internal document id back out of a document detail
+ * URL. Used by document.repository.ts to disambiguate a citation that
+ * collides with a different already-stored document (see
+ * docs/monitoring/law-index-flagged-documents.md §4 — "Không số" and reused
+ * pre-1998 batch citations are not unique on vbpl.vn, but this id always is).
+ *
+ * Takes the text after the *last* "--" in the URL's final path segment —
+ * not a literal "van-ban--" prefix match. Two real shapes both need to work:
+ * buildSearchResultUrl's own synthetic placeholder slug
+ * (".../van-ban--101890") and vbpl.vn's real human-readable slugs from
+ * sitemap-discovered URLs (".../thong-tu-so-05-2026-tt-bgddt-...--101890").
+ * A prefix match on "van-ban--" only ever matched the former — confirmed
+ * live this silently broke id extraction for every sitemap-sourced document
+ * (~7% of the corpus at time of fix), all resolving to `null`, not just
+ * documents with vbpl.vn's newer UUID-style ids (e.g.
+ * "4978cbd0-6aee-11f1-980c-d3fdbd60ea75", which this also now handles — the
+ * id itself is opaque, taking whatever text follows the final "--"
+ * regardless of its shape).
+ */
+export function extractVbplInternalId(url: string): string | null {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return null;
+  }
+  const lastSegment = pathname.split('/').filter(Boolean).pop();
+  if (!lastSegment) return null;
+  const parts = lastSegment.split('--');
+  if (parts.length < 2) return null;
+  return parts[parts.length - 1] || null;
 }
 
 /** "2024-01-18T00:00:00" -> "2024-01-18"; null/empty -> null. */

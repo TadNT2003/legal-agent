@@ -7,7 +7,8 @@ export class SyncRefsResultItem {
   refId: string;
 
   @ApiProperty({
-    description: 'Source document UUID (the document that holds the reference).',
+    description:
+      'Source document UUID (the document that holds the reference).',
   })
   sourceDocumentId: string | null;
 

@@ -20,7 +20,11 @@ import type {
   VbplSearchFilters,
   VbplSearchResult,
 } from '../crawl/vbpl-document.interface';
-import { extractCitationFromTitle, parseVbplDate } from '../crawl/vbpl.parser';
+import {
+  extractCitationFromTitle,
+  extractVbplInternalId,
+  parseVbplDate,
+} from '../crawl/vbpl.parser';
 import { DRIZZLE, type DrizzleDb } from './db.module';
 import { document, issuingBody, documentReference } from './schema';
 import { documentNode } from './schema/document-node.schema';
@@ -49,12 +53,14 @@ function estimateAuthorityRank(issuingBodyName: string): number {
 
 function computeContentVersion(parsed: ParsedVbplDocument): string {
   const hash = createHash('sha256');
-  hash.update(parsed.fullText);
+  hash.update(parsed.fullText ?? '');
   hash.update(parsed.attributes.citation);
   hash.update(parsed.title);
+  hash.update(parsed.attributes.issuingBody);
   hash.update(parsed.attributes.validityStatusRaw ?? '');
   hash.update(parsed.attributes.effectiveDateRaw ?? '');
   hash.update(parsed.attributes.expiryDateRaw ?? '');
+  hash.update(parsed.originalDocumentUrls.join(','));
   return hash.digest('hex');
 }
 
@@ -104,8 +110,10 @@ function mapValidityStatus(
 }
 
 export interface UpsertResult {
-  documentId: string;
+  documentId: string | null;
   changed: boolean;
+  /** Set (and documentId left null) when the document was not persisted — see upsertDocument's citation-collision handling. */
+  skippedReason?: string;
 }
 
 export interface ReferenceRow {
@@ -124,13 +132,15 @@ export interface ReferenceRow {
 
 /** Shape written into document.rawSource on every upsert (see upsertDocument
  * below) — kept here so searchLocalDocuments can read it back without an
- * `any` cast. Note there is no expiry-date field: vbpl.vn's "Ngày hết hiệu
- * lực" is parsed (ParsedVbplAttributes.expiryDateRaw) and folded into
- * content_version's hash, but isn't persisted as its own document column or
- * raw_source key yet — searchLocalDocuments's expiryDate is always null
- * until that's added. */
+ * `any` cast. Deliberately holds no date fields: "Ngày hết hiệu lực" now has
+ * its own document.expiry_date column (migration 0005), alongside
+ * enacted_date/effective_date, rather than being tucked into this jsonb
+ * blob — dates are filtered and range-queried, which a real column does and
+ * a jsonb key does not. */
 interface DocumentRawSource {
-  fullText: string;
+  /** Null when vbpl.vn has no "Nội dung" tab for this document — see
+   * ParsedVbplDocument.fullText. */
+  fullText: string | null;
   scrapedAt: string;
   sourceUrl: string;
   consolidatesRawTitles: string[];
@@ -177,24 +187,90 @@ export class DocumentRepository {
     return raceWinner.id;
   }
 
-  /** Upserts the document row (skipping the write entirely if content_version is unchanged) and its relations. */
-  async upsertDocument(parsed: ParsedVbplDocument): Promise<UpsertResult> {
+  /**
+   * Upserts the document row (skipping the write entirely if content_version
+   * is unchanged) and its relations.
+   *
+   * `force` bypasses only that content_version short-circuit, re-writing every
+   * column from the freshly scraped page. It exists for one narrow job: after a
+   * new column is added, an ordinary re-scrape is a no-op — the hash is
+   * computed from the page, not the row, so adding a column cannot change it —
+   * and the new column would stay NULL forever. It does NOT relax the
+   * citation-collision handling below, which runs first and is a correctness
+   * guard rather than a caching optimization.
+   *
+   * Handles vbpl.vn citation collisions before doing anything else — see
+   * docs/monitoring/law-index-flagged-documents.md §5/§6. vbpl.vn's citation
+   * isn't actually unique for two known real cases: every pre-Đổi Mới law
+   * predating the modern citation scheme is recorded as the literal string
+   * "Không số" ("no number"), and a handful of pre-1998 batch instrument
+   * numbers (e.g. "3-LCT/HĐNN7") were reused across genuinely different laws
+   * passed in the same legislative session. `citation_id` is UNIQUE, so a
+   * naive upsert-by-citation would silently overwrite whichever different
+   * document currently holds that citation. Resolution:
+   *   - This exact `sourceUrl` was already synced before (regardless of what
+   *     citation it's currently stored under — matters once a document has
+   *     been disambiguated per the next bullet, since vbpl.vn always
+   *     reports its *bare* citation on every scrape, not whatever
+   *     disambiguated form it was stored under) -> it's a re-sync of that
+   *     same document, not a collision. Proceed normally, keeping its
+   *     existing (possibly-disambiguated) citation.
+   *   - Otherwise, if some *other* document already occupies this citation
+   *     -> a real collision. If this document is not "còn hiệu lực" (in
+   *     force), skip it entirely rather than clobber the existing row with
+   *     dead law. If it *is* still in force, disambiguate by appending
+   *     vbpl.vn's own internal document id to the citation
+   *     (`"<citation> (vbpl-<id>)"`) so it gets its own row instead.
+   */
+  async upsertDocument(
+    parsed: ParsedVbplDocument,
+    force = false,
+  ): Promise<UpsertResult> {
     const issuingBodyId = await this.resolveOrCreateIssuingBody(
       parsed.attributes.issuingBody,
     );
     const contentVersion = computeContentVersion(parsed);
 
+    let citation = parsed.attributes.citation;
     const existing = await this.db.query.document.findFirst({
-      where: eq(document.citationId, parsed.attributes.citation),
+      where: sql`${document.rawSource}->>'sourceUrl' = ${parsed.sourceUrl}`,
     });
-    if (existing && existing.contentVersion === contentVersion) {
+
+    if (!existing) {
+      const byCitation = await this.db.query.document.findFirst({
+        where: eq(document.citationId, citation),
+      });
+      if (byCitation) {
+        const status = mapValidityStatus(parsed.attributes.validityStatusRaw);
+        if (status !== 'con_hieu_luc') {
+          return {
+            documentId: null,
+            changed: false,
+            skippedReason: `citation "${citation}" already used by a different document (id ${byCitation.id}) and this one is not còn hiệu lực — skipped rather than overwritten`,
+          };
+        }
+        const internalId = extractVbplInternalId(parsed.sourceUrl);
+        if (!internalId) {
+          throw new Error(
+            `Citation collision on "${citation}" (${parsed.sourceUrl}) but no vbpl.vn internal id could be extracted to disambiguate it`,
+          );
+        }
+        citation = `${citation} (vbpl-${internalId})`;
+      }
+    } else {
+      // Re-sync of an already-known document — keep whatever citation it's
+      // already stored under (bare or previously disambiguated).
+      citation = existing.citationId;
+    }
+
+    if (!force && existing && existing.contentVersion === contentVersion) {
       return { documentId: existing.id, changed: false };
     }
 
     const enactedDate = parseVbplDate(parsed.attributes.issuedDateRaw);
     if (!enactedDate) {
       throw new Error(
-        `Document ${parsed.attributes.citation} has no parseable "Ngày ban hành" — got "${parsed.attributes.issuedDateRaw}"`,
+        `Document ${citation} has no parseable "Ngày ban hành" — got "${parsed.attributes.issuedDateRaw}"`,
       );
     }
 
@@ -205,7 +281,7 @@ export class DocumentRepository {
     );
 
     const values = {
-      citationId: parsed.attributes.citation,
+      citationId: citation,
       title: parsed.title,
       documentType: parsed.attributes.documentType,
       issuingBodyId,
@@ -215,9 +291,14 @@ export class DocumentRepository {
       signerTitle: parsed.attributes.signerTitle,
       enactedDate,
       effectiveDate: parseVbplDate(parsed.attributes.effectiveDateRaw),
+      // parseVbplDate already yields null for vbpl.vn's "--" empty-state
+      // placeholder, so a document with no expiry simply stores NULL — the
+      // open right endpoint, see document.schema.ts's column comment.
+      expiryDate: parseVbplDate(parsed.attributes.expiryDateRaw),
       status: mapValidityStatus(parsed.attributes.validityStatusRaw),
       isConsolidated,
       consolidatesDocumentId,
+      originalDocumentUrls: parsed.originalDocumentUrls,
       rawSource: {
         fullText: parsed.fullText,
         scrapedAt: new Date().toISOString(),
@@ -248,9 +329,15 @@ export class DocumentRepository {
    * Update-only variant of upsertDocument. Fetches the document from the URL,
    * looks up the existing DB row by citationId, and updates in place.
    * Returns { notFound: true, citationId } if no matching document exists.
-   * Returns { unchanged: true, ... } if content_version is the same.
+   * Returns { unchanged: true, ... } if content_version is the same — unless
+   * `force` is set, which re-writes the row regardless and therefore never
+   * reports `unchanged`. See upsertDocument's doc for why that escape hatch
+   * exists and what it deliberately does not bypass.
    */
-  async updateDocument(parsed: ParsedVbplDocument): Promise<
+  async updateDocument(
+    parsed: ParsedVbplDocument,
+    force = false,
+  ): Promise<
     | { notFound: true; citationId: string }
     | {
         notFound: false;
@@ -275,7 +362,7 @@ export class DocumentRepository {
     }
 
     const contentVersion = computeContentVersion(parsed);
-    if (existing.contentVersion === contentVersion) {
+    if (!force && existing.contentVersion === contentVersion) {
       return {
         notFound: false,
         unchanged: true,
@@ -284,11 +371,15 @@ export class DocumentRepository {
       };
     }
 
-    const result = await this.upsertDocument(parsed);
+    const result = await this.upsertDocument(parsed, force);
     return {
       notFound: false,
       unchanged: false,
-      documentId: result.documentId,
+      // upsertDocument can return a null documentId via its citation-collision
+      // skip path, which keys off sourceUrl rather than citationId. We already
+      // resolved the row by citationId above, so fall back to it rather than
+      // widening this method's contract to string | null.
+      documentId: result.documentId ?? existing.id,
       citationId,
       changed: result.changed,
     };
@@ -466,6 +557,9 @@ export class DocumentRepository {
     thisDocumentId: string,
     parsed: ParsedVbplDocument,
   ): Promise<void> {
+    // No "Nội dung" tab on vbpl.vn means no body text to parse references out
+    // of (see ParsedVbplDocument.fullText) — nothing to extract, not an error.
+    if (parsed.fullText === null) return;
     await this.extractPreambleReferences(thisDocumentId, parsed.fullText);
     await this.extractBodyReferences(
       thisDocumentId,
@@ -481,9 +575,7 @@ export class DocumentRepository {
    * logic existed or was improved, and new target documents have since
    * been indexed into the database.
    */
-  async reExtractTextReferences(
-    thisDocumentId: string,
-  ): Promise<number> {
+  async reExtractTextReferences(thisDocumentId: string): Promise<number> {
     const doc = await this.db.query.document.findFirst({
       where: eq(document.id, thisDocumentId),
       columns: { citationId: true, rawSource: true },
@@ -793,10 +885,11 @@ export class DocumentRepository {
    * strings to yyyy-MM-dd for DB comparison.
    */
   async searchLocalDocuments(
-    filters: Omit<
-      VbplSearchFilters,
-      'documentGroups' | 'expiredFrom' | 'expiredTo'
-    >,
+    // `expiredFrom`/`expiredTo` were omitted here until document.expiry_date
+    // existed (migration 0005) — there was no column to range-filter on.
+    // `documentGroups` stays omitted: it's a vbpl.vn sidebar facet ("Nhóm văn
+    // bản") with no counterpart column in this schema.
+    filters: Omit<VbplSearchFilters, 'documentGroups'>,
   ): Promise<VbplSearchResult> {
     const conditions: SQL[] = [];
 
@@ -863,6 +956,18 @@ export class DocumentRepository {
       const date = parseVbplDate(filters.effectiveTo);
       if (date) conditions.push(lte(document.effectiveDate, date));
     }
+    // Advertised by SearchDocumentsDto (and honoured by the vbpl.vn crawl
+    // search) but silently ignored here until expiry_date existed to filter on.
+    // A NULL expiry_date is excluded by both bounds on purpose: a document
+    // still in force has no expiry to fall inside a requested range.
+    if (filters.expiredFrom) {
+      const date = parseVbplDate(filters.expiredFrom);
+      if (date) conditions.push(gte(document.expiryDate, date));
+    }
+    if (filters.expiredTo) {
+      const date = parseVbplDate(filters.expiredTo);
+      if (date) conditions.push(lte(document.expiryDate, date));
+    }
 
     const where = conditions.length ? and(...conditions) : undefined;
     const pageSize = filters.pageSize ?? 10;
@@ -879,6 +984,7 @@ export class DocumentRepository {
           issuingBody: issuingBody.name,
           enactedDate: document.enactedDate,
           effectiveDate: document.effectiveDate,
+          expiryDate: document.expiryDate,
           status: document.status,
           rawSource: document.rawSource,
         })
@@ -929,8 +1035,11 @@ export class DocumentRepository {
           effectiveDate: row.effectiveDate
             ? formatDateFromYYYYMMDD(row.effectiveDate)
             : null,
-          // Not persisted anywhere yet — see DocumentRawSource's comment.
-          expiryDate: null,
+          // NULL here means "no closing end" (still in force), not "unknown" —
+          // see document.schema.ts's expiryDate comment.
+          expiryDate: row.expiryDate
+            ? formatDateFromYYYYMMDD(row.expiryDate)
+            : null,
           validityStatus: mapDbStatusToDisplay(row.status),
         };
       }),

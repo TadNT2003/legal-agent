@@ -52,7 +52,11 @@ export class DocumentNodeRepository {
     if (!contentChanged && (await this.hasNodes(documentId))) return;
 
     const meta = await this.fetchDocumentMeta(documentId);
-    const tree = parseDocumentBody(parsed.fullText);
+    // Null fullText means vbpl.vn has no "Nội dung" tab for this document at
+    // all (see ParsedVbplDocument.fullText) — there is no body text to parse,
+    // not a parsing failure, so the tree is legitimately empty.
+    const tree =
+      parsed.fullText === null ? [] : parseDocumentBody(parsed.fullText);
 
     await this.db
       .delete(documentNode)

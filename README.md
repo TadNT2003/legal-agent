@@ -43,7 +43,7 @@ Because chunking+embedding and entity extraction are real (LLM) compute, not ins
 
 ## Data model (proposed)
 
-**Status: proposal, not yet implemented.** Full schema design for all four stores — Postgres, OpenSearch, Neo4j, and the vector store — lives in **[docs/database-design.md](docs/database-design.md)**, kept in one file since they're meant to stay derivable from each other rather than designed independently. Covers the Postgres relational schema (`document`, `document_node`, `document_reference`, ...), the Neo4j graph model for legislative hierarchy and amendment relationships, the OpenSearch projection (in progress), and ChromaDB vs. ClickHouse as vector-store options (ClickHouse under evaluation given the team's existing footprint there).
+**Status: mixed.** The Postgres relational schema (`issuing_body`, `document`, `document_node`, `document_reference`) is implemented — see [docs/schema/legal-agent.dbml](docs/schema/legal-agent.dbml) for the current, migration-backed schema. The Neo4j graph model, the OpenSearch projection, ChromaDB/ClickHouse as vector-store options, and `document_sync_state`/CDC remain **proposal, not yet implemented**. Full design for all four stores — including the parts still unbuilt — lives in **[docs/database-design.md](docs/database-design.md)**, kept in one file since they're meant to stay derivable from each other rather than designed independently.
 
 ## CDC pipeline (proposed)
 

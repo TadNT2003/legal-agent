@@ -1,7 +1,9 @@
 import {
   buildSearchResultUrl,
+  correctQuocHoiIssuingBody,
   extractCitationFromTitle,
   extractRscJsonPayload,
+  extractVbplInternalId,
   normalizeCitation,
   parseAttributes,
   parseRelations,
@@ -97,6 +99,13 @@ describe('parseAttributes', () => {
     expect(parsed.signerName).toBeNull();
   });
 
+  it('falls back to "Ngày ký xác thực" for issuedDateRaw when "Ngày ban hành" is absent (Văn bản hợp nhất)', () => {
+    const consolidated: RawAttributeEntry[] = ATTRIBUTES.filter(
+      (e) => e.label !== 'Ngày ban hành',
+    ).concat({ label: 'Ngày ký xác thực', value: '21/07/2025' });
+    expect(parseAttributes(consolidated).issuedDateRaw).toBe('21/07/2025');
+  });
+
   it('throws when a required field (citation/documentType/issuingBody) is missing', () => {
     const missingIssuingBody = ATTRIBUTES.filter(
       (e) => e.label !== 'Cơ quan ban hành',
@@ -104,6 +113,19 @@ describe('parseAttributes', () => {
     expect(() => parseAttributes(missingIssuingBody)).toThrow(
       /missing a required field/,
     );
+  });
+
+  it('corrects issuingBody for a "Luật" mis-attributed to a ministry (real vbpl.vn mismatch)', () => {
+    const mismatched: RawAttributeEntry[] = ATTRIBUTES.map((e) =>
+      e.label === 'Số hiệu'
+        ? { ...e, value: '135/2025/QH15' }
+        : e.label === 'Loại văn bản'
+          ? { ...e, value: 'Luật' }
+          : e.label === 'Cơ quan ban hành'
+            ? { ...e, value: 'Bộ Xây dựng' }
+            : e,
+    );
+    expect(parseAttributes(mismatched).issuingBody).toBe('Quốc hội');
   });
 
   it('leaves validityStatusRaw null instead of throwing when "Tình trạng hiệu lực" is absent', () => {
@@ -116,6 +138,101 @@ describe('parseAttributes', () => {
     const parsed = parseAttributes(missingStatus);
     expect(parsed.validityStatusRaw).toBeNull();
     expect(parsed.citation).toBe('05/2026/TT-BNG');
+  });
+});
+
+describe('correctQuocHoiIssuingBody', () => {
+  it('corrects "Luật" to Quốc hội regardless of the reported issuing body', () => {
+    // Real vbpl.vn mismatch: Luật Xây dựng số 135/2025/QH15 reports "Bộ Xây
+    // dựng" (the drafting ministry) as "Cơ quan ban hành".
+    expect(
+      correctQuocHoiIssuingBody('Luật', '135/2025/QH15', 'Bộ Xây dựng'),
+    ).toBe('Quốc hội');
+  });
+
+  it('corrects "Bộ luật" to Quốc hội regardless of the reported issuing body', () => {
+    expect(
+      correctQuocHoiIssuingBody('Bộ luật', '91/2015/QH13', 'Bộ Tư pháp'),
+    ).toBe('Quốc hội');
+  });
+
+  it('corrects "Nghị quyết" to Quốc hội only when the citation carries Quốc hội\'s own QH<khóa> numbering', () => {
+    expect(
+      correctQuocHoiIssuingBody(
+        'Nghị quyết',
+        '134/2025/QH15',
+        'Văn phòng Quốc hội',
+      ),
+    ).toBe('Quốc hội');
+  });
+
+  it('leaves "Nghị quyết" alone when the citation does not carry QH numbering (e.g. Chính phủ)', () => {
+    expect(
+      correctQuocHoiIssuingBody('Nghị quyết', '178/2025/NQ-CP', 'Chính phủ'),
+    ).toBe('Chính phủ');
+  });
+
+  it('leaves non-tier-2/3 document types untouched even with a QH-shaped citation', () => {
+    expect(
+      correctQuocHoiIssuingBody('Thông tư', '05/2026/TT-BNG', 'Bộ Ngoại giao'),
+    ).toBe('Bộ Ngoại giao');
+  });
+
+  it('is a no-op when the issuing body is already "Quốc hội"', () => {
+    expect(correctQuocHoiIssuingBody('Luật', '51/2024/QH15', 'Quốc hội')).toBe(
+      'Quốc hội',
+    );
+  });
+
+  it('recognizes older batch-era "Nghị quyết" citations ("QHK<khóa>") as Quốc hội\'s own', () => {
+    expect(
+      correctQuocHoiIssuingBody('Nghị quyết', '216-NQ/QHK4', 'Chính phủ'),
+    ).toBe('Quốc hội');
+  });
+
+  it('corrects "Luật" to Quốc hội even for citations with no QH marker at all (pre-1998 numbering)', () => {
+    expect(correctQuocHoiIssuingBody('Luật', '45/LCT', 'Chủ tịch nước')).toBe(
+      'Quốc hội',
+    );
+  });
+
+  it('corrects "Pháp lệnh" to Ủy ban Thường vụ Quốc hội regardless of the reported issuing body', () => {
+    // Real vbpl.vn mismatches: Pháp lệnh số 11/2016/UBTVQH13 reports "Quốc
+    // hội"; Pháp lệnh Giống cây trồng số 15/2004/PL-UBTVQH11 reports "Bộ
+    // Nông nghiệp và Môi trường" (the drafting ministry).
+    expect(
+      correctQuocHoiIssuingBody('Pháp lệnh', '11/2016/UBTVQH13', 'Quốc hội'),
+    ).toBe('Uỷ ban Thường vụ Quốc hội');
+    expect(
+      correctQuocHoiIssuingBody(
+        'Pháp lệnh',
+        '15/2004/PL-UBTVQH11',
+        'Bộ Nông nghiệp và Môi trường',
+      ),
+    ).toBe('Uỷ ban Thường vụ Quốc hội');
+  });
+
+  it('corrects "Nghị quyết" to Ủy ban Thường vụ Quốc hội when the citation carries UBTVQH\'s own numbering', () => {
+    expect(
+      correctQuocHoiIssuingBody(
+        'Nghị quyết',
+        '1234/2020/UBTVQH14',
+        'Chính phủ',
+      ),
+    ).toBe('Uỷ ban Thường vụ Quốc hội');
+  });
+
+  it('does not misclassify an already-correct UBTVQH-numbered "Nghị quyết" as Quốc hội (citation ends in "...QH<khóa>" too)', () => {
+    // Regression: "1234/2020/UBTVQH14" ends in "QH14", which the bare
+    // Quốc-hội pattern alone would also match — the UBTVQH-specific pattern
+    // must be checked first (or the bare pattern must exclude it).
+    expect(
+      correctQuocHoiIssuingBody(
+        'Nghị quyết',
+        '1234/2020/UBTVQH14',
+        'Uỷ ban Thường vụ Quốc hội',
+      ),
+    ).toBe('Uỷ ban Thường vụ Quốc hội');
   });
 });
 
@@ -220,14 +337,20 @@ describe('parseRelations', () => {
 });
 
 describe('parseVbplPage', () => {
-  it('combines scope/title/fullText/attributes/relations/consolidation', () => {
+  it('combines scope/title/fullText/attributes/relations/consolidation/originalDocumentUrls', () => {
     const raw: RawVbplPage = {
-      sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/example',
+      sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/van-ban--101890',
       scope: 'trung-uong',
       title: 'Thông tư số 05/2026/TT-BNG Hướng dẫn dịch Quốc hiệu...',
       fullText: 'Điều 1. Phạm vi điều chỉnh...',
       attributes: ATTRIBUTES,
       relations: [],
+      // Already real, absolute URLs by the time vbpl-client.service.ts hands
+      // this off — captured off the network response, not a filename to
+      // reconstruct from (see fetchOriginalDocumentUrls).
+      originalDocumentUrls: [
+        'https://vbpl-bientap-gateway.moj.gov.vn/api/qtdc/public/doc/minio/buckets/vbpl/101890/VanBanGoc_106.2016.QH13.pdf/download',
+      ],
     };
     const parsed = parseVbplPage(raw);
     expect(parsed.scope).toBe('trung-uong');
@@ -239,6 +362,20 @@ describe('parseVbplPage', () => {
       consolidatesRawTitles: [],
       consolidatedIntoRawTitles: [],
     });
+    expect(parsed.originalDocumentUrls).toEqual(raw.originalDocumentUrls);
+  });
+
+  it('passes through an empty originalDocumentUrls unchanged', () => {
+    const raw: RawVbplPage = {
+      sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/example',
+      scope: 'trung-uong',
+      title: 'Thông tư số 05/2026/TT-BNG Hướng dẫn dịch Quốc hiệu...',
+      fullText: 'Điều 1. Phạm vi điều chỉnh...',
+      attributes: ATTRIBUTES,
+      relations: [],
+      originalDocumentUrls: [],
+    };
+    expect(parseVbplPage(raw).originalDocumentUrls).toEqual([]);
   });
 });
 
@@ -261,6 +398,52 @@ describe('buildSearchResultUrl', () => {
     expect(buildSearchResultUrl('32833')).toBe(
       'https://vbpl.vn/van-ban/chi-tiet/van-ban--32833',
     );
+  });
+});
+
+describe('extractVbplInternalId', () => {
+  it('is the exact inverse of buildSearchResultUrl', () => {
+    expect(extractVbplInternalId(buildSearchResultUrl('32833'))).toBe('32833');
+  });
+
+  it('extracts the id from a real detail URL', () => {
+    expect(
+      extractVbplInternalId('https://vbpl.vn/van-ban/chi-tiet/van-ban--25506'),
+    ).toBe('25506');
+  });
+
+  it('returns null for a URL with no id', () => {
+    expect(
+      extractVbplInternalId('https://vbpl.vn/van-ban/trung-uong'),
+    ).toBeNull();
+  });
+
+  it('extracts the id from a real vbpl.vn human-readable-slug URL, not just the synthetic "van-ban--" placeholder', () => {
+    // Confirmed live: a prefix match on "van-ban--" only ever matched
+    // buildSearchResultUrl's own synthetic slug — sitemap-discovered URLs
+    // use vbpl.vn's real slug instead, silently breaking id extraction for
+    // every one of them.
+    expect(
+      extractVbplInternalId(
+        'https://vbpl.vn/van-ban/chi-tiet/thong-tu-so-05-2026-tt-bgddt-quy-dinh-che-do-lam-viec-doi-voi-nha-giao-giao-duc-nghe-nghiep--31de7cc0-898b-11f1-8268-a9294e958254',
+      ),
+    ).toBe('31de7cc0-898b-11f1-8268-a9294e958254');
+  });
+
+  it("extracts a UUID-style id (vbpl.vn's newer id scheme) the same as a legacy numeric one", () => {
+    expect(
+      extractVbplInternalId(
+        'https://vbpl.vn/van-ban/chi-tiet/van-ban--4978cbd0-6aee-11f1-980c-d3fdbd60ea75',
+      ),
+    ).toBe('4978cbd0-6aee-11f1-980c-d3fdbd60ea75');
+  });
+
+  it('extracts the id from a slug URL ending in a plain numeric id', () => {
+    expect(
+      extractVbplInternalId(
+        'https://vbpl.vn/van-ban/chi-tiet/quyet-dinh-so-06-2020-qd-ttg-ve-to-chuc-va-quan-ly-hoi-nghi-hoi-thao-quoc-te-tai-viet-nam--140940',
+      ),
+    ).toBe('140940');
   });
 });
 

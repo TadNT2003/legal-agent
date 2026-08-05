@@ -15,7 +15,7 @@ export interface RawRelationSection {
 
 export type VbplScope = 'trung-uong' | 'dia-phuong' | 'unknown';
 
-/** Everything vbpl-client.service.ts extracts for one document across its 3 tab loads. */
+/** Everything vbpl-client.service.ts extracts for one document across its 4 tab loads. */
 export interface RawVbplPage {
   sourceUrl: string;
   scope: VbplScope;
@@ -27,9 +27,21 @@ export interface RawVbplPage {
    * documents' titles (see vbpl.parser.ts's extractCitationFromTitle).
    */
   title: string;
-  fullText: string;
+  /** Null when vbpl.vn has no "Nội dung" tab for this document at all — some
+   * (mostly older) documents only offer a scanned original via "Văn bản gốc",
+   * no digitized body text (see vbpl-client.service.ts's
+   * extractScopeTitleAndFullText). */
+  fullText: string | null;
   attributes: RawAttributeEntry[];
   relations: RawRelationSection[];
+  /** Direct download URLs for the "Văn bản gốc" tab's scanned original
+   * file(s) — present on every document, not just the no-"Nội dung"-tab
+   * ones. Captured straight off the network response (see
+   * vbpl-client.service.ts's fetchOriginalDocumentUrls), not reconstructed
+   * from a scraped filename — the tab renders in more than one DOM shape
+   * and a filename isn't reliably present in all of them. Empty array if
+   * vbpl.vn reports zero files. */
+  originalDocumentUrls: string[];
 }
 
 // ---- Parsed / domain shapes (vbpl.parser.ts output) ----
@@ -90,10 +102,15 @@ export interface ParsedVbplDocument {
   sourceUrl: string;
   scope: VbplScope;
   title: string;
-  fullText: string;
+  /** Null when vbpl.vn has no "Nội dung" tab for this document — see RawVbplPage.fullText. */
+  fullText: string | null;
   attributes: ParsedVbplAttributes;
   relations: VbplRelation[];
   consolidation: VbplConsolidation;
+  /** Direct download URLs for the "Văn bản gốc" scanned original file(s) —
+   * see RawVbplPage.originalDocumentFilenames and
+   * vbpl.parser.ts's buildOriginalDocumentUrl. */
+  originalDocumentUrls: string[];
 }
 
 // ---- Search (targeted/filtered search against /van-ban/trung-uong) ----
