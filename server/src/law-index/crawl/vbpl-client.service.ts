@@ -49,6 +49,7 @@ export class VbplClientService implements OnModuleDestroy {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private lastRequestAt = 0;
+  private documentsFetched = 0;
 
   constructor(
     @Inject(lawIndexConfig.KEY)
@@ -63,6 +64,25 @@ export class VbplClientService implements OnModuleDestroy {
     await this.page?.close().catch(() => undefined);
     await this.context?.close().catch(() => undefined);
     await this.browser?.close().catch(() => undefined);
+  }
+
+  /** Tears down the cached browser/context/page so the next getPage() call
+   * launches a completely fresh one. Resets the per-browser document counter. */
+  async recycleBrowser(): Promise<void> {
+    if (!this.browser) return;
+    const count = this.documentsFetched;
+    await this.resetPage();
+    this.documentsFetched = 0;
+    this.logger.log(`Recycled browser after ${count} documents`);
+  }
+
+  /** Checks whether the per-browser document counter has reached the
+   * configured recycle threshold. */
+  shouldRecycle(): boolean {
+    return (
+      this.documentsFetched > 0 &&
+      this.documentsFetched >= this.config.browserRecycleInterval
+    );
   }
 
   /** Tears down the cached browser/context/page so the next getPage() call
@@ -101,6 +121,7 @@ export class VbplClientService implements OnModuleDestroy {
   /** Loads all 4 relevant tabs for one document and returns the raw (uninterpreted) extraction. */
   async fetchDocument(url: string): Promise<RawVbplPage> {
     this.assertTrustedDocumentUrl(url);
+    this.documentsFetched += 1;
 
     // Each throttledGoto call may replace the shared page with a fresh one
     // (see withPageRetry) — always use the page it just returned, not one

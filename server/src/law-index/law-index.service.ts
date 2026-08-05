@@ -105,6 +105,9 @@ export class LawIndexService {
       );
     }
     const healedReferences = await this.repo.healDanglingReferences();
+    if (this.client.shouldRecycle()) {
+      await this.client.recycleBrowser();
+    }
     return { documentId, changed, healedReferences };
   }
 
@@ -177,6 +180,9 @@ export class LawIndexService {
       );
     }
     const healedReferences = await this.repo.healDanglingReferences();
+    if (this.client.shouldRecycle()) {
+      await this.client.recycleBrowser();
+    }
     return {
       documentId: result.documentId,
       citationId: result.citationId,
