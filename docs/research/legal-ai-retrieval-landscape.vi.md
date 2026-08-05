@@ -1,6 +1,6 @@
 # Nghiên cứu: kiến trúc truy xuất cho AI pháp lý
 
-**Trạng thái: ghi chép nghiên cứu, không phải quyết định.** Không có nội dung nào ở đây đã được triển khai hay chốt lại. Tài liệu này ghi lại cách các hệ thống AI pháp lý khác (thương mại, chính phủ, và học thuật) thực sự xây dựng tầng truy xuất (retrieval), những gì tài liệu khoa học đã được bình duyệt cho là hiệu quả, và cả hai so sánh ra sao với kiến trúc đã được thiết kế trong [../../README.md](../../README.md) và [../database-design.md](../database-design.md). Ở những chỗ đưa ra khuyến nghị, khuyến nghị đó được đánh dấu rõ ràng và *không* phải là thay đổi đối với bất kỳ quyết định thiết kế hiện có nào.
+**Trạng thái: ghi chép nghiên cứu; một phát hiện đã được thực thi.** Không nội dung nào ở đây là cam kết sẽ xây, với đúng một ngoại lệ: khoảng trống thu thập dữ liệu nêu ở §7b (`document.expiry_date`) đã được triển khai — migration 0005, kèm cờ `force` trên các endpoint PUT để backfill nó. Phần còn lại vẫn thuần phân tích. Tài liệu này ghi lại cách các hệ thống AI pháp lý khác (thương mại, chính phủ, và học thuật) thực sự xây dựng tầng truy xuất (retrieval), những gì tài liệu khoa học đã được bình duyệt cho là hiệu quả, và cả hai so sánh ra sao với kiến trúc đã được thiết kế trong [../../README.md](../../README.md) và [../database-design.md](../database-design.md). Ở những chỗ đưa ra khuyến nghị, khuyến nghị đó được đánh dấu rõ ràng và *không* phải là thay đổi đối với bất kỳ quyết định thiết kế hiện có nào.
 
 > **Về bản dịch.** Đây là bản tiếng Việt của [legal-ai-retrieval-landscape.md](legal-ai-retrieval-landscape.md) — bản tiếng Anh là bản gốc, ưu tiên tham chiếu bản đó khi hai bản có sai khác. Quy ước thuật ngữ: các thuật ngữ kỹ thuật đã chuẩn hóa trong ngành (RAG, retrieval, chunking, embedding, reranking, BM25, RRF, pipeline, agentic) được **giữ nguyên tiếng Anh** kèm chú giải tiếng Việt ở lần xuất hiện đầu, để còn tra ngược được về tài liệu gốc; thuật ngữ pháp lý Việt Nam (Điều, Khoản, Điểm, Chương, hiệu lực, văn bản quy phạm pháp luật) giữ nguyên tiếng Việt; tên hệ thống và tên bài báo giữ nguyên tiếng Anh. Đánh số mục (§) khớp 1:1 với bản tiếng Anh.
 
@@ -342,11 +342,51 @@ Hợp nhất lượt duyệt đồ thị vào như một **danh sách xếp hạ
 
 ---
 
-## 7. Thứ tự triển khai
+## 7. Áp dụng vào codebase hiện tại
+
+### 7a. Giai đoạn hiện tại ràng buộc những gì, và không ràng buộc những gì
+
+Repo đang ở một điểm cụ thể: `law-index` cào vbpl.vn vào Postgres, chưa chiếu sang đâu cả — không CDC, không projector OpenSearch/vector/Neo4j. Điều đó ràng buộc ít hơn nhiều so với vẻ ngoài.
+
+**Không kỹ thuật nào trong §2–§6 đòi hỏi thay đổi thứ crawler thu thập.** Crawl thu nguyên liệu thô; mọi thứ tài liệu khoa học đề xuất đều là *diễn giải* chồng lên nguyên liệu đó. Chừng nào `document.rawSource.fullText`, cây `document_node`, và `document_reference` còn được lưu trung thực, thì chunking theo cấu trúc, chiếu sang đồ thị, trích xuất thuật ngữ định nghĩa, và kiểm định trích dẫn đều là những phép suy dẫn lại chạy offline, không bao giờ phải đụng tới vbpl.vn nữa.
+
+| Kỹ thuật | Đổi crawl | Đổi schema |
+| - | - | - |
+| Chunking parent-child / theo cấu trúc (§2b) | không — `document_node` đã giữ cây | không |
+| Hiệu lực làm bộ lọc cứng trước xếp hạng (§2d) | không — đã parse sẵn | **`expiry_date` — xem §7b** |
+| Kiểm định trích dẫn (§6a, điểm D) | không | không — `document_reference` là đủ |
+| Định tuyến theo độ phức tạp/hình dạng (§6b) | không | không — thuần tầng agent |
+| Tách danh tính/phiên bản điều khoản (§5d) | không | chỉ phía Neo4j; Postgres không đụng |
+| Embedding tinh chỉnh tiếng Việt (§2f) | không | không |
+| Tầng thuật ngữ định nghĩa (§5b) | không — suy ra từ `document_node.textContent` | sau này cần một thực thể thuật ngữ |
+| Tầng chủ đề (§5a) | không — `industry`/`field` đã lưu | không |
+
+Hệ quả thực tế: **kiến trúc truy xuất hoãn được mà không mất gì; phần audit ở §7b thì không.**
+
+### 7b. Loại thay đổi duy nhất đắt nếu để chậm
+
+Chia các thay đổi khả dĩ làm hai nhóm:
+
+- **Thay đổi diễn giải thì rẻ.** Bất cứ thứ gì suy dẫn lại được từ dữ liệu đã lưu — ranh giới chunk, embedding, cạnh đồ thị, định nghĩa thuật ngữ — đều dựng lại offline được bao nhiêu lần tuỳ ý. Làm sai thì tốn compute, không tốn quyền truy cập.
+- **Thay đổi thu thập thì đắt.** Một trường hiện trên trang vbpl.vn nhưng không được lưu chỉ có thể khôi phục bằng cách cào lại từng văn bản qua headless browser. Làm sai thì tốn nguyên một lượt crawl.
+
+Chỉ nhóm thứ hai cần quyết sớm, nên đáng rà soát parser đối chiếu schema *trước khi* xây bất kỳ projector nào. Rà soát đó tìm được đúng một trường hợp, cộng thêm ảnh phản chiếu của nó:
+
+**`expiry_date` — đã parse nhưng bị vứt đi** (đã sửa, migration 0005). "Ngày hết hiệu lực" của vbpl.vn được parse vào `ParsedVbplAttributes.expiryDateRaw` và đưa vào hash `content_version`, nhưng không có cột để chứa, nên giá trị bị bỏ trên mọi lượt cào. Nó quan trọng đúng vì §2d: một bộ lọc hiệu lực cứng cần **cả hai** đầu của khoảng. `document.status` trả lời "còn hiệu lực *bây giờ*"; chỉ `effective_date`/`expiry_date` mới trả lời "còn hiệu lực *vào ngày X*" — đúng truy vấn mà tài liệu khoa học khẳng định phải là ràng buộc trước xếp hạng, chứ không phải thứ giao cho độ tương đồng tự lo.
+
+**`gazette_published_date` — ảnh phản chiếu.** Một cột không ai ghi, vì vbpl.vn không render ngày công báo. Null ở mọi hàng, nhưng vẫn được các endpoint retrieve đọc ra như thể là dữ liệu. Cả hai nửa của cuộc rà soát này (đã-parse-mà-không-lưu, đã-lưu-mà-không-ai-ghi) đều đáng chạy lại trước mỗi projector mới.
+
+Ba bài học từ việc triển khai bản sửa đó, tổng quát hoá được cho mọi cột thêm sau này:
+
+1. **`content_version` không "nhìn thấy" được thay đổi schema.** Hash tính từ trang đã cào chứ không phải từ hàng đã lưu, nên thêm cột không bao giờ làm hash đổi — một lượt cào lại thông thường sẽ ngắt mạch vì "không đổi" và để cột mới NULL vĩnh viễn. Backfill cần một lối thoát tường minh (`force` trên các endpoint PUT) bỏ qua chỗ ngắt mạch đó. Hãy tính trước điều này mỗi khi thêm cột lấy từ dữ liệu đã cào.
+2. **Kiểm `rawSource` trước khi kết luận là phải cào lại.** Thường thì đúng là phải: `rawSource` chỉ giữ `fullText` cộng thông tin provenance, không có tab thuộc tính, nên các trường thuộc tab đó thực sự không khôi phục được nếu không quay lại trang.
+3. **Giới hạn tập backfill bằng ngữ nghĩa pháp lý, không bằng số hàng.** Đã xác nhận trên trang thật rằng văn bản `het_hieu_luc_mot_phan` và `ngung_hieu_luc` hoàn toàn không có ngày hết hiệu lực — loại thứ nhất vẫn còn hiệu lực xét toàn văn bản (hết hiệu lực một phần là trạng thái ở mức `document_node`), loại thứ hai là ngưng tạm thời chứ không phải điểm kết thúc. Chỉ hết hiệu lực toàn bộ mới đóng khoảng, điều này cắt backfill từ toàn bộ 3.338 hàng xuống 368. Một giá trị NULL đúng về ngữ nghĩa thì không cần backfill chút nào, và chính phần phân tích xác định "NULL nào là đúng" mới đáng giá hơn bản thân bộ máy backfill.
+
+### 7c. Thứ tự triển khai
 
 Xếp theo giá trị trên công sức, đối chiếu với phần việc đã lên lịch trong mục Sequencing của [../../README.md](../../README.md). **Đây là khuyến nghị, không phải quyết định.**
 
-1. **CDC + sync-state + đối soát** (đã là bước kế tiếp trong trình tự của README) — vẫn là bước đúng tiếp theo. Bổ sung một điểm mà thiết kế hiện tại chưa nêu: **lọc theo hiệu lực thuộc về hợp đồng của công cụ truy xuất**, được cưỡng chế như bộ lọc cứng trước xếp hạng. Đây là bài toán tin cậy trung tâm còn bỏ ngỏ của ngành (§2d), không phải chi tiết hạ tầng.
+1. **CDC + sync-state + đối soát** (đã là bước kế tiếp trong trình tự của README) — vẫn là bước đúng tiếp theo. Bổ sung một điểm mà thiết kế hiện tại chưa nêu: **lọc theo hiệu lực thuộc về hợp đồng của công cụ truy xuất**, được cưỡng chế như bộ lọc cứng trước xếp hạng. Đây là bài toán tin cậy trung tâm còn bỏ ngỏ của ngành (§2d), không phải chi tiết hạ tầng. Phần *dữ liệu* của việc này đã xong (§7b) — `expiry_date` giờ đã đóng khoảng hiệu lực — nên thứ còn lại là cưỡng chế ở thời điểm truy vấn, không phải khâu thu thập.
 2. **Quyết định việc tách danh tính/phiên bản cho `:Provision`** (§5d) — rẻ nếu làm bây giờ, đau đớn nếu làm sau khi projector Neo4j đã tồn tại.
 3. **Đồ thị làm bộ xếp hạng lại sau truy xuất** (§6a, điểm C) — cách tích hợp ít xâm lấn nhất, không đụng tới nhánh truy xuất.
 4. **Kiểm định trích dẫn** (§6a, điểm D) — giá trị cao với tỷ lệ ảo giác 17–33%; lược đồ hiện tại đã hỗ trợ sẵn.

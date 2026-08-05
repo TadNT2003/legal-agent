@@ -1,6 +1,6 @@
 # Research: legal AI retrieval architectures
 
-**Status: research notes, not decisions.** Nothing here has been implemented or committed to. This document records how other legal-AI systems (commercial, government, and academic) actually build retrieval, what the peer-reviewed literature says works, and how both compare to the architecture already designed in [../../README.md](../../README.md) and [../database-design.md](../database-design.md). Where it makes a recommendation, that recommendation is explicitly marked as such and is *not* a change to any existing design decision.
+**Status: research notes; one finding has since been acted on.** Nothing here is a commitment to build, with a single exception: the capture gap identified in §7b (`document.expiry_date`) was implemented — migration 0005, plus a `force` flag on the PUT endpoints to backfill it. Everything else remains analysis. This document records how other legal-AI systems (commercial, government, and academic) actually build retrieval, what the peer-reviewed literature says works, and how both compare to the architecture already designed in [../../README.md](../../README.md) and [../database-design.md](../database-design.md). Where it makes a recommendation, that recommendation is explicitly marked as such and is *not* a change to any existing design decision.
 
 > **Bản tiếng Việt:** [legal-ai-retrieval-landscape.vi.md](legal-ai-retrieval-landscape.vi.md). This English version is canonical — prefer it where the two diverge. Section (§) numbering is 1:1 across both.
 
@@ -342,11 +342,51 @@ Fusing graph traversal in as a **third ranked list** alongside BM25 and dense. S
 
 ---
 
-## 7. Sequencing
+## 7. Applying this to the current codebase
+
+### 7a. What the current build stage does and does not constrain
+
+The repo sits at one specific point: `law-index` scrapes vbpl.vn into Postgres, and nothing is projected anywhere else — no CDC, no OpenSearch/vector/Neo4j projector. That constrains far less than it looks.
+
+**None of the techniques in §2–§6 require changing what the crawler collects.** The crawl captures raw material; everything the literature recommends is *interpretation* layered on top of it. As long as `document.rawSource.fullText`, the `document_node` tree, and `document_reference` are captured faithfully, structure-aware chunking, graph projection, defined-term extraction, and citation verification are all offline re-derivations that never touch vbpl.vn again.
+
+| Technique | Crawl change | Schema change |
+| - | - | - |
+| Parent-child / structure-aware chunking (§2b) | none — `document_node` already holds the tree | none |
+| Validity as a hard pre-ranking filter (§2d) | none — already parsed | **`expiry_date` — see §7b** |
+| Citation verification (§6a, point D) | none | none — `document_reference` suffices |
+| Complexity/shape routing (§6b) | none | none — agent layer only |
+| Provision identity/version split (§5d) | none | Neo4j-side only; Postgres unaffected |
+| Vietnamese-tuned embeddings (§2f) | none | none |
+| Defined-term layer (§5b) | none — derivable from `document_node.textContent` | a term entity, eventually |
+| Topical layer (§5a) | none — `industry`/`field` already stored | none |
+
+The practical consequence: **the retrieval architecture can be deferred without penalty; the capture audit in §7b cannot.**
+
+### 7b. The one class of change that is expensive to defer
+
+Split prospective changes in two:
+
+- **Interpretation changes are cheap.** Anything re-derivable from what is already stored — chunk boundaries, embeddings, graph edges, term definitions — can be rebuilt offline as often as needed. Getting these wrong costs compute, not access.
+- **Capture changes are expensive.** A field visible on the vbpl.vn page but never persisted can only be recovered by re-scraping every affected document through a headless browser. Getting these wrong costs a crawl.
+
+Only the second class needs deciding early, which makes it worth auditing the parser against the schema *before* any projector is built. Running that audit found exactly one instance, plus its mirror image:
+
+**`expiry_date` — parsed but discarded** (fixed, migration 0005). vbpl.vn's "Ngày hết hiệu lực" was parsed into `ParsedVbplAttributes.expiryDateRaw` and folded into `content_version`'s hash, but had no column, so the value was dropped on every scrape. It matters specifically because of §2d: a hard validity filter needs *both* ends of the interval. `document.status` answers "in force now"; only `effective_date`/`expiry_date` answer "in force on date X" — the query the literature insists must be a pre-ranking constraint rather than something similarity is trusted to sort out.
+
+**`gazette_published_date` — the mirror image.** A column nothing writes, because vbpl.vn renders no công báo date. Null on every row, yet read back by the retrieve endpoints as though it were data. Both halves of this audit (parsed-but-unstored, stored-but-unwritten) are worth re-running before each new projector.
+
+Three lessons from implementing that fix generalise to every future column:
+
+1. **`content_version` cannot see a schema change.** The hash is computed from the scraped page, not from the stored row, so adding a column never changes it — an ordinary re-scrape short-circuits as unchanged and leaves the new column NULL forever. Backfilling needs an explicit escape hatch (`force` on the PUT endpoints) that skips the short-circuit. Budget for this whenever a column is added from already-scraped data.
+2. **Check `rawSource` before assuming a re-scrape is required.** It usually will be: `rawSource` holds `fullText` plus provenance, not the attributes tab, so attributes-tab fields are genuinely unrecoverable without returning to the site.
+3. **Scope the backfill by legal semantics, not by row count.** Confirmed against live pages that `het_hieu_luc_mot_phan` and `ngung_hieu_luc` documents carry no expiry date at all — the first is still in force as a whole (partial expiry is `document_node`-level state), the second is a temporary suspension rather than an endpoint. Only full expiry closes the interval, which cut the backfill from the whole 3,338-row corpus to 368. A NULL that is semantically correct needs no backfill at all, and the analysis establishing which NULLs those are is worth more than the backfill machinery itself.
+
+### 7c. Sequencing
 
 Ranked by value-per-effort against the work already queued in [../../README.md](../../README.md)'s Sequencing section. **These are recommendations, not decisions.**
 
-1. **CDC + sync-state + reconciliation** (already next in the README's sequence) — remains the correct next step. Add one thing the current design doesn't state: **validity filtering belongs in the retrieval-tool contract**, enforced as a hard pre-ranking filter, not deferred to similarity. This is the field's central unsolved reliability problem (§2d), not a plumbing detail.
+1. **CDC + sync-state + reconciliation** (already next in the README's sequence) — remains the correct next step. Add one thing the current design doesn't state: **validity filtering belongs in the retrieval-tool contract**, enforced as a hard pre-ranking filter, not deferred to similarity. This is the field's central unsolved reliability problem (§2d), not a plumbing detail. The *data* side of this has since landed (§7b) — `expiry_date` now closes the validity interval — so what remains is enforcement at query time, not capture.
 2. **Decide the `:Provision` identity/version split** (§5d) — cheap now, painful after the Neo4j projector exists.
 3. **Graph as post-retrieval reranker** (§6a, point C) — least invasive integration, no change to the retrieval leg.
 4. **Citation verification** (§6a, point D) — high value given 17–33% hallucination rates; the schema already supports it.
