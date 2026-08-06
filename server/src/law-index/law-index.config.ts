@@ -13,7 +13,7 @@ export const lawIndexConfig = registerAs('lawIndex', () => ({
   ),
   headless: (process.env.LAW_INDEX_HEADLESS ?? 'true') !== 'false',
   browserRecycleInterval: parseInt(
-    process.env.LAW_INDEX_BROWSER_RECYCLE_INTERVAL ?? '50',
+    process.env.LAW_INDEX_BROWSER_RECYCLE_INTERVAL ?? '20',
     10,
   ),
 }));
