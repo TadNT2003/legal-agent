@@ -4,7 +4,11 @@ jest.mock('playwright', () => ({
   },
 }));
 
-import { BadRequestException, BadGatewayException } from '@nestjs/common';
+import {
+  BadRequestException,
+  BadGatewayException,
+  ConflictException,
+} from '@nestjs/common';
 import { chromium } from 'playwright';
 import { VbplClientService } from './vbpl-client.service';
 
@@ -13,6 +17,7 @@ const MOCK_CONFIG = {
   maxTier: 9,
   requestDelayMs: 100,
   headless: true,
+  browserRecycleInterval: 20,
 };
 
 function createMockResponse(ok = true, status = ok ? 200 : 502) {
@@ -37,6 +42,7 @@ function createMockPage() {
     goto: jest.fn().mockResolvedValue(createMockResponse()),
     evaluate: jest.fn(),
     waitForSelector: jest.fn().mockResolvedValue({}),
+    waitForTimeout: jest.fn().mockResolvedValue(void 0),
     getByPlaceholder: jest.fn().mockReturnValue({ fill: jest.fn() }),
     getByRole: jest.fn().mockReturnValue({
       check: jest.fn(),
@@ -57,6 +63,13 @@ function createMockPage() {
       fill: jest.fn(),
       press: jest.fn(),
       nth: jest.fn().mockReturnValue({ fill: jest.fn() }),
+      // Used by fetchOriginalDocumentUrls's "Văn bản gốc" tab handling —
+      // .first().click() to expand the collapse panel, .count() to check
+      // for a (here, empty) file list.
+      first: jest.fn().mockReturnValue({
+        click: jest.fn().mockResolvedValue(void 0),
+      }),
+      count: jest.fn().mockResolvedValue(0),
     }),
     close: jest.fn().mockResolvedValue(void 0),
     _listeners: listeners,
@@ -81,7 +94,7 @@ describe('VbplClientService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new VbplClientService(MOCK_CONFIG as any);
+    service = new VbplClientService(MOCK_CONFIG);
     (service as any).lastRequestAt = Date.now() - 10000;
   });
 
@@ -113,9 +126,9 @@ describe('VbplClientService', () => {
     });
 
     it('rejects an invalid URL string', () => {
-      expect(() =>
-        service.assertTrustedDocumentUrl('not-a-url'),
-      ).toThrow('Not a valid URL');
+      expect(() => service.assertTrustedDocumentUrl('not-a-url')).toThrow(
+        'Not a valid URL',
+      );
     });
 
     it('rejects /api/ disallowed path', () => {
@@ -154,9 +167,7 @@ describe('VbplClientService', () => {
           title: 'Test Document Title',
           fullText: 'This is the full document text.',
         })
-        .mockResolvedValueOnce([
-          { label: 'So hieu', value: '123/2024/QD-TTg' },
-        ])
+        .mockResolvedValueOnce([{ label: 'So hieu', value: '123/2024/QD-TTg' }])
         .mockResolvedValueOnce([
           { categoryLabel: 'Luon giai', entries: ['Entry A', 'Entry B'] },
         ]);
@@ -174,6 +185,7 @@ describe('VbplClientService', () => {
         relations: [
           { categoryLabel: 'Luon giai', entries: ['Entry A', 'Entry B'] },
         ],
+        originalDocumentUrls: [],
       });
 
       expect(chromium.launch).toHaveBeenCalledWith({ headless: true });
@@ -181,7 +193,7 @@ describe('VbplClientService', () => {
         userAgent: 'legal-agent-law-index/1.0',
       });
 
-      expect(mockPage.goto).toHaveBeenCalledTimes(3);
+      expect(mockPage.goto).toHaveBeenCalledTimes(4);
       expect(mockPage.goto).toHaveBeenNthCalledWith(
         1,
         'https://vbpl.vn/van-ban/chi-tiet/123',
@@ -213,7 +225,7 @@ describe('VbplClientService', () => {
 
       await expect(
         service.fetchDocument('https://vbpl.vn/van-ban/chi-tiet/123'),
-      ).rejects.toThrow('Failed to load');
+      ).rejects.toThrow(BadGatewayException);
     });
 
     it('bad gateway: throws when page.goto throws a navigation error', async () => {
@@ -237,6 +249,164 @@ describe('VbplClientService', () => {
       ).rejects.toThrow(BadRequestException);
 
       expect(chromium.launch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('concurrency guard (scraper-resilience-plan.md 5.4)', () => {
+    function setUpBrowserMocks() {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      mockPage.evaluate.mockResolvedValue({
+        scope: 'trung-uong',
+        title: 't',
+        fullText: 'f',
+      });
+
+      return { mockBrowser, mockContext, mockPage };
+    }
+
+    it('rejects a second fetchDocument call while the first is still in flight', async () => {
+      const { mockPage } = setUpBrowserMocks();
+
+      let resolveFirstGoto: (value: unknown) => void = () => undefined;
+      const pendingFirstGoto = new Promise((resolve) => {
+        resolveFirstGoto = resolve;
+      });
+      mockPage.goto
+        .mockImplementationOnce(() => pendingFirstGoto)
+        .mockResolvedValue(createMockResponse());
+
+      const firstCall = service.fetchDocument(
+        'https://vbpl.vn/van-ban/chi-tiet/123',
+      );
+
+      await expect(
+        service.fetchDocument('https://vbpl.vn/van-ban/chi-tiet/456'),
+      ).rejects.toThrow(ConflictException);
+
+      resolveFirstGoto(createMockResponse());
+      await expect(firstCall).resolves.toBeDefined();
+    });
+
+    it('also blocks a concurrent searchDocuments call while fetchDocument is in flight', async () => {
+      const { mockPage } = setUpBrowserMocks();
+
+      let resolveFirstGoto: (value: unknown) => void = () => undefined;
+      const pendingFirstGoto = new Promise((resolve) => {
+        resolveFirstGoto = resolve;
+      });
+      mockPage.goto
+        .mockImplementationOnce(() => pendingFirstGoto)
+        .mockResolvedValue(createMockResponse());
+
+      const firstCall = service.fetchDocument(
+        'https://vbpl.vn/van-ban/chi-tiet/123',
+      );
+
+      await expect(
+        service.searchDocuments({ keyword: 'test' }),
+      ).rejects.toThrow(ConflictException);
+
+      resolveFirstGoto(createMockResponse());
+      await firstCall;
+    });
+
+    it('releases the lock after fetchDocument completes, allowing a subsequent call', async () => {
+      const { mockPage } = setUpBrowserMocks();
+      mockPage.goto.mockResolvedValue(createMockResponse());
+
+      await service.fetchDocument('https://vbpl.vn/van-ban/chi-tiet/1');
+
+      await expect(
+        service.fetchDocument('https://vbpl.vn/van-ban/chi-tiet/2'),
+      ).resolves.toBeDefined();
+    });
+
+    it('releases the lock even when fetchDocument throws, so a later call is not permanently blocked', async () => {
+      const { mockPage } = setUpBrowserMocks();
+      mockPage.goto.mockResolvedValue(createMockResponse(false, 502));
+
+      await expect(
+        service.fetchDocument('https://vbpl.vn/van-ban/chi-tiet/1'),
+      ).rejects.toThrow(BadGatewayException);
+
+      mockPage.goto.mockResolvedValue(createMockResponse());
+
+      await expect(
+        service.fetchDocument('https://vbpl.vn/van-ban/chi-tiet/2'),
+      ).resolves.toBeDefined();
+    });
+  });
+
+  describe('browser recycling (scraper-resilience-plan.md 5.4)', () => {
+    it('recycles the browser once the document threshold is reached, inside the same locked fetch — not a separate later call', async () => {
+      const recyclingService = new VbplClientService({
+        ...MOCK_CONFIG,
+        browserRecycleInterval: 1,
+      });
+
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      mockPage.goto.mockResolvedValue(createMockResponse());
+      mockPage.evaluate.mockResolvedValue({
+        scope: 'trung-uong',
+        title: 't',
+        fullText: 'f',
+      });
+
+      await recyclingService.fetchDocument(
+        'https://vbpl.vn/van-ban/chi-tiet/1',
+      );
+
+      // Threshold (1) was hit by the document just fetched — the cached
+      // browser/context/page must already be torn down by the time
+      // fetchDocument resolves, not by some later, separately-triggered call
+      // (see vbpl-client.service.ts's acquireLock doc comment for why that
+      // used to be a race).
+      expect(mockPage.close).toHaveBeenCalled();
+      expect(mockContext.close).toHaveBeenCalled();
+      expect(mockBrowser.close).toHaveBeenCalled();
+
+      // A subsequent fetch launches a fresh browser rather than reusing the
+      // already-torn-down cached one.
+      await recyclingService.fetchDocument(
+        'https://vbpl.vn/van-ban/chi-tiet/2',
+      );
+      expect(chromium.launch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not recycle before the configured threshold is reached', async () => {
+      const { mockBrowser, mockContext } = createMockBrowser();
+      const mockPage = createMockPage();
+
+      (chromium.launch as jest.Mock).mockResolvedValue(mockBrowser);
+      (mockBrowser.newContext as jest.Mock).mockResolvedValue(mockContext);
+      (mockContext.newPage as jest.Mock).mockResolvedValue(mockPage);
+
+      mockPage.goto.mockResolvedValue(createMockResponse());
+      mockPage.evaluate.mockResolvedValue({
+        scope: 'trung-uong',
+        title: 't',
+        fullText: 'f',
+      });
+
+      // service (from the outer beforeEach) has browserRecycleInterval: 20.
+      await service.fetchDocument('https://vbpl.vn/van-ban/chi-tiet/1');
+
+      expect(mockPage.close).not.toHaveBeenCalled();
+
+      await service.fetchDocument('https://vbpl.vn/van-ban/chi-tiet/2');
+      expect(chromium.launch).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -328,7 +498,10 @@ describe('VbplClientService', () => {
 
       await service.searchDocuments({ keyword: 'test' });
 
-      expect(mockPage.off).toHaveBeenCalledWith('response', expect.any(Function));
+      expect(mockPage.off).toHaveBeenCalledWith(
+        'response',
+        expect.any(Function),
+      );
     });
   });
 
