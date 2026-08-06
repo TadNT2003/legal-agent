@@ -22,12 +22,47 @@ function computeNodeContentHash(node: ParsedDocumentNode): string {
   return hash.digest('hex');
 }
 
-/** ltree labels are restricted to [A-Za-z0-9_]+ — ordinal is already ASCII
- * alphanumeric by construction (digits + a single a-z letter suffix, see
- * document-node.parser.ts), so this only strips characters that shouldn't
- * appear anyway rather than actively transliterating anything. */
-function sanitizeOrdinalForLtree(ordinal: string): string {
-  return ordinal.replace(/[^A-Za-z0-9_]/g, '');
+/**
+ * ltree labels are restricted to [A-Za-z0-9_]+. The comment this replaces
+ * assumed ordinal was already ASCII-only "by construction" — wrong:
+ * DIEU_KHOAN_PATTERN/DIEM_PATTERN in document-node.parser.ts both accept
+ * `đ` as a valid Vietnamese-alphabet ordinal suffix (`[a-zđ]`), and it's a
+ * real, common one — "đ)" is the 5th point in any a/b/c/d/đ/e... Điểm list,
+ * confirmed live across 1,434 documents — plus the rarer inserted-provision
+ * case per Điều 69.4, Nghị định 78/2025/NĐ-CP (e.g. "Điều 146đ").
+ *
+ * Blind-stripping `đ` (the previous behavior) is wrong two ways, not one:
+ *   - For "146đ": stripping collides the path with the *different*,
+ *     already-existing "Điều 146" — confirmed live on 17/2017/QH14 and 6
+ *     other documents (10 nodes total). Content wasn't lost (the row, its
+ *     `ordinal`/`label`/`text_content` are all correct) but the `path`
+ *     column silently duplicated onto an unrelated sibling.
+ *   - For bare "đ" (the Điểm case): stripping to '' produces a path segment
+ *     of just "diem" — not colliding with a sibling in practice (a Vietnamese
+ *     list has at most one đ point), but silently indistinguishable from "no
+ *     ordinal at all" in the path itself.
+ * Transliterating to a distinct ASCII sequence fixes both: it must NOT
+ * collapse onto the unrelated "d" ordinal either, since "d)" and "đ)" are
+ * both real, commonly-adjacent point labels in the same list (a/b/c/d/đ/e).
+ * "dd" satisfies both constraints — distinct from "d", and from the
+ * digit-only sanitized form of the base ordinal it's suffixing.
+ *
+ * Extend VIETNAMESE_ORDINAL_TRANSLITERATION if the parser's accepted
+ * suffix charset ever grows past `đ` (see that pattern's own comment on the
+ * full Vietnamese alphabet being a follow-up) — anything not in this map
+ * still falls through to the strip-everything-else behavior as a safety net
+ * for genuinely unanticipated input, same as before.
+ */
+const VIETNAMESE_ORDINAL_TRANSLITERATION: Record<string, string> = {
+  đ: 'dd',
+};
+
+export function sanitizeOrdinalForLtree(ordinal: string): string {
+  const transliterated = ordinal.replace(
+    /đ/gi,
+    (ch) => VIETNAMESE_ORDINAL_TRANSLITERATION[ch.toLowerCase()],
+  );
+  return transliterated.replace(/[^A-Za-z0-9_]/g, '');
 }
 
 @Injectable()
