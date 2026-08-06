@@ -15,6 +15,24 @@ export const envValidationSchema = Joi.object({
   OPENSEARCH_NODE: Joi.string().uri().required(),
   OPENSEARCH_USERNAME: Joi.string().required(),
   OPENSEARCH_PASSWORD: Joi.string().required(),
+  OPENSEARCH_REJECT_UNAUTHORIZED: Joi.boolean().default(true),
+  OPENSEARCH_REQUEST_TIMEOUT_MS: Joi.number().default(30000),
+
+  // --- OpenSearch projector (server/src/law-index/opensearch/), all
+  // defaulted since the module isn't wired into AppModule yet ---
+  OPENSEARCH_PROJECTOR_INDEX_BASE_NAME:
+    Joi.string().default('legal_provisions'),
+  OPENSEARCH_PROJECTOR_INDEX_VERSION: Joi.number().default(1),
+  OPENSEARCH_PROJECTOR_READ_ALIAS: Joi.string().default(
+    'legal-provisions-read',
+  ),
+  OPENSEARCH_PROJECTOR_WRITE_ALIAS: Joi.string().default(
+    'legal-provisions-write',
+  ),
+  OPENSEARCH_PROJECTOR_BULK_MAX_DOCS: Joi.number().default(500),
+  OPENSEARCH_PROJECTOR_BULK_MAX_BYTES: Joi.number().default(5 * 1024 * 1024),
+  OPENSEARCH_PROJECTOR_NUMBER_OF_SHARDS: Joi.number().default(1),
+  OPENSEARCH_PROJECTOR_NUMBER_OF_REPLICAS: Joi.number().default(0),
 
   NEO4J_URI: Joi.string().required(),
   NEO4J_USERNAME: Joi.string().required(),

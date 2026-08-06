@@ -10,14 +10,14 @@ This plan builds **only** the lexical/BM25 leg. No hybrid, no RRF, no vectors, n
 
 ### Measured starting point
 
-| | |
-|---|---|
-| `document` | 3,338 (3,040 have nodes; 298 have no "Nội dung" tab upstream) |
-| `document_node` | 507,289 — 69,773 `dieu`, 244,374 `khoan`, 180,130 `diem`, 726 `phu_luc` (724 normative / 2 template) |
-| Text volume | ~87 MB |
-| **Target index size** | **~70,497 docs** (69,773 Điều + 724 normative Phụ lục) |
-| All nodes | `valid_to IS NULL` — no amendment history yet, so §3a's version filter is a no-op today |
-| All documents | `index_scope = 'full'` — that filter is also a no-op today |
+|                             |                                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `document`                | 3,338 (3,040 have nodes; 298 have no "Nội dung" tab upstream)                                               |
+| `document_node`           | 507,289 — 69,773`dieu`, 244,374 `khoan`, 180,130 `diem`, 726 `phu_luc` (724 normative / 2 template) |
+| Text volume                 | ~87 MB                                                                                                       |
+| **Target index size** | **~70,497 docs** (69,773 Điều + 724 normative Phụ lục)                                             |
+| All nodes                   | `valid_to IS NULL` — no amendment history yet, so §3a's version filter is a no-op today                  |
+| All documents               | `index_scope = 'full'` — that filter is also a no-op today                                                |
 
 Small enough that a full backfill is minutes, and single-shard is correct.
 
@@ -103,30 +103,30 @@ New submodule `server/src/law-index/opensearch/`, following the `retrieve/` and 
 
 ### Files to create
 
-| Path | Contents |
-|---|---|
-| `opensearch-client.module.ts` | Mirrors `persistence/db.module.ts`: `OPENSEARCH_CLIENT` symbol + `useFactory` injecting `opensearchConfig.KEY`, building `new Client({ node, auth, ssl: { rejectUnauthorized } })`. Exports the token. |
-| `opensearch.config.ts` | Colocated `registerAs('opensearchProjector', …)` — index base name, version, read/write alias names, bulk caps, shard/replica counts. Follows `law-index.config.ts`. |
-| `legal-provisions.mapping.ts` | Pure constants. §3b's ` ```text ` block converted to real JSON, plus settings. |
-| `provision.projection.ts` | **Pure, DI-free core.** `projectDocument(meta, flatNodes) → { provisions, stats }`. No `@nestjs/*`, no repository, no client — the `vbpl.parser.ts` precedent. |
-| `provision.projection.spec.ts` | The only test in the feature. Covers: Điểm folding into Khoản, Điều with no Khoản, `template` phụ lục exclusion, container-node exclusion, null `status`/`heading` omission. |
-| `index-admin.service.ts` | `ensureIndex()` (create + attach both aliases, idempotent), `promoteAliases()`, `getStatus()`, `dropIndex()` (refuses an aliased index). |
-| `opensearch.service.ts` | `backfill()`, `reprojectDocument()`, `search()`. Owns the document loop, bulk buffer, summary. |
-| `opensearch.controller.ts` | `@ApiTags('law-index')`, `@Controller('laws/index/opensearch')`. |
-| `opensearch.module.ts` | Wires the above. |
-| `dto/*.dto.ts` | `backfill`, `backfill-response`, `reproject`, `index-status-response`, `promote-aliases`, `search-provisions` + `-response`. `class-validator` + `@ApiProperty` on every field, per existing DTOs. |
+| Path                             | Contents                                                                                                                                                                                                             |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `opensearch-client.module.ts`  | Mirrors`persistence/db.module.ts`: `OPENSEARCH_CLIENT` symbol + `useFactory` injecting `opensearchConfig.KEY`, building `new Client({ node, auth, ssl: { rejectUnauthorized } })`. Exports the token.      |
+| `opensearch.config.ts`         | Colocated`registerAs('opensearchProjector', …)` — index base name, version, read/write alias names, bulk caps, shard/replica counts. Follows `law-index.config.ts`.                                            |
+| `legal-provisions.mapping.ts`  | Pure constants. §3b's` ```text ` block converted to real JSON, plus settings.                                                                                                                                     |
+| `provision.projection.ts`      | **Pure, DI-free core.** `projectDocument(meta, flatNodes) → { provisions, stats }`. No `@nestjs/*`, no repository, no client — the `vbpl.parser.ts` precedent.                                         |
+| `provision.projection.spec.ts` | The only test in the feature. Covers: Điểm folding into Khoản, Điều with no Khoản,`template` phụ lục exclusion, container-node exclusion, null `status`/`heading` omission.                            |
+| `index-admin.service.ts`       | `ensureIndex()` (create + attach both aliases, idempotent), `promoteAliases()`, `getStatus()`, `dropIndex()` (refuses an aliased index).                                                                     |
+| `opensearch.service.ts`        | `backfill()`, `reprojectDocument()`, `search()`. Owns the document loop, bulk buffer, summary.                                                                                                                 |
+| `opensearch.controller.ts`     | `@ApiTags('law-index')`, `@Controller('laws/index/opensearch')`.                                                                                                                                                 |
+| `opensearch.module.ts`         | Wires the above.                                                                                                                                                                                                     |
+| `dto/*.dto.ts`                 | `backfill`, `backfill-response`, `reproject`, `index-status-response`, `promote-aliases`, `search-provisions` + `-response`. `class-validator` + `@ApiProperty` on every field, per existing DTOs. |
 
 ### Files to modify
 
-| Path | Change |
-|---|---|
-| `server/package.json` | Add `@opensearch-project/opensearch` (verify its compat matrix covers 2.19.1). No HTTP client exists today; the client earns its place via `_bulk` NDJSON handling, typed per-item errors, and first-class `ssl.rejectUnauthorized` — Node's global `fetch` would need a custom undici `Dispatcher` for the self-signed cert. |
-| `server/src/config/configuration.ts` | Extend `opensearchConfig` with `rejectUnauthorized`, `requestTimeoutMs`. |
-| `server/src/config/env.validation.ts` | Joi keys for the above + projector keys, **all with defaults, none `required()`**. Default `rejectUnauthorized` to `true` in code; set `false` explicitly in `.env.example` — secure by default, insecure by opt-in. |
-| `server/.env.example` | New `# --- OpenSearch projector ---` block, with a comment on the compose self-signed cert. |
-| `server/src/app.module.ts` | Add the projector config to `ConfigModule.forRoot({ load })`. |
-| `server/src/law-index/law-index.module.ts` | Add `OpenSearchModule` to `imports`. |
-| [../database-design.md](../database-design.md) §3b | Correct `content_version` to `keyword`; note `document_type` holds raw Vietnamese (`"Nghị định"`), not slugs; record the icu-based v1 analyzers. |
+| Path                                               | Change                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `server/package.json`                            | Add`@opensearch-project/opensearch` (verify its compat matrix covers 2.19.1). No HTTP client exists today; the client earns its place via `_bulk` NDJSON handling, typed per-item errors, and first-class `ssl.rejectUnauthorized` — Node's global `fetch` would need a custom undici `Dispatcher` for the self-signed cert. |
+| `server/src/config/configuration.ts`             | Extend`opensearchConfig` with `rejectUnauthorized`, `requestTimeoutMs`.                                                                                                                                                                                                                                                           |
+| `server/src/config/env.validation.ts`            | Joi keys for the above + projector keys,**all with defaults, none `required()`**. Default `rejectUnauthorized` to `true` in code; set `false` explicitly in `.env.example` — secure by default, insecure by opt-in.                                                                                                    |
+| `server/.env.example`                            | New`# --- OpenSearch projector ---` block, with a comment on the compose self-signed cert.                                                                                                                                                                                                                                            |
+| `server/src/app.module.ts`                       | Add the projector config to`ConfigModule.forRoot({ load })`.                                                                                                                                                                                                                                                                          |
+| `server/src/law-index/law-index.module.ts`       | Add`OpenSearchModule` to `imports`.                                                                                                                                                                                                                                                                                                 |
+| [../database-design.md](../database-design.md) §3b | Correct`content_version` to `keyword`; note `document_type` holds raw Vietnamese (`"Nghị định"`), not slugs; record the icu-based v1 analyzers.                                                                                                                                                                              |
 
 ### Index definition
 
@@ -165,15 +165,15 @@ Iterate **per document**, never loading 507K rows. Peak memory is one document's
 
 ### Endpoints
 
-| Method | Path | Purpose |
-|---|---|---|
-| `PUT` | `/index` | Create index + attach aliases. Idempotent. |
-| `GET` | `/status` | Alias→index resolution, health, `docs.count` vs expected count from Postgres, drift. The reconciliation stand-in. |
-| `POST` | `/backfill` | `{limit?, afterDocumentId?, documentIds?[]}` |
-| `POST` | `/reproject` | One document by `documentId` or `citation` |
-| `PATCH` | `/aliases` | Atomic blue/green swap (§3e) |
-| `DELETE` | `/index/:version` | Drop a retired index; refuses if aliased |
-| `POST` | `/search` | §3d's query — multi_match + nested khoan with `inner_hits` + validity filters |
+| Method     | Path                | Purpose                                                                                                             |
+| ---------- | ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `PUT`    | `/index`          | Create index + attach aliases. Idempotent.                                                                          |
+| `GET`    | `/status`         | Alias→index resolution, health,`docs.count` vs expected count from Postgres, drift. The reconciliation stand-in. |
+| `POST`   | `/backfill`       | `{limit?, afterDocumentId?, documentIds?[]}`                                                                      |
+| `POST`   | `/reproject`      | One document by`documentId` or `citation`                                                                       |
+| `PATCH`  | `/aliases`        | Atomic blue/green swap (§3e)                                                                                       |
+| `DELETE` | `/index/:version` | Drop a retired index; refuses if aliased                                                                            |
+| `POST`   | `/search`         | §3d's query — multi_match + nested khoan with`inner_hits` + validity filters                                    |
 
 **Orphan guard — a gap §3b does not cover.** `document_node.id` is `defaultRandom()` and `syncNodes()` does delete-and-reinsert, so node ids are regenerated on every content change. `reproject` must `_delete_by_query` on `document_id` **before** indexing, mirroring `syncNodes`'s own semantics. Without this, re-scraping a changed document orphans all its previously-indexed provisions. §3b's "idempotent by construction" claim holds for the retry case only, not the update case.
 
