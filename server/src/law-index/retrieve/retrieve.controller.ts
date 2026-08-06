@@ -57,26 +57,6 @@ export class RetrieveController {
   }
 
   @ApiOperation({
-    summary: 'Retrieve a single document by ID',
-    description:
-      'Returns full metadata for a synced document by its internal UUID, ' +
-      'including citation, title, issuing body, dates, validity status, ' +
-      'consolidation info, and source URL.',
-  })
-  @ApiParam({
-    name: 'id',
-    required: true,
-    type: String,
-    description: 'Document UUID.',
-    example: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
-  })
-  @ApiOkResponse({ type: RetrieveDocumentResponseDto })
-  @Get(':id')
-  async retrieveById(@Param('id') id: string) {
-    return this.service.retrieveById(id);
-  }
-
-  @ApiOperation({
     summary: 'Retrieve document nodes (clauses) and full text',
     description:
       'Returns the structural clause tree for a synced document: ' +
@@ -138,6 +118,30 @@ export class RetrieveController {
   @Get('issuing-bodies')
   async retrieveIssuingBodies(@Query() dto: RetrieveIssuingBodiesDto) {
     return this.service.findIssuingBodies(dto);
+  }
+
+  // Must stay registered after the literal-path GET routes above
+  // (nodes/references/issuing-bodies) — Nest/Express matches routes in
+  // declaration order, and this `:id` wildcard would otherwise swallow
+  // those paths as if `id` were literally "nodes", "references", etc.
+  @ApiOperation({
+    summary: 'Retrieve a single document by ID',
+    description:
+      'Returns full metadata for a synced document by its internal UUID, ' +
+      'including citation, title, issuing body, dates, validity status, ' +
+      'consolidation info, and source URL.',
+  })
+  @ApiParam({
+    name: 'id',
+    required: true,
+    type: String,
+    description: 'Document UUID.',
+    example: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
+  })
+  @ApiOkResponse({ type: RetrieveDocumentResponseDto })
+  @Get(':id')
+  async retrieveById(@Param('id') id: string) {
+    return this.service.retrieveById(id);
   }
 
   @ApiOperation({

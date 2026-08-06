@@ -1,8 +1,8 @@
 import { createHash } from 'crypto';
+import { sanitizeOrdinalForLtree } from './document-node.repository';
 
-// Test the standalone helper functions from document-node.repository.ts
-// These are NOT exported from the module, so we replicate their logic
-// to verify correctness. The actual functions are:
+// computeNodeContentHash is NOT exported from document-node.repository.ts,
+// so it's replicated here to verify correctness. The actual implementation:
 //
 // function computeNodeContentHash(node: ParsedDocumentNode): string {
 //   const hash = createHash('sha256');
@@ -10,10 +10,6 @@ import { createHash } from 'crypto';
 //   hash.update(node.heading ?? '');
 //   hash.update(node.textContent ?? '');
 //   return hash.digest('hex');
-// }
-//
-// function sanitizeOrdinalForLtree(ordinal: string): string {
-//   return ordinal.replace(/[^A-Za-z0-9_]/g, '');
 // }
 
 interface ParsedDocumentNode {
@@ -32,10 +28,6 @@ function computeNodeContentHash(node: ParsedDocumentNode): string {
   hash.update(node.heading ?? '');
   hash.update(node.textContent ?? '');
   return hash.digest('hex');
-}
-
-function sanitizeOrdinalForLtree(ordinal: string): string {
-  return ordinal.replace(/[^A-Za-z0-9_]/g, '');
 }
 
 describe('computeNodeContentHash (document-node.repository)', () => {
@@ -113,7 +105,9 @@ describe('computeNodeContentHash (document-node.repository)', () => {
       contentClass: null,
       children: [],
     };
-    expect(computeNodeContentHash(nodeA)).not.toBe(computeNodeContentHash(nodeB));
+    expect(computeNodeContentHash(nodeA)).not.toBe(
+      computeNodeContentHash(nodeB),
+    );
   });
 
   it('produces different hash when heading changes', () => {
@@ -135,34 +129,11 @@ describe('computeNodeContentHash (document-node.repository)', () => {
       contentClass: null,
       children: [],
     };
-    expect(computeNodeContentHash(nodeA)).not.toBe(computeNodeContentHash(nodeB));
+    expect(computeNodeContentHash(nodeA)).not.toBe(
+      computeNodeContentHash(nodeB),
+    );
   });
 });
-
-describe('sanitizeOrdinalForLtree', () => {
-  it('strips non-alphanumeric characters', () => {
-    expect(sanitizeOrdinalForLtree('1a')).toBe('1a');
-    expect(sanitizeOrdinalForLtree('10')).toBe('10');
-    expect(sanitizeOrdinalForLtree('abc')).toBe('abc');
-  });
-
-  it('strips special characters', () => {
-    expect(sanitizeOrdinalForLtree('1-a')).toBe('1a');
-    expect(sanitizeOrdinalForLtree('10.2')).toBe('102');
-  });
-
-  it('preserves underscores', () => {
-    expect(sanitizeOrdinalForLtree('a_b_c')).toBe('a_b_c');
-  });
-
-  it('returns empty string for all special characters', () => {
-    expect(sanitizeOrdinalForLtree('!@#$%')).toBe('');
-  });
-
-  it('handles unicode characters (only strips non-ASCII alnum)', () => {
-    expect(sanitizeOrdinalForLtree('điều')).toBe('iu');
-  });
-});import { sanitizeOrdinalForLtree } from './document-node.repository';
 
 describe('sanitizeOrdinalForLtree', () => {
   it('passes plain digit ordinals through unchanged', () => {
@@ -184,7 +155,9 @@ describe('sanitizeOrdinalForLtree', () => {
 
   it('transliterates an inserted-provision "đ" suffix without colliding with the base ordinal, confirmed live on 17/2017/QH14 ("Điều 146đ" vs "Điều 146")', () => {
     expect(sanitizeOrdinalForLtree('146đ')).toBe('146dd');
-    expect(sanitizeOrdinalForLtree('146đ')).not.toBe(sanitizeOrdinalForLtree('146'));
+    expect(sanitizeOrdinalForLtree('146đ')).not.toBe(
+      sanitizeOrdinalForLtree('146'),
+    );
   });
 
   it('handles an uppercase Đ the same way as lowercase đ', () => {

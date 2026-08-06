@@ -1,16 +1,13 @@
-import {
-  integer,
-  real,
-  sqliteTable,
-  text,
-} from 'drizzle-orm/sqlite-core';
+import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const issuingBody = sqliteTable('issuing_body', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
   nameEn: text('name_en'),
   authorityRank: integer('authority_rank').notNull(),
-  scope: text('scope', { enum: ['national', 'local'] }).notNull().default('national'),
+  scope: text('scope', { enum: ['national', 'local'] })
+    .notNull()
+    .default('national'),
   parentBodyId: text('parent_body_id'),
 });
 
@@ -26,12 +23,19 @@ export const document = sqliteTable('document', {
   signerTitle: text('signer_title'),
   enactedDate: text('enacted_date').notNull(),
   effectiveDate: text('effective_date'),
+  expiryDate: text('expiry_date'),
   gazettePublishedDate: text('gazette_published_date'),
   status: text('status'),
   indexScope: text('index_scope').notNull().default('full'),
-  isConsolidated: integer('is_consolidated', { mode: 'boolean' }).notNull().default(false),
+  isConsolidated: integer('is_consolidated', { mode: 'boolean' })
+    .notNull()
+    .default(false),
   consolidatesDocumentId: text('consolidates_document_id'),
   rawSource: text('raw_source'),
+  originalDocumentUrls: text('original_document_urls', { mode: 'json' })
+    .notNull()
+    .$type<string[]>()
+    .default([]),
   contentVersion: text('content_version').notNull(),
   createdAt: text('created_at'),
   updatedAt: text('updated_at'),
@@ -64,7 +68,9 @@ export const documentReference = sqliteTable('document_reference', {
   referenceType: text('reference_type').notNull(),
   changeType: text('change_type'),
   rawCitationText: text('raw_citation_text').notNull(),
-  extractionMethod: text('extraction_method').notNull().default('deterministic'),
+  extractionMethod: text('extraction_method')
+    .notNull()
+    .default('deterministic'),
   confidence: real('confidence'),
   createdAt: text('created_at'),
 });

@@ -32,12 +32,17 @@ const docSchema = sqliteTable('document', {
   signerTitle: text('signer_title'),
   enactedDate: text('enacted_date').notNull(),
   effectiveDate: text('effective_date'),
+  expiryDate: text('expiry_date'),
   gazettePublishedDate: text('gazette_published_date'),
   status: text('status'),
   indexScope: text('index_scope').notNull().default('full'),
   isConsolidated: integer('is_consolidated', { mode: 'boolean' }).notNull().default(false),
   consolidatesDocumentId: text('consolidates_document_id'),
   rawSource: text('raw_source', { mode: 'json' }),
+  originalDocumentUrls: text('original_document_urls', { mode: 'json' })
+    .notNull()
+    .$type<string[]>()
+    .default([]),
   contentVersion: text('content_version').notNull(),
   createdAt: text('created_at'),
   updatedAt: text('updated_at'),
@@ -71,6 +76,7 @@ const makeParsedDoc = (overrides?: Partial<ParsedVbplDocument>): ParsedVbplDocum
     consolidatedIntoRawTitles: [],
   },
   relations: [],
+  originalDocumentUrls: [],
   ...overrides,
 });
 
@@ -79,9 +85,11 @@ function computeContentVersionForTest(parsed: ParsedVbplDocument): string {
   hash.update(parsed.fullText);
   hash.update(parsed.attributes.citation);
   hash.update(parsed.title);
+  hash.update(parsed.attributes.issuingBody);
   hash.update(parsed.attributes.validityStatusRaw ?? '');
   hash.update(parsed.attributes.effectiveDateRaw ?? '');
   hash.update(parsed.attributes.expiryDateRaw ?? '');
+  hash.update(parsed.originalDocumentUrls.join(','));
   return hash.digest('hex');
 }
 
@@ -137,12 +145,14 @@ describe('DocumentRepository (SQLite integration)', () => {
         signer_title TEXT,
         enacted_date TEXT NOT NULL,
         effective_date TEXT,
+        expiry_date TEXT,
         gazette_published_date TEXT,
         status TEXT,
         index_scope TEXT NOT NULL DEFAULT 'full',
         is_consolidated INTEGER NOT NULL DEFAULT 0,
         consolidates_document_id TEXT,
         raw_source TEXT,
+        original_document_urls TEXT NOT NULL DEFAULT '[]',
         content_version TEXT NOT NULL,
         created_at TEXT,
         updated_at TEXT
@@ -231,8 +241,11 @@ describe('DocumentRepository (SQLite integration)', () => {
   describe('upsertDocument', () => {
     it('returns changed=false when content version is identical (no-op)', async () => {
       const existingHash = computeContentVersionForTest(makeParsedDoc());
+      const rawSource = JSON.stringify({
+        sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/123',
+      });
       sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Test Document', 'Luật', 'ib-1', '2025-01-01', '${existingHash}', 'con_hieu_luc', 0)`);
+      sqlite.prepare(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated, raw_source) VALUES ('doc-1', '01/2025/QH15', 'Test Document', 'Luật', 'ib-1', '2025-01-01', ?, 'con_hieu_luc', 0, ?)`).run(existingHash, rawSource);
 
       const result: UpsertResult = await repo.upsertDocument(makeParsedDoc());
       expect(result.changed).toBe(false);
