@@ -12,15 +12,15 @@
 
 ## 1. Tóm tắt nhanh
 
-| Hạng mục | Trạng thái |
-| - | - |
-| Sửa lỗi header phụ lục lặp lại (`document-node.parser.ts`) | ✅ Xong, có test hồi quy |
-| Backstop chống trùng ordinal (áp dụng mọi loại node) | ✅ Xong, có test hồi quy |
-| Test suite | ✅ 128/128 pass (25 test mới cho parser) |
-| Ghi nhận log kỹ thuật (§12a/12b/12c) | ✅ Xong |
-| Backfill 636 văn bản bị ảnh hưởng | 🟡 70/636 (11%) — **dừng giữa chừng theo yêu cầu** |
-| Gate check tổng corpus (0 hàng trùng `(document_id, path, node_type)`) | 🟡 Giảm từ ~9.446 → 8.863 nhóm trùng, chưa đạt 0 |
-| Nguyên nhân server crash lặp lại (§11 cũ) | ⚠️ Vẫn chưa chẩn đoán được, nhưng có thêm dữ liệu cụ thể |
+| Hạng mục                                                                 | Trạng thái                                                              |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Sửa lỗi header phụ lục lặp lại (`document-node.parser.ts`)         | ✅ Xong, có test hồi quy                                                |
+| Backstop chống trùng ordinal (áp dụng mọi loại node)                 | ✅ Xong, có test hồi quy                                                |
+| Test suite                                                                 | ✅ 128/128 pass (25 test mới cho parser)                                 |
+| Ghi nhận log kỹ thuật (§12a/12b/12c)                                   | ✅ Xong                                                                   |
+| Backfill 636 văn bản bị ảnh hưởng                                    | 🟡 70/636 (11%) —**dừng giữa chừng theo yêu cầu**             |
+| Gate check tổng corpus (0 hàng trùng`(document_id, path, node_type)`) | 🟡 Giảm từ ~9.446 → 8.863 nhóm trùng, chưa đạt 0                  |
+| Nguyên nhân server crash lặp lại (§11 cũ)                            | ⚠️ Vẫn chưa chẩn đoán được, nhưng có thêm dữ liệu cụ thể |
 
 ---
 
