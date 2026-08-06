@@ -7,13 +7,13 @@
 
 ## Current State
 
-| Area | Statements | Functions | Lines |
-|------|-----------|-----------|-------|
-| `vbpl-client.service.ts` | 12.99% | 7.5% | 12.72% |
-| `document.repository.ts` | 4.42% | 0% | 4.27% |
-| `document-node.repository.ts` | 17.64% | 0% | 15.21% |
-| `law-manifest.service.ts` | 58.97% | 63.15% | 57.53% |
-| `vanban-chinh-phu-client.service.ts` | 39.13% | 22.22% | 37.2% |
+| Area                                   | Statements | Functions | Lines  |
+| -------------------------------------- | ---------- | --------- | ------ |
+| `vbpl-client.service.ts`             | 12.99%     | 7.5%      | 12.72% |
+| `document.repository.ts`             | 4.42%      | 0%        | 4.27%  |
+| `document-node.repository.ts`        | 17.64%     | 0%        | 15.21% |
+| `law-manifest.service.ts`            | 58.97%     | 63.15%    | 57.53% |
+| `vanban-chinh-phu-client.service.ts` | 39.13%     | 22.22%    | 37.2%  |
 
 Existing tests use **replicated function logic** pattern (e.g. `document.repository.spec.ts` replicates unexported helpers) or **mocked dependencies** pattern (e.g. `law-index.service.spec.ts` injects mock repos).
 
@@ -85,6 +85,7 @@ Current spec only tests replicated helpers. Add SQLite-based integration tests:
 ## Validation
 
 Run `npm run test:cov` after all changes. Target:
+
 - Overall statement coverage: **60%+** (from 46.06%)
 - Overall function coverage: **60%+** (from 44.63%)
 - Each targeted file: **60%+** statement coverage
