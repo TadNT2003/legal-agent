@@ -986,7 +986,11 @@ export class DocumentRepository {
           effectiveDate: document.effectiveDate,
           expiryDate: document.expiryDate,
           status: document.status,
-          rawSource: document.rawSource,
+          // Only sourceUrl (not the whole rawSource JSONB, which also carries
+          // the full document text) is actually needed below — selecting the
+          // full column here was loading the entire body text for every row
+          // of a paginated list just to read one nested field out of it.
+          sourceUrl: sql<string>`raw_source->>'sourceUrl'`,
         })
         .from(document)
         .innerJoin(issuingBody, eq(document.issuingBodyId, issuingBody.id))
@@ -1009,14 +1013,13 @@ export class DocumentRepository {
       page,
       pageSize,
       items: rows.map((row: (typeof rows)[number]) => {
-        const rawSource = row.rawSource as DocumentRawSource | null;
-        // rawSource.sourceUrl is written unconditionally by upsertDocument —
-        // a missing one means a corrupted/pre-dating row, not a case to
-        // paper over with a guess: citation_id (e.g. "51/2024/QH15") is not
-        // interchangeable with vbpl.vn's internal document id that its URLs
-        // actually key on (confirmed live — see vbpl.parser.ts's
+        // sourceUrl is written unconditionally by upsertDocument as part of
+        // rawSource — a missing one means a corrupted/pre-dating row, not a
+        // case to paper over with a guess: citation_id (e.g. "51/2024/QH15")
+        // is not interchangeable with vbpl.vn's internal document id that its
+        // URLs actually key on (confirmed live — see vbpl.parser.ts's
         // buildSearchResultUrl), so fabricating one from it would be wrong.
-        if (!rawSource?.sourceUrl) {
+        if (!row.sourceUrl) {
           throw new Error(
             `document ${row.id} (citation ${row.citationId}) has no rawSource.sourceUrl`,
           );
@@ -1024,7 +1027,7 @@ export class DocumentRepository {
 
         return {
           documentId: row.id,
-          sourceUrl: rawSource.sourceUrl,
+          sourceUrl: row.sourceUrl,
           citation: row.citationId,
           title: row.title,
           documentType: row.documentType,
