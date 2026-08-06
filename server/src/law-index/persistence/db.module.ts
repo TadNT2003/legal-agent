@@ -26,6 +26,7 @@ export type DrizzleDb = NodePgDatabase<typeof schema>;
           user: config.username,
           password: config.password,
           database: config.database,
+          max: 20,
         });
         return drizzle(pool, { schema });
       },
