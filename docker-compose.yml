@@ -89,6 +89,22 @@ services:
       start_period: 15s
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    container_name: legal-agent-redis
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - legal-agent-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   neo4j:
     image: neo4j:5.26-community
     container_name: legal-agent-neo4j
@@ -120,6 +136,7 @@ volumes:
   postgres-data:
   opensearch-data:
   chromadb-data:
+  redis-data:
   neo4j-data:
   neo4j-logs:
   neo4j-import:

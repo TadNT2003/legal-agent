@@ -28,4 +28,9 @@ export const envValidationSchema = Joi.object({
   LAW_INDEX_MAX_TIER: Joi.number().min(1).max(14).default(9),
   LAW_INDEX_REQUEST_DELAY_MS: Joi.number().default(1000),
   LAW_INDEX_HEADLESS: Joi.boolean().default(true),
+  LAW_INDEX_BROWSER_RECYCLE_INTERVAL: Joi.number().min(0).default(20),
+
+  REDIS_HOST: Joi.string().default('localhost'),
+  REDIS_PORT: Joi.number().default(6379),
+  REDIS_PASSWORD: Joi.string().allow('').default(''),
 });

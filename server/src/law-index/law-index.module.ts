@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { VbplClientService } from './crawl/vbpl-client.service';
 import { VbplSitemapService } from './crawl/vbpl-sitemap.service';
 import { DbModule } from './persistence/db.module';
 import { DocumentRepository } from './persistence/document.repository';
 import { DocumentNodeRepository } from './persistence/document-node.repository';
+import { JobQueueModule } from './job-queue/job-queue.module';
 import { LawIndexController } from './law-index.controller';
 import { LawIndexService } from './law-index.service';
 import { RetrieveModule } from './retrieve/retrieve.module';
@@ -14,9 +15,17 @@ import { SyncModule } from './sync/sync.module';
  * separate from LawModule's workflow A (vanban.chinhphu.vn -> laws/ raw-file
  * corpus, no DB) — see the law-index plan's Context section for why the two
  * are deliberately decoupled, not meant to reconcile with each other.
+ *
+ * Imports JobQueueModule via forwardRef — see job-queue.module.ts's own
+ * comment for why this is a genuine two-way dependency.
  */
 @Module({
-  imports: [DbModule, RetrieveModule, SyncModule],
+  imports: [
+    DbModule,
+    RetrieveModule,
+    SyncModule,
+    forwardRef(() => JobQueueModule),
+  ],
   controllers: [LawIndexController],
   providers: [
     VbplClientService,

@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -49,6 +50,13 @@ export class VbplClientService implements OnModuleDestroy {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private lastRequestAt = 0;
+  private documentsFetched = 0;
+
+  // Guards the shared browser/context/page (see fetchDocument/searchDocuments
+  // below) against two concurrent requests interleaving on it, and against a
+  // concurrent request grabbing the page in the window where it's about to
+  // be torn down by a browser recycle — see acquireLock's doc comment.
+  private isProcessing = false;
 
   constructor(
     @Inject(lawIndexConfig.KEY)
@@ -63,6 +71,55 @@ export class VbplClientService implements OnModuleDestroy {
     await this.page?.close().catch(() => undefined);
     await this.context?.close().catch(() => undefined);
     await this.browser?.close().catch(() => undefined);
+  }
+
+  /**
+   * Serializes access to the shared browser/page across concurrent callers
+   * of fetchDocument/searchDocuments — those fields are singleton instance
+   * state (see class fields above), genuinely unguarded before this. Throws
+   * rather than queuing: the caller (a sync single-doc endpoint, or a job
+   * worker sharing this same process — worker concurrency is 1, so this
+   * mainly protects sync endpoints against colliding with each other or with
+   * a running job) should surface a clean 409 instead of silently waiting on
+   * someone else's in-flight scrape.
+   *
+   * Browser recycling (see maybeRecycleBrowser) also runs inside this same
+   * lock, at the end of fetchDocument, rather than being triggered by a
+   * separate unlocked call after fetchDocument returns — recycling tears
+   * down the very state this lock protects, so it needs the same
+   * mutual-exclusion guarantee, not just the fetch itself. A second request
+   * acquiring the lock the instant it's released, only to have its page torn
+   * out from under it moments later by a deferred recycle call, is exactly
+   * the race this lock exists to prevent.
+   */
+  private acquireLock(): void {
+    if (this.isProcessing) {
+      throw new ConflictException(
+        'A crawl operation is already in progress. Please wait for it to complete.',
+      );
+    }
+    this.isProcessing = true;
+  }
+
+  private releaseLock(): void {
+    this.isProcessing = false;
+  }
+
+  /**
+   * Tears down the cached browser/context/page once the per-browser document
+   * counter has reached the configured recycle threshold, bounding Chromium's
+   * memory growth over a long batch. Called from inside fetchDocument's own
+   * locked block (see acquireLock) — never call this from outside that lock.
+   */
+  private async maybeRecycleBrowser(): Promise<void> {
+    const shouldRecycle =
+      this.documentsFetched > 0 &&
+      this.documentsFetched >= this.config.browserRecycleInterval;
+    if (!shouldRecycle) return;
+    const count = this.documentsFetched;
+    await this.resetPage();
+    this.documentsFetched = 0;
+    this.logger.log(`Recycled browser after ${count} documents`);
   }
 
   /** Tears down the cached browser/context/page so the next getPage() call
@@ -101,33 +158,46 @@ export class VbplClientService implements OnModuleDestroy {
   /** Loads all 4 relevant tabs for one document and returns the raw (uninterpreted) extraction. */
   async fetchDocument(url: string): Promise<RawVbplPage> {
     this.assertTrustedDocumentUrl(url);
+    await this.acquireLock();
+    try {
+      this.documentsFetched += 1;
 
-    // Each throttledGoto call may replace the shared page with a fresh one
-    // (see withPageRetry) — always use the page it just returned, not one
-    // captured earlier, or a mid-flow retry would leave later steps
-    // operating on a closed/stale page.
-    let page = await this.throttledGoto(url);
-    const { scope, title, fullText } = await page.evaluate(
-      extractScopeTitleAndFullText,
-    );
+      // Each throttledGoto call may replace the shared page with a fresh one
+      // (see withPageRetry) — always use the page it just returned, not one
+      // captured earlier, or a mid-flow retry would leave later steps
+      // operating on a closed/stale page.
+      let page = await this.throttledGoto(url);
+      const { scope, title, fullText } = await page.evaluate(
+        extractScopeTitleAndFullText,
+      );
 
-    page = await this.throttledGoto(withTabQuery(url, 'thuoc-tinh'));
-    const attributes = await page.evaluate(extractAttributes);
+      page = await this.throttledGoto(withTabQuery(url, 'thuoc-tinh'));
+      const attributes = await page.evaluate(extractAttributes);
 
-    page = await this.throttledGoto(withTabQuery(url, 'luoc-do'));
-    const relations = await page.evaluate(extractRelations);
+      page = await this.throttledGoto(withTabQuery(url, 'luoc-do'));
+      const relations = await page.evaluate(extractRelations);
 
-    const originalDocumentUrls = await this.fetchOriginalDocumentUrls(url);
+      const originalDocumentUrls = await this.fetchOriginalDocumentUrls(url);
 
-    return {
-      sourceUrl: url,
-      scope,
-      title,
-      fullText,
-      attributes,
-      relations,
-      originalDocumentUrls,
-    };
+      const result: RawVbplPage = {
+        sourceUrl: url,
+        scope,
+        title,
+        fullText,
+        attributes,
+        relations,
+        originalDocumentUrls,
+      };
+
+      // Runs inside this same lock — see maybeRecycleBrowser's doc comment
+      // for why a separate, unlocked call after fetchDocument returns isn't
+      // safe.
+      await this.maybeRecycleBrowser();
+
+      return result;
+    } finally {
+      this.releaseLock();
+    }
   }
 
   /**
@@ -217,6 +287,17 @@ export class VbplClientService implements OnModuleDestroy {
    * vbpl.parser.ts's parseVbplSearchPage turns this into typed results.
    */
   async searchDocuments(filters: VbplSearchFilters): Promise<string> {
+    await this.acquireLock();
+    try {
+      return await this.searchDocumentsLocked(filters);
+    } finally {
+      this.releaseLock();
+    }
+  }
+
+  private async searchDocumentsLocked(
+    filters: VbplSearchFilters,
+  ): Promise<string> {
     await this.throttle();
 
     const searchUrl = `${this.config.vbplBaseUrl}/van-ban/trung-uong`;

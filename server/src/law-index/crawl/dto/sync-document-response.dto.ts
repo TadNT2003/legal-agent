@@ -21,4 +21,11 @@ export class SyncDocumentResponseDto {
     example: 'scope=dia-phuong',
   })
   skippedReason?: string;
+
+  @ApiProperty({
+    description:
+      'Always 0 on this single-document path — dangling document_reference rows are no longer healed per document (that was an expensive full-table scan on every sync). Batch endpoints (POST /crawl/batch, /crawl/all, /crawl/search) heal once at the end of the batch instead; for passes driven by repeated single-URL syncs, call PATCH /laws/index/sync/refs/all afterward.',
+    example: 0,
+  })
+  healedReferences: number;
 }
