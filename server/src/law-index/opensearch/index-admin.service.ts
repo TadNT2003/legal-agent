@@ -166,6 +166,11 @@ export class IndexAdminService {
     await this.client.indices.delete({ index });
   }
 
+  /** `dropIndex` keyed by version number (`DELETE /index/:version`) rather than the concrete index name directly. */
+  async dropIndexVersion(version: number): Promise<void> {
+    await this.dropIndex(buildConcreteIndexName(this.config, version));
+  }
+
   private async resolveAliasIndex(alias: string): Promise<string | null> {
     try {
       const { body } =

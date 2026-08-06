@@ -203,4 +203,18 @@ describe('IndexAdminService', () => {
       });
     });
   });
+
+  describe('dropIndexVersion', () => {
+    it('resolves the version number to a concrete index name before dropping', async () => {
+      client.indices.getAlias.mockResolvedValue({
+        body: { legal_provisions_v0: { aliases: {} } },
+      });
+
+      await service.dropIndexVersion(0);
+
+      expect(client.indices.delete).toHaveBeenCalledWith({
+        index: 'legal_provisions_v0',
+      });
+    });
+  });
 });
