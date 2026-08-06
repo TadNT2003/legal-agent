@@ -3,6 +3,8 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
+  Param,
   Post,
   Put,
   Query,
@@ -11,12 +13,12 @@ import {
   ApiBadRequestResponse,
   ApiBadGatewayResponse,
   ApiCreatedResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { BatchSyncDocumentDto } from './crawl/dto/batch-sync-document.dto';
-import { BatchUpdateSummaryResponseDto } from './crawl/dto/batch-update-by-url-response.dto';
 import { ForceUpdateDto } from './crawl/dto/force-update.dto';
 import { SearchDocumentsDto } from './crawl/dto/search-documents.dto';
 import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
@@ -29,13 +31,19 @@ import {
   UpdateDocumentByUrlResultDto,
   UpdateDocumentByUrlErrorDto,
 } from './crawl/dto/update-document-by-url-response.dto';
-import { SyncSummaryResponseDto } from './crawl/dto/sync-summary-response.dto';
+import { CancelJobResponseDto } from './job-queue/dto/cancel-job-response.dto';
+import { JobStatusResponseDto } from './job-queue/dto/job-status-response.dto';
+import { JobSubmittedResponseDto } from './job-queue/dto/job-submitted-response.dto';
+import { JobQueueService } from './job-queue/job-queue.service';
 import { LawIndexService } from './law-index.service';
 
 @ApiTags('law-index')
 @Controller('laws/index')
 export class LawIndexController {
-  constructor(private readonly service: LawIndexService) {}
+  constructor(
+    private readonly service: LawIndexService,
+    private readonly jobQueue: JobQueueService,
+  ) {}
 
   @ApiOperation({
     summary: 'Sync one document from vbpl.vn into Postgres',
@@ -93,61 +101,91 @@ export class LawIndexController {
   }
 
   @ApiOperation({
-    summary: 'Update a batch of existing documents from vbpl.vn URLs',
+    summary: 'Update a batch of existing documents from vbpl.vn URLs (async)',
     description:
       'Same as PUT /laws/index/crawl/url, for up to 100 vbpl.vn document ' +
-      'detail page URLs at once. Only updates documents that already exist in ' +
-      'the local index by citationId — does NOT create new documents. Per-URL ' +
-      'failures and not-found citations are collected rather than aborting the ' +
-      'whole batch. After processing all URLs, a cleanup pass heals any ' +
-      'dangling document_reference rows. Pass `?force=true` to re-write rows ' +
-      'whose content_version is unchanged (backfilling a newly added column); ' +
-      'with it set, `unchanged` is always 0 and every URL costs a full ' +
-      're-scrape, so keep forced batches small.',
+      'detail page URLs at once — submitted as a background job rather than run ' +
+      'inline (see docs/plan/scraper-resilience-plan.md), since a full batch can ' +
+      'take much longer than a single request should stay open. Poll ' +
+      'GET /laws/index/jobs/:jobId for status/progress/result. Only updates ' +
+      'documents that already exist in the local index by citationId — does NOT ' +
+      'create new documents. Per-URL failures and not-found citations are ' +
+      'collected in the eventual result rather than failing the job. After ' +
+      'processing all URLs, a cleanup pass heals any dangling document_reference ' +
+      'rows. Pass `?force=true` to re-write rows whose content_version is ' +
+      'unchanged (backfilling a newly added column); with it set, `unchanged` is ' +
+      'always 0 and every URL costs a full re-scrape, so keep forced batches small.',
   })
-  @ApiOkResponse({ type: BatchUpdateSummaryResponseDto })
-  @ApiBadGatewayResponse({
-    description:
-      'vbpl.vn failed to load or render a page (network error, timeout, or unexpected DOM shape). Individual URL failures are collected, the batch still completes.',
-  })
+  @ApiCreatedResponse({ type: JobSubmittedResponseDto })
   @Put('crawl/batch')
-  updateDocumentsBatch(
+  async updateDocumentsBatch(
     @Body() dto: BatchSyncDocumentDto,
     @Query() query: ForceUpdateDto,
-  ) {
-    return this.service.updateDocumentsBatch(
-      dto.urls.map((u) => u.url),
-      query.force ?? false,
-    );
+  ): Promise<JobSubmittedResponseDto> {
+    const { jobId } = await this.jobQueue.addJob({
+      type: 'crawlUpdateBatch',
+      urls: dto.urls.map((u) => u.url),
+      force: query.force ?? false,
+    });
+    return {
+      jobId,
+      status: 'pending',
+      message: 'Job submitted. Poll GET /laws/index/jobs/:jobId for status.',
+    };
   }
 
   @ApiOperation({
-    summary: 'Crawl and sync a batch of documents from vbpl.vn URLs',
+    summary: 'Crawl and sync a batch of documents from vbpl.vn URLs (async)',
     description:
       'Same as POST /laws/index/crawl/url, for up to 100 vbpl.vn document ' +
-      'detail page URLs at once. Per-URL failures are collected into `errors` ' +
-      'rather than aborting the whole batch. After processing all URLs, a ' +
-      'cleanup pass heals any dangling document_reference rows.',
+      'detail page URLs at once — submitted as a background job rather than run ' +
+      'inline (see docs/plan/scraper-resilience-plan.md). Poll ' +
+      'GET /laws/index/jobs/:jobId for status/progress/result. Per-URL failures ' +
+      "are collected into the eventual result's `errors` rather than failing " +
+      'the job. After processing all URLs, a cleanup pass heals any dangling ' +
+      'document_reference rows.',
   })
-  @ApiCreatedResponse({ type: SyncSummaryResponseDto })
+  @ApiCreatedResponse({ type: JobSubmittedResponseDto })
   @Post('crawl/batch')
-  syncDocumentsBatch(@Body() dto: BatchSyncDocumentDto) {
-    return this.service.syncDocumentsBatch(dto.urls.map((u) => u.url));
+  async syncDocumentsBatch(
+    @Body() dto: BatchSyncDocumentDto,
+  ): Promise<JobSubmittedResponseDto> {
+    const { jobId } = await this.jobQueue.addJob({
+      type: 'crawlBatch',
+      urls: dto.urls.map((u) => u.url),
+    });
+    return {
+      jobId,
+      status: 'pending',
+      message: 'Job submitted. Poll GET /laws/index/jobs/:jobId for status.',
+    };
   }
 
   @ApiOperation({
-    summary: 'Crawl the trung-ương sitemap and sync every document found',
+    summary:
+      'Crawl the trung-ương sitemap and sync every document found (async)',
     description:
       'Discovers document URLs from vbpl.vn/sitemap.xml — the block between the "Trung ương" and "Địa ' +
       'phương" XML comment markers only — and calls the single-document sync for each one, then re-resolves ' +
-      'any document_reference rows left dangling from earlier calls. Per-URL failures are collected into ' +
-      '`errors` rather than aborting the batch. Pass a small `limit` for a smoke test — an unbounded crawl ' +
-      'is one very long-running request with no resumable cursor yet (see docs/law-index-plan.md).',
+      'any document_reference rows left dangling from earlier calls. Submitted as a background job rather ' +
+      'than run inline (see docs/plan/scraper-resilience-plan.md) — poll GET /laws/index/jobs/:jobId for ' +
+      "status/progress/result. Per-URL failures are collected into the eventual result's `errors` rather " +
+      'than failing the job. Pass a small `limit` for a smoke test; without one, progress reports ' +
+      '`total: null` for the whole run since the true total is not known until the crawl itself is done ' +
+      '(sitemap enumeration is interleaved with syncing, not a separate upfront step).',
   })
-  @ApiCreatedResponse({ type: SyncSummaryResponseDto })
+  @ApiCreatedResponse({ type: JobSubmittedResponseDto })
   @Post('crawl/all')
-  crawl(@Body() dto: SyncAllDto) {
-    return this.service.syncAll({ limit: dto.limit });
+  async crawl(@Body() dto: SyncAllDto): Promise<JobSubmittedResponseDto> {
+    const { jobId } = await this.jobQueue.addJob({
+      type: 'crawlAll',
+      limit: dto.limit,
+    });
+    return {
+      jobId,
+      status: 'pending',
+      message: 'Job submitted. Poll GET /laws/index/jobs/:jobId for status.',
+    };
   }
 
   @ApiOperation({
@@ -172,22 +210,77 @@ export class LawIndexController {
   }
 
   @ApiOperation({
-    summary: 'Search vbpl.vn and sync matched documents into Postgres',
+    summary:
+      'Search vbpl.vn and sync matched documents into Postgres (async unless dryRun)',
     description:
       'Combines the vbpl.vn filter search with automatic sync. Searches vbpl.vn/van-ban/trung-uong ' +
       'using the same filters as GET /laws/index/crawl/search, then syncs each matched document ' +
       'into Postgres (document upsert, vbpl.vn relations, text-based reference extraction, node tree ' +
-      'sync, and dangling reference healing). Per-document failures are collected into `errors` rather ' +
-      'than aborting the batch. Use `maxResults` to cap how many documents to sync, and `dryRun=true` ' +
-      'to only return search results without syncing.',
+      'sync, and dangling reference healing). With `dryRun=true` (the search-only case), this stays ' +
+      "synchronous and returns results directly, since no scraping happens. Otherwise it's submitted as " +
+      'a background job (see docs/plan/scraper-resilience-plan.md) — poll GET /laws/index/jobs/:jobId ' +
+      "for status/progress/result. Per-document failures are collected into the eventual result's " +
+      '`errors` rather than failing the job. Use `maxResults` to cap how many documents to sync.',
   })
-  @ApiOkResponse({ type: SearchSyncDocumentsResponseDto })
+  @ApiOkResponse({
+    description: 'Only when dryRun=true — search results, no sync performed.',
+    type: SearchSyncDocumentsResponseDto,
+  })
+  @ApiCreatedResponse({
+    description: 'Only when dryRun is not true — job submitted.',
+    type: JobSubmittedResponseDto,
+  })
   @ApiBadGatewayResponse({
     description:
       'vbpl.vn failed to load or render the search page (network error, timeout, or unexpected DOM shape).',
   })
   @Post('crawl/search')
-  searchAndSync(@Body() dto: SearchSyncDocumentsDto) {
-    return this.service.searchAndSyncDocuments(dto);
+  async searchAndSync(@Body() dto: SearchSyncDocumentsDto) {
+    if (dto.dryRun) {
+      return this.service.searchAndSyncDocuments(dto);
+    }
+    const { jobId } = await this.jobQueue.addJob({
+      type: 'searchAndSync',
+      filters: dto,
+    });
+    return {
+      jobId,
+      status: 'pending',
+      message: 'Job submitted. Poll GET /laws/index/jobs/:jobId for status.',
+    };
+  }
+
+  @ApiOperation({
+    summary: 'Get the status, progress, and (if completed) result of a job',
+    description:
+      'Polls a job submitted by one of the async crawl endpoints ' +
+      '(POST /crawl/all, POST/PUT /crawl/batch, POST /crawl/search). See ' +
+      'docs/plan/scraper-resilience-plan.md for the status/progress shape.',
+  })
+  @ApiOkResponse({ type: JobStatusResponseDto })
+  @ApiNotFoundResponse({ description: 'No job found with this id.' })
+  @Get('jobs/:jobId')
+  async getJob(@Param('jobId') jobId: string): Promise<JobStatusResponseDto> {
+    const status = await this.jobQueue.getJob(jobId);
+    if (!status) {
+      throw new NotFoundException(`No job found with id "${jobId}"`);
+    }
+    return status;
+  }
+
+  @ApiOperation({
+    summary: 'Cancel a pending job',
+    description:
+      'Removes a job that has not started yet. A job already being processed ' +
+      'cannot be cancelled (returns result: "already-running") — worker ' +
+      'concurrency is 1, so at most one job is ever active at a time.',
+  })
+  @ApiOkResponse({ type: CancelJobResponseDto })
+  @Post('jobs/:jobId/cancel')
+  async cancelJob(
+    @Param('jobId') jobId: string,
+  ): Promise<CancelJobResponseDto> {
+    const result = await this.jobQueue.cancelJob(jobId);
+    return { jobId, result };
   }
 }

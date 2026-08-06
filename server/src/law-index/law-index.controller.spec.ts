@@ -1,25 +1,32 @@
+// LawIndexController imports the real LawIndexService for its DI token, whose
+// own module graph (LawIndexService -> DocumentRepository -> db.module ->
+// schema/document-reference.schema.ts) is broken in this dev environment for
+// reasons unrelated to this file (a drizzle-orm/Node interaction — same root
+// cause blocks law-index.service.spec.ts and document.repository.integration
+// .spec.ts too). Mocking the whole module before importing the controller
+// makes the controller's own `import { LawIndexService } from
+// './law-index.service'` resolve to this stub instead, so the real schema
+// chain is never loaded.
+jest.mock('./law-index.service', () => ({
+  LawIndexService: jest.fn(),
+}));
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { LawIndexController } from './law-index.controller';
 import { LawIndexService } from './law-index.service';
+import { JobQueueService } from './job-queue/job-queue.service';
 
 describe('LawIndexController', () => {
   let app: INestApplication;
   let mockService: jest.Mocked<Partial<LawIndexService>>;
+  let mockJobQueue: jest.Mocked<Partial<JobQueueService>>;
 
   const mockSyncResult = {
     documentId: 'test-doc-id',
     changed: true,
     healedReferences: 0,
-  };
-
-  const mockSyncSummary = {
-    totalUrls: 3,
-    synced: 2,
-    skipped: 1,
-    healedReferences: 0,
-    errors: [],
   };
 
   const mockSearchResult = {
@@ -40,8 +47,6 @@ describe('LawIndexController', () => {
   beforeEach(async () => {
     mockService = {
       syncDocument: jest.fn().mockResolvedValue(mockSyncResult),
-      syncDocumentsBatch: jest.fn().mockResolvedValue(mockSyncSummary),
-      syncAll: jest.fn().mockResolvedValue(mockSyncSummary),
       searchDocuments: jest.fn().mockResolvedValue(mockSearchResult),
       searchAndSyncDocuments: jest.fn().mockResolvedValue({
         ...mockSearchResult,
@@ -51,17 +56,27 @@ describe('LawIndexController', () => {
         errors: [],
       }),
     };
+    mockJobQueue = {
+      addJob: jest.fn().mockResolvedValue({ jobId: 'job-1' }),
+      getJob: jest.fn(),
+      cancelJob: jest.fn(),
+    };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [LawIndexController],
       providers: [
         { provide: LawIndexService, useValue: mockService },
+        { provide: JobQueueService, useValue: mockJobQueue },
       ],
     }).compile();
 
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
     );
     await app.init();
   });
@@ -99,8 +114,8 @@ describe('LawIndexController', () => {
     });
   });
 
-  describe('POST /laws/index/crawl/batch', () => {
-    it('returns sync summary for valid batch', async () => {
+  describe('POST /laws/index/crawl/batch (async)', () => {
+    it('submits a crawlBatch job and returns the job id', async () => {
       const res = await request(app.getHttpServer())
         .post('/laws/index/crawl/batch')
         .send({
@@ -111,11 +126,18 @@ describe('LawIndexController', () => {
         })
         .expect(201);
 
-      expect(res.body).toHaveProperty('totalUrls', mockSyncSummary.totalUrls);
-      expect(mockService.syncDocumentsBatch).toHaveBeenCalledWith([
-        'https://vbpl.vn/van-ban/chi-tiet/1',
-        'https://vbpl.vn/van-ban/chi-tiet/2',
-      ]);
+      expect(res.body).toEqual({
+        jobId: 'job-1',
+        status: 'pending',
+        message: expect.any(String),
+      });
+      expect(mockJobQueue.addJob).toHaveBeenCalledWith({
+        type: 'crawlBatch',
+        urls: [
+          'https://vbpl.vn/van-ban/chi-tiet/1',
+          'https://vbpl.vn/van-ban/chi-tiet/2',
+        ],
+      });
     });
 
     it('returns 400 when urls array is empty', async () => {
@@ -136,14 +158,45 @@ describe('LawIndexController', () => {
     });
   });
 
-  describe('POST /laws/index/crawl/all', () => {
-    it('passes limit to service', async () => {
+  describe('PUT /laws/index/crawl/batch (async)', () => {
+    it('submits a crawlUpdateBatch job with force passed through', async () => {
+      const res = await request(app.getHttpServer())
+        .put('/laws/index/crawl/batch?force=true')
+        .send({ urls: [{ url: 'https://vbpl.vn/van-ban/chi-tiet/1' }] })
+        .expect(200);
+
+      expect(res.body.jobId).toBe('job-1');
+      expect(mockJobQueue.addJob).toHaveBeenCalledWith({
+        type: 'crawlUpdateBatch',
+        urls: ['https://vbpl.vn/van-ban/chi-tiet/1'],
+        force: true,
+      });
+    });
+
+    it('defaults force to false', async () => {
       await request(app.getHttpServer())
+        .put('/laws/index/crawl/batch')
+        .send({ urls: [{ url: 'https://vbpl.vn/van-ban/chi-tiet/1' }] })
+        .expect(200);
+
+      expect(mockJobQueue.addJob).toHaveBeenCalledWith(
+        expect.objectContaining({ force: false }),
+      );
+    });
+  });
+
+  describe('POST /laws/index/crawl/all (async)', () => {
+    it('submits a crawlAll job with limit', async () => {
+      const res = await request(app.getHttpServer())
         .post('/laws/index/crawl/all')
         .send({ limit: 5 })
         .expect(201);
 
-      expect(mockService.syncAll).toHaveBeenCalledWith({ limit: 5 });
+      expect(res.body.jobId).toBe('job-1');
+      expect(mockJobQueue.addJob).toHaveBeenCalledWith({
+        type: 'crawlAll',
+        limit: 5,
+      });
     });
 
     it('works without limit', async () => {
@@ -152,7 +205,10 @@ describe('LawIndexController', () => {
         .send({})
         .expect(201);
 
-      expect(mockService.syncAll).toHaveBeenCalledWith({ limit: undefined });
+      expect(mockJobQueue.addJob).toHaveBeenCalledWith({
+        type: 'crawlAll',
+        limit: undefined,
+      });
     });
   });
 
@@ -194,23 +250,84 @@ describe('LawIndexController', () => {
   });
 
   describe('POST /laws/index/crawl/search', () => {
-    it('returns 200 with search-and-sync results', async () => {
+    it('stays synchronous and returns results directly when dryRun is true', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/laws/index/crawl/search')
+        .send({ keyword: 'test', dryRun: true })
+        .expect(201);
+
+      expect(res.body).toHaveProperty('total');
+      expect(mockService.searchAndSyncDocuments).toHaveBeenCalledWith(
+        expect.objectContaining({ keyword: 'test', dryRun: true }),
+      );
+      expect(mockJobQueue.addJob).not.toHaveBeenCalled();
+    });
+
+    it('submits a searchAndSync job when dryRun is not set', async () => {
       const res = await request(app.getHttpServer())
         .post('/laws/index/crawl/search')
         .send({ keyword: 'test', maxResults: 10 })
         .expect(201);
 
-      expect(res.body).toHaveProperty('total');
-      expect(res.body).toHaveProperty('synced');
-      expect(mockService.searchAndSyncDocuments).toHaveBeenCalledWith(
-        expect.objectContaining({ keyword: 'test', maxResults: 10 }),
-      );
+      expect(res.body.jobId).toBe('job-1');
+      expect(mockJobQueue.addJob).toHaveBeenCalledWith({
+        type: 'searchAndSync',
+        filters: expect.objectContaining({ keyword: 'test', maxResults: 10 }),
+      });
+      expect(mockService.searchAndSyncDocuments).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /laws/index/jobs/:jobId', () => {
+    it('returns the job status', async () => {
+      mockJobQueue.getJob!.mockResolvedValue({
+        jobId: 'job-1',
+        status: 'active',
+        phase: 'syncing',
+        progress: 50,
+        processed: 5,
+        total: 10,
+        createdAt: null,
+        startedAt: null,
+        completedAt: null,
+        result: null,
+        failedReason: null,
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/laws/index/jobs/job-1')
+        .expect(200);
+
+      expect(res.body).toHaveProperty('status', 'active');
+      expect(mockJobQueue.getJob).toHaveBeenCalledWith('job-1');
+    });
+
+    it('returns 404 when the job does not exist', async () => {
+      mockJobQueue.getJob!.mockResolvedValue(null);
+
+      await request(app.getHttpServer())
+        .get('/laws/index/jobs/missing')
+        .expect(404);
+    });
+  });
+
+  describe('POST /laws/index/jobs/:jobId/cancel', () => {
+    it('returns the cancel result', async () => {
+      mockJobQueue.cancelJob!.mockResolvedValue('cancelled');
+
+      const res = await request(app.getHttpServer())
+        .post('/laws/index/jobs/job-1/cancel')
+        .expect(201);
+
+      expect(res.body).toEqual({ jobId: 'job-1', result: 'cancelled' });
     });
   });
 
   describe('error propagation', () => {
     it('returns 500 when service throws', async () => {
-      mockService.syncDocument.mockRejectedValueOnce(new Error('vbpl.vn unreachable'));
+      mockService.syncDocument!.mockRejectedValueOnce(
+        new Error('vbpl.vn unreachable'),
+      );
 
       await request(app.getHttpServer())
         .post('/laws/index/crawl/url')
