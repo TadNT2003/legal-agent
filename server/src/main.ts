@@ -13,6 +13,22 @@ async function bootstrap() {
   // processes accumulated across a single day's restarts before this was
   // caught (see docs/monitoring/law-index-flagged-documents.md).
   app.enableShutdownHooks();
+
+  // Allow very long requests for sync single-doc law-index operations (4
+  // page loads against vbpl.vn, throttled). Async job endpoints
+  // (POST /laws/index/crawl/all|batch|search) return immediately once
+  // submitted, so this timeout only ever applies to the synchronous
+  // single-doc sync/update endpoints — it exists to stop the OS/proxy from
+  // killing those requests early, not to bound them tightly.
+  //
+  // getHttpServer() (the raw Node http.Server), not
+  // getHttpAdapter().getInstance() (the Express app object, which has no
+  // setTimeout method of its own).
+  const httpServer = app.getHttpServer() as {
+    setTimeout: (msecs: number) => void;
+  };
+  httpServer.setTimeout(300000); // 5 minutes
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
