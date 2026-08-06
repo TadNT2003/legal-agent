@@ -48,6 +48,42 @@ export interface BatchUpdateSummary {
   errors: Array<{ url: string; error: string }>;
 }
 
+export interface SearchAndSyncSummary {
+  total: number;
+  page: number;
+  pageSize: number;
+  items: Array<
+    VbplSearchResultItem & {
+      syncResult:
+        | { documentId: string; changed: boolean }
+        | { skippedReason: string }
+        | { error: string }
+        | null;
+    }
+  >;
+  synced: number;
+  skipped: number;
+  healedReferences: number;
+  errors: Array<{ url: string; error: string }>;
+}
+
+/**
+ * Reported by the batch/all/search-and-sync methods as each document
+ * finishes, so the job-queue worker (see job-queue/job-worker.ts) can relay
+ * it to BullMQ's job.updateProgress(). `total` is null when it isn't known
+ * yet — syncAll without a `limit` discovers document URLs incrementally as
+ * it walks the sitemap, so there's no true total until the run is already
+ * finished (see syncAll's own comment).
+ */
+export type ProgressCallback = (
+  processed: number,
+  total: number | null,
+) => void;
+
+export interface ProgressOptions {
+  onProgress?: ProgressCallback;
+}
+
 @Injectable()
 export class LawIndexService {
   private readonly logger = new Logger(LawIndexService.name);
@@ -83,7 +119,12 @@ export class LawIndexService {
       await this.repo.upsertDocument(parsed);
     if (!documentId) {
       this.logger.warn(`Skipping ${url} — ${skippedReason}`);
-      return { documentId: null, changed: false, skippedReason, healedReferences: 0 };
+      return {
+        documentId: null,
+        changed: false,
+        skippedReason,
+        healedReferences: 0,
+      };
     }
 
     await this.repo.upsertRelations(documentId, parsed);
@@ -104,11 +145,15 @@ export class LawIndexService {
         `Failed to build document_node tree for ${url}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    const healedReferences = await this.repo.healDanglingReferences();
-    if (this.client.shouldRecycle()) {
-      await this.client.recycleBrowser();
-    }
-    return { documentId, changed, healedReferences };
+    // Dangling references are no longer healed per document here (was an
+    // O(n²)-ish full dangling-refs scan on every single sync) — batch
+    // operations (syncDocumentsBatch/updateDocumentsBatch/syncAll/
+    // searchAndSyncDocuments) heal once at the end instead. A single-doc sync
+    // via this path leaves any newly-resolvable references dangling until
+    // the next batch job or a manual PATCH /laws/index/sync/refs/all call —
+    // see the scrape/backfill runbook in CLAUDE.md, which now calls this out
+    // explicitly for passes driven by individual POST /crawl/url calls.
+    return { documentId, changed, healedReferences: 0 };
   }
 
   /**
@@ -179,15 +224,14 @@ export class LawIndexService {
         `Failed to update document_node tree for ${url}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    const healedReferences = await this.repo.healDanglingReferences();
-    if (this.client.shouldRecycle()) {
-      await this.client.recycleBrowser();
-    }
+    // See syncDocument's comment above: no longer healed per document —
+    // batch operations heal once at the end, individual-URL passes need a
+    // manual PATCH /laws/index/sync/refs/all (see CLAUDE.md's runbook).
     return {
       documentId: result.documentId,
       citationId: result.citationId,
       changed: true,
-      healedReferences,
+      healedReferences: 0,
     };
   }
 
@@ -205,6 +249,7 @@ export class LawIndexService {
   async updateDocumentsBatch(
     urls: string[],
     force = false,
+    options?: ProgressOptions,
   ): Promise<BatchUpdateSummary> {
     const summary: BatchUpdateSummary = {
       totalUrls: urls.length,
@@ -215,7 +260,8 @@ export class LawIndexService {
       errors: [],
     };
 
-    for (const url of urls) {
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
       try {
         const result = await this.updateDocumentByUrl(url, force);
         if ('message' in result) {
@@ -236,6 +282,7 @@ export class LawIndexService {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+      options?.onProgress?.(i + 1, urls.length);
     }
 
     summary.healedReferences = await this.repo.healDanglingReferences();
@@ -248,7 +295,10 @@ export class LawIndexService {
    * summary with synced/skipped/error counts and a final dangling-reference
    * heal pass.
    */
-  async syncDocumentsBatch(urls: string[]): Promise<SyncSummary> {
+  async syncDocumentsBatch(
+    urls: string[],
+    options?: ProgressOptions,
+  ): Promise<SyncSummary> {
     const summary: SyncSummary = {
       totalUrls: urls.length,
       synced: 0,
@@ -257,7 +307,8 @@ export class LawIndexService {
       errors: [],
     };
 
-    for (const url of urls) {
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
       try {
         const result = await this.syncDocument(url);
         if (result.skippedReason) {
@@ -272,6 +323,7 @@ export class LawIndexService {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+      options?.onProgress?.(i + 1, urls.length);
     }
 
     summary.healedReferences = await this.repo.healDanglingReferences();
@@ -280,13 +332,21 @@ export class LawIndexService {
 
   /**
    * Crawls the trung-ương sitemap block and syncs every document URL found,
-   * up to `limit` (unset = unbounded — a full crawl currently means one very
-   * long-running call; there's no resumable cursor/job-queue yet, so for now
-   * a full trung-ương crawl should be driven in externally-chunked `limit`
-   * batches rather than one unbounded call. See the law-index plan's
-   * Verification section: always smoke-test with a small limit first.)
+   * up to `limit` (unset = unbounded — driven via the job queue for a real
+   * "hundreds of documents" pass rather than one blocking HTTP request, see
+   * job-queue/job-worker.ts). Always smoke-test with a small limit first.
+   *
+   * Progress reporting: `onProgress` is called with `total: limit` from the
+   * very first document when a `limit` was given (a bounded run's total is
+   * known upfront), or `total: null` for the whole run when it wasn't —
+   * sitemap enumeration is interleaved with syncing here (each sitemap
+   * page's URLs are synced before the next page is even fetched), so an
+   * unbounded crawl's real total genuinely isn't knowable until the run is
+   * already finished, not just during some initial "discovery" phase.
    */
-  async syncAll(options: { limit?: number } = {}): Promise<SyncSummary> {
+  async syncAll(
+    options: { limit?: number } & ProgressOptions = {},
+  ): Promise<SyncSummary> {
     const summary: SyncSummary = {
       totalUrls: 0,
       synced: 0,
@@ -316,6 +376,7 @@ export class LawIndexService {
             error: err instanceof Error ? err.message : String(err),
           });
         }
+        options.onProgress?.(summary.totalUrls, options.limit ?? null);
       }
     }
 
@@ -339,35 +400,13 @@ export class LawIndexService {
    * into Postgres. Per-document failures are collected into `errors` rather
    * than aborting. When `dryRun` is true, only the search results are returned.
    */
-  async searchAndSyncDocuments(filters: SearchSyncDocumentsDto): Promise<{
-    total: number;
-    page: number;
-    pageSize: number;
-    items: Array<
-      VbplSearchResultItem & {
-        syncResult:
-          | { documentId: string; changed: boolean }
-          | { skippedReason: string }
-          | { error: string }
-          | null;
-      }
-    >;
-    synced: number;
-    skipped: number;
-    healedReferences: number;
-    errors: Array<{ url: string; error: string }>;
-  }> {
+  async searchAndSyncDocuments(
+    filters: SearchSyncDocumentsDto,
+    options?: ProgressOptions,
+  ): Promise<SearchAndSyncSummary> {
     const searchResult = await this.searchDocuments(filters);
 
-    const items: Array<
-      VbplSearchResultItem & {
-        syncResult:
-          | { documentId: string; changed: boolean }
-          | { skippedReason: string }
-          | { error: string }
-          | null;
-      }
-    > = [];
+    const items: SearchAndSyncSummary['items'] = [];
 
     let synced = 0;
     let skipped = 0;
@@ -378,7 +417,8 @@ export class LawIndexService {
       const maxResults = filters.maxResults ?? 50;
       const toSync = searchResult.items.slice(0, maxResults);
 
-      for (const item of toSync) {
+      for (let i = 0; i < toSync.length; i++) {
+        const item = toSync[i];
         try {
           const result = await this.syncDocument(item.sourceUrl);
           if (result.skippedReason) {
@@ -410,6 +450,7 @@ export class LawIndexService {
             },
           });
         }
+        options?.onProgress?.(i + 1, toSync.length);
       }
 
       // Final heal pass across all dangling refs
