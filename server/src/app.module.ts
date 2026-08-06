@@ -14,6 +14,7 @@ import { LawModule } from './law/law.module';
 import { lawDownloadConfig } from './law/utils/law-download.config';
 import { LawIndexModule } from './law-index/law-index.module';
 import { lawIndexConfig } from './law-index/law-index.config';
+import { jobQueueConfig } from './law-index/job-queue/job-queue.config';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { lawIndexConfig } from './law-index/law-index.config';
         chromadbConfig,
         lawDownloadConfig,
         lawIndexConfig,
+        jobQueueConfig,
       ],
       validationSchema: envValidationSchema,
       validationOptions: {

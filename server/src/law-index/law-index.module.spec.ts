@@ -10,8 +10,15 @@ import { DRIZZLE } from './persistence/db.module';
 import { RetrieveModule } from './retrieve/retrieve.module';
 import { RetrieveService } from './retrieve/retrieve.service';
 import { postgresConfig } from '../config/configuration';
-import { createTestDb, createTables, dropTables, closeTestDb } from '../test/setup-test-db';
+import {
+  createTestDb,
+  createTables,
+  dropTables,
+  closeTestDb,
+} from '../test/setup-test-db';
 import { lawIndexConfig } from './law-index.config';
+import { JobQueueService } from './job-queue/job-queue.service';
+import { JobWorkerService } from './job-queue/job-worker';
 
 describe('LawIndexModule', () => {
   let moduleRef: TestingModule;
@@ -44,12 +51,30 @@ describe('LawIndexModule', () => {
       .useValue({
         fetchDocument: jest.fn().mockResolvedValue({}),
         searchDocuments: jest.fn().mockResolvedValue(''),
-        assertTrustedDocumentUrl: jest.fn().mockImplementation((url) => new URL(url)),
+        assertTrustedDocumentUrl: jest
+          .fn()
+          .mockImplementation((url) => new URL(url)),
         onModuleDestroy: jest.fn().mockResolvedValue(undefined),
       })
       .overrideProvider(VbplSitemapService)
       .useValue({
         fetchTrungUongSitemapUrls: jest.fn().mockResolvedValue([]),
+      })
+      // JobWorkerService's real onModuleInit() would construct a real BullMQ
+      // Worker (needing a real Redis connection) — not what this module-
+      // wiring test is about, so both job-queue providers are replaced with
+      // plain mocks the same way VbplClientService/VbplSitemapService are
+      // above.
+      .overrideProvider(JobQueueService)
+      .useValue({
+        addJob: jest.fn(),
+        getJob: jest.fn(),
+        cancelJob: jest.fn(),
+        onModuleDestroy: jest.fn().mockResolvedValue(undefined),
+      })
+      .overrideProvider(JobWorkerService)
+      .useValue({
+        onModuleDestroy: jest.fn().mockResolvedValue(undefined),
       })
       .compile();
   });
