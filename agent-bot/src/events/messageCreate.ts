@@ -5,11 +5,13 @@ import { createLogger } from '../tools/logging.js';
 
 const logger = createLogger('discord-message');
 const DISCORD_MESSAGE_LIMIT = 2000;
+const TRIGGER_KEYWORD = 'harpae';
 
 /**
- * Skeleton PoC bot: responds only when @mentioned in a guild channel or
- * DM'd directly. No slash-command registration, no conversation memory —
- * each message is a fresh, stateless question passed to AgentService.
+ * Skeleton PoC bot: responds on DM, @mention, the bare word "harpae"
+ * (case-insensitive, anywhere in the message), or a reply to one of its own
+ * messages. No slash-command registration, no conversation memory — each
+ * message is a fresh, stateless question passed to AgentService.
  */
 export function registerMessageCreateEvent(
   client: Client,
@@ -30,7 +32,16 @@ async function handleMessage(
 
   const isDm = message.channel.type === ChannelType.DM;
   const isMentioned = message.mentions.has(client.user);
-  if (!isDm && !isMentioned) return;
+  const containsKeyword = message.content
+    .toLowerCase()
+    .includes(TRIGGER_KEYWORD);
+
+  if (!isDm && !isMentioned && !containsKeyword) {
+    // Only worth the extra (possibly network-bound) check once the cheap
+    // conditions have all failed.
+    const isReplyToBot = await isReplyToBotMessage(client, message);
+    if (!isReplyToBot) return;
+  }
 
   const question = message.content
     .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '')
@@ -52,6 +63,30 @@ async function handleMessage(
 
   for (const chunk of splitMessage(reply)) {
     await message.reply(chunk);
+  }
+}
+
+/** True if `message` is a reply, and the replied-to message was authored by the bot. */
+async function isReplyToBotMessage(
+  client: Client,
+  message: Message,
+): Promise<boolean> {
+  if (!message.reference) return false;
+  if (!client.user) return false;
+
+  // Fast path: Discord includes the referenced message inline on most
+  // replies, and discord.js exposes its author here with no extra API call.
+  if (message.mentions.repliedUser) {
+    return message.mentions.repliedUser.id === client.user.id;
+  }
+
+  // Fallback: not included inline (e.g. an older/uncached message) — fetch it.
+  try {
+    const referenced = await message.fetchReference();
+    return referenced.author.id === client.user.id;
+  } catch (error) {
+    logger.error('Failed to fetch replied-to message', error);
+    return false;
   }
 }
 
