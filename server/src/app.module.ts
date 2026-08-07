@@ -15,6 +15,7 @@ import { lawDownloadConfig } from './law/utils/law-download.config';
 import { LawIndexModule } from './law-index/law-index.module';
 import { lawIndexConfig } from './law-index/law-index.config';
 import { jobQueueConfig } from './law-index/job-queue/job-queue.config';
+import { opensearchProjectorConfig } from './law-index/opensearch/opensearch.config';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { jobQueueConfig } from './law-index/job-queue/job-queue.config';
         lawDownloadConfig,
         lawIndexConfig,
         jobQueueConfig,
+        opensearchProjectorConfig,
       ],
       validationSchema: envValidationSchema,
       validationOptions: {

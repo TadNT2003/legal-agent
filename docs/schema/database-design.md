@@ -1,6 +1,6 @@
 # Database design
 
-**Status: mixed.** §1's Postgres schema is implemented for `issuing_body`/`document`/`document_node`/`document_reference` — migrations exist under `server/src/law-index/persistence/migrations/`, and [../docs/schema/legal-agent.dbml](schema/legal-agent.dbml) mirrors the actual shipped schema (treat that file, not the narrative code block below, as authoritative on exact current columns/types where they disagree — this section retains some proposal-stage detail, e.g. a separate `ordinal_suffix` column, that the implementation resolved differently). `document_sync_state` (§1's last table) and everything in §2-4 (Neo4j, OpenSearch, the vector store) remain **proposal, not yet implemented** — no index mappings, collection configs, or projector code exist in this repo yet. This is the design reference for all four data stores — Postgres, OpenSearch, Neo4j, and a vector store (Qdrant/ChromaDB/ClickHouse, under evaluation) — kept in one place since they're meant to stay derivable from each other, not designed independently. See [../README.md](../README.md) for infra setup and the [CDC pipeline proposal](../README.md#cdc-pipeline-proposed) that's meant to keep them in sync.
+**Status: mixed.** §1's Postgres schema is implemented for `issuing_body`/`document`/`document_node`/`document_reference` — migrations exist under `server/src/law-index/persistence/migrations/`, and [../docs/schema/legal-agent.dbml](schema/legal-agent.dbml) mirrors the actual shipped schema (treat that file, not the narrative code block below, as authoritative on exact current columns/types where they disagree — this section retains some proposal-stage detail, e.g. a separate `ordinal_suffix` column, that the implementation resolved differently). §3's OpenSearch projector is now also implemented (`server/src/law-index/opensearch/`) — see §3b/§3c below for the corrections made against the shipped code, and [../plan/opensearch-projector-plan.md](../plan/opensearch-projector-plan.md) for the build sequencing. `document_sync_state` (§1's last table) and everything in §2 (Neo4j) and §4 (the vector store) remain **proposal, not yet implemented**. This is the design reference for all four data stores — Postgres, OpenSearch, Neo4j, and a vector store (Qdrant/ChromaDB/ClickHouse, under evaluation) — kept in one place since they're meant to stay derivable from each other, not designed independently. See [../README.md](../README.md) for infra setup and the [CDC pipeline proposal](../README.md#cdc-pipeline-proposed) that's meant to keep them in sync.
 
 ## Design principles
 
@@ -233,7 +233,9 @@ PUT /legal_provisions  (referenced only via the `legal-provisions-read`/`-write`
     "properties": {
       "document_id":     { "type": "keyword" },
       "citation_id":     { "type": "keyword" },        -- e.g. "45/2019/QH14" — exact filter/lookup
-      "document_type":   { "type": "keyword" },        -- luat / nghi_dinh / thong_tu / ...
+      "document_type":   { "type": "keyword" },        -- raw Vietnamese as vbpl.vn reports it
+                                                          -- (e.g. "Nghị định", "Thông tư"), not a
+                                                          -- slug — mirrors document.document_type
       "issuing_body_id": { "type": "keyword" },
       "authority_rank":  { "type": "short" },           -- filter/sort, see §2a's 14-tier order
 
@@ -272,7 +274,8 @@ PUT /legal_provisions  (referenced only via the `legal-provisions-read`/`-write`
       "effective_date": { "type": "date" },
 
       "content_hash":    { "type": "keyword", "index": false },  -- sync-state bookkeeping only
-      "content_version": { "type": "long", "index": false }
+      "content_version": { "type": "keyword", "index": false }  -- document.content_version is a
+                                                                  -- SHA-256 hex string, not a long
     }
   }
 }
@@ -282,11 +285,15 @@ Document `_id` is set to the Điều `document_node.id` directly — CDC upserts
 
 ### 3c. Vietnamese analysis
 
-Vietnamese is written space-delimited *between syllables*, not words — a standard/ICU tokenizer alone over-splits multi-syllable legal terms (e.g. "quy phạm pháp luật" is one compound term, not four independent tokens), which is a precision problem for legal search specifically (mis-segmented terms inflate false-positive matches). So:
+**Status: implemented, but as `analysis-icu` v1, not the CocCoc-plugin design this section originally proposed** — see [../plan/opensearch-projector-plan.md](../plan/opensearch-projector-plan.md) §"Decisions taken" for why, and [../infrastructure/opensearch-vietnamese-analysis.md](../infrastructure/opensearch-vietnamese-analysis.md) for the full analysis of the tradeoff and a synonym-filter follow-up sketch.
 
-- **Primary analyzer (`vi_analyzer`):** a dedicated Vietnamese analysis plugin — e.g. [opensearch-analysis-vietnamese](https://github.com/duydo/opensearch-analysis-vietnamese) (CocCoc's C++ segmenter, ships `vi_tokenizer`/`vi_analyzer`/`vi_stop`) — for real word-boundary segmentation, not syllable splitting. **Caveat worth flagging before adopting:** the published build only states compatibility with OpenSearch 2.9.0, and it's a small community-maintained plugin, not an official/AWS-supported one — pin the OpenSearch cluster version to a build this plugin is verified against, and re-validate (or rebuild from source against a newer OpenSearch) before any cluster upgrade, rather than assuming forward compatibility.
-- **Fallback analyzer (`vi_folded`):** `vi_tokenizer` + `icu_normalizer` + `icu_folding` (strips diacritics/tone marks after Unicode normalization) as a second analyzed subfield (`.folded`) on every text field. Vietnamese users frequently type without diacritics (mobile keyboards, quick queries); the primary field stays diacritic-sensitive for precision (legal terminology can hinge on exact diacritics), while `.folded` is queried as a lower-boosted fallback clause so diacritic-exact hits always outrank diacritic-stripped ones rather than the two being conflated into one scoring bucket.
+Vietnamese is written space-delimited *between syllables*, not words — a standard/ICU tokenizer alone over-splits multi-syllable legal terms (e.g. "quy phạm pháp luật" is one compound term, not four independent tokens), which is a precision problem for legal search specifically (mis-segmented terms inflate false-positive matches). This section originally proposed a dedicated Vietnamese word-segmentation plugin ([opensearch-analysis-vietnamese](https://github.com/duydo/opensearch-analysis-vietnamese), CocCoc's C++ segmenter) to fix that — rejected for v1 because it has zero published releases against current OpenSearch and would need to be built from source, an ongoing maintenance burden not justified before there's a measured precision problem to fix. Shipped instead:
+
+- **Primary analyzer (`vi_analyzer`):** `standard` tokenizer + `lowercase` — diacritic-sensitive, syllable-level (not word-level) tokenization. **Known limitation:** "quy phạm pháp luật" is 4 tokens, not 1 term — recall is unaffected, precision on multi-syllable legal terminology suffers, and IDF is computed over syllables. Positions are preserved, so `match_phrase` stays available as a later knob.
+- **Fallback analyzer (`vi_folded`):** `standard` tokenizer + `icu_normalizer` char filter + `lowercase`/`icu_folding` filters (strips diacritics/tone marks after Unicode normalization) as a second analyzed subfield (`.folded`) on every text field. Vietnamese users frequently type without diacritics (mobile keyboards, quick queries); the primary field stays diacritic-sensitive for precision (legal terminology can hinge on exact diacritics), while `.folded` is queried as a lower-boosted fallback clause so diacritic-exact hits always outrank diacritic-stripped ones rather than the two being conflated into one scoring bucket.
 - **Everything citation-shaped stays `keyword`, never analyzed:** `citation_id`, `label`, `path`, `document_type`, `issuing_body_id`. Citation matching in this domain is exact by nature (Điều 63 khoản 1, Nghị định 78/2025/NĐ-CP is either the provision cited or it isn't) — running these through a text analyzer would just introduce spurious fuzzy matches for values that are already unambiguous identifiers.
+
+Both analyzer names are kept stable from the original proposal so a future word-segmenting plugin is a settings-only swap (reindex via the §3e blue/green path), not an application change.
 
 ### 3d. Query shape: filter-heavy, same pattern as the vector store
 
