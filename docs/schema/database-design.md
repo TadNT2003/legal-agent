@@ -227,7 +227,7 @@ The net effect: every Khoản is represented in both OpenSearch and the vector s
 ### 3b. Field mapping
 
 ```text
-PUT /legal_provisions  (referenced only via the `legal-provisions-read`/`-write` aliases — see §3f)
+PUT /legal-provisions-v1  (referenced only via the `legal-provisions-read`/`-write` aliases — see §3f)
 {
   "mappings": {
     "properties": {
@@ -336,7 +336,7 @@ Status/date/type/authority filters go in `filter`, not `must` — no score contr
 ### 3e. Index, shard, and alias strategy
 
 - **Single index, few shards.** This is a bounded legal corpus (thousands to low tens-of-thousands of Điều-level documents), not log/time-series data — no rollover/ILM policy is needed, and over-sharding a corpus this size is a well-known OpenSearch anti-pattern (each shard has fixed overhead; more shards than the data and query concurrency justify just adds coordination cost). Start at 1 primary shard with replicas sized for read HA/throughput, and only split further if benchmarking on real query concurrency shows a need.
-- **Applications read/write through aliases, never the concrete index name** (`legal-provisions-read` / `legal-provisions-write` pointing at, e.g., `legal_provisions_v1`). Mapping changes (a new field, an analyzer fix, a Vietnamese-plugin version bump) can't be applied in place to existing fields in OpenSearch, so the update path is: create `legal_provisions_v2` with the new mapping, reindex from Postgres (not from `_v1`, since Postgres is the source of truth), verify, then atomically repoint the aliases — a blue/green swap with zero read downtime ([Index aliases](https://docs.opensearch.org/latest/im-plugin/index-alias/)).
+- **Applications read/write through aliases, never the concrete index name** (`legal-provisions-read` / `legal-provisions-write` pointing at, e.g., `legal-provisions-v1`). Mapping changes (a new field, an analyzer fix, a Vietnamese-plugin version bump) can't be applied in place to existing fields in OpenSearch, so the update path is: create `legal-provisions-v2` with the new mapping, reindex from Postgres (not from `-v1`, since Postgres is the source of truth), verify, then atomically repoint the aliases — a blue/green swap with zero read downtime ([Index aliases](https://docs.opensearch.org/latest/im-plugin/index-alias/)).
 
 ### 3f. Note: OpenSearch's native hybrid/RRF search pipeline doesn't apply here as-is
 

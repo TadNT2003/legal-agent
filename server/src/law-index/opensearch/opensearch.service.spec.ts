@@ -4,7 +4,7 @@ import type { FlatNodeRow } from '../persistence/document-node.repository';
 import { OpenSearchService } from './opensearch.service';
 
 const config = {
-  indexBaseName: 'legal_provisions',
+  indexBaseName: 'legal-provisions',
   indexVersion: 1,
   readAlias: 'legal-provisions-read',
   writeAlias: 'legal-provisions-write',

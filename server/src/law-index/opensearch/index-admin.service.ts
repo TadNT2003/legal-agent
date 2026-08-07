@@ -91,9 +91,16 @@ export class IndexAdminService {
    * Atomic blue/green alias swap: moves both aliases off whatever index
    * currently holds them onto `targetVersion`'s concrete index in a single
    * `_aliases` call, so readers never see a moment with neither alias set.
-   * `remove` against `index: '*'` is safe here — it silently matches zero
-   * indices the first time this ever runs, rather than needing to know the
-   * previous index name up front.
+   *
+   * `remove` actions are scoped to each alias's actual current index
+   * (resolved via `getAlias`), not a `index: '*'` wildcard — the security
+   * plugin's default admin role rejects a wildcard-scoped alias action
+   * (confirmed live: "no permissions for [] and User [name=admin, ...]"),
+   * apparently to keep it from touching protected system indices
+   * (`.kibana`, `.opensearch-*`) it would otherwise also match. Scoping to
+   * the resolved index avoids that entirely and is more precise anyway.
+   * `remove` is skipped when an alias doesn't resolve yet (first-ever
+   * promotion) or already points at the target (idempotent re-promotion).
    */
   async promoteAliases(targetVersion: number): Promise<{
     index: string;
@@ -102,22 +109,28 @@ export class IndexAdminService {
   }> {
     const index = buildConcreteIndexName(this.config, targetVersion);
 
-    await this.client.indices.updateAliases({
-      body: {
-        actions: [
-          { remove: { index: '*', alias: this.config.readAlias } },
-          { remove: { index: '*', alias: this.config.writeAlias } },
-          { add: { index, alias: this.config.readAlias } },
-          {
-            add: {
-              index,
-              alias: this.config.writeAlias,
-              is_write_index: true,
-            },
-          },
-        ],
-      },
-    });
+    const [currentReadIndex, currentWriteIndex] = await Promise.all([
+      this.resolveAliasIndex(this.config.readAlias),
+      this.resolveAliasIndex(this.config.writeAlias),
+    ]);
+
+    const actions: Record<string, unknown>[] = [];
+    if (currentReadIndex && currentReadIndex !== index) {
+      actions.push({
+        remove: { index: currentReadIndex, alias: this.config.readAlias },
+      });
+    }
+    if (currentWriteIndex && currentWriteIndex !== index) {
+      actions.push({
+        remove: { index: currentWriteIndex, alias: this.config.writeAlias },
+      });
+    }
+    actions.push(
+      { add: { index, alias: this.config.readAlias } },
+      { add: { index, alias: this.config.writeAlias, is_write_index: true } },
+    );
+
+    await this.client.indices.updateAliases({ body: { actions } });
 
     return {
       index,

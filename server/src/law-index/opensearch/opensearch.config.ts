@@ -10,7 +10,7 @@ export const opensearchProjectorConfig = registerAs(
   'opensearchProjector',
   () => ({
     indexBaseName:
-      process.env.OPENSEARCH_PROJECTOR_INDEX_BASE_NAME ?? 'legal_provisions',
+      process.env.OPENSEARCH_PROJECTOR_INDEX_BASE_NAME ?? 'legal-provisions',
     indexVersion: parseInt(
       process.env.OPENSEARCH_PROJECTOR_INDEX_VERSION ?? '1',
       10,
@@ -41,10 +41,10 @@ export const opensearchProjectorConfig = registerAs(
   }),
 );
 
-/** `legal_provisions_v1`, etc. — the app never references this directly outside index-admin.service.ts; every read/write goes through the read/write aliases. */
+/** `legal-provisions-v1`, etc. — hyphenated throughout, matching the read/write alias naming. The app never references this directly outside index-admin.service.ts; every read/write goes through the aliases. */
 export function buildConcreteIndexName(
   config: { indexBaseName: string; indexVersion: number },
   version = config.indexVersion,
 ): string {
-  return `${config.indexBaseName}_v${version}`;
+  return `${config.indexBaseName}-v${version}`;
 }
