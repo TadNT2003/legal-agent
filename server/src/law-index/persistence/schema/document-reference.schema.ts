@@ -89,9 +89,17 @@ export const documentReference = pgTable(
   // plain (non-unique) indexes on the same columns are safe and dramatically
   // speed up the per-document heal, insertReferenceIfNotExists dedup selects,
   // and upsertRelations lookups.
+  //
+  // source_node_id/target_node_id added 2026-08-07 alongside
+  // document_node's own new indexes — same missing-index-on-an-FK-column
+  // pathology: deleting a document_node row makes Postgres check these two
+  // columns for a still-referencing document_reference row, and without an
+  // index that check is a full table scan per deleted row.
   (table) => [
     index('document_reference_source_doc_idx').on(table.sourceDocumentId),
     index('document_reference_target_doc_idx').on(table.targetDocumentId),
+    index('document_reference_source_node_idx').on(table.sourceNodeId),
+    index('document_reference_target_node_idx').on(table.targetNodeId),
   ],
 );
 

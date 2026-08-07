@@ -43,7 +43,7 @@
       "when": 1785896820115,
       "tag": "0005_nifty_squadron_sinister",
       "breakpoints": true
-    }
+    },
     {
       "idx": 6,
       "version": "7",
@@ -51,5 +51,12 @@
       "tag": "0006_quick_shockwave",
       "breakpoints": true
     },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786100000000,
+      "tag": "0007_add_missing_fk_indexes",
+      "breakpoints": true
+    }
   ]
 }
