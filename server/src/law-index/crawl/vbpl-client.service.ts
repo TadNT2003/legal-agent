@@ -734,6 +734,26 @@ function extractScopeTitleAndFullText(): {
     '.ant-tabs-tab[data-node-key="toan-van"]',
   );
   const pane = document.querySelector('.ant-tabs-tabpane-active');
+
+  // vbpl.vn's own front-end has a rendering bug on documents with amendment
+  // history: each amended Khoản gets an "Điều khoản được sửa đổi, bổ sung"
+  // badge card, and some of those cards are duplicated into a second,
+  // "shadow" copy meant to stay hidden — it carries a `parent-id` attribute
+  // pointing back at the original card's id, and an inline `style="display:
+  // none"` — but a competing CSS rule overrides that back to visible
+  // (confirmed live: `getComputedStyle(el).display` is `"flex"` despite the
+  // inline `display: none`). This isn't a scraper-extraction bug — a human
+  // visiting the page in a real browser sees the exact same duplicate
+  // rendered — so it has to be stripped here rather than left for
+  // document-node.parser.ts to somehow detect after the fact. Confirmed live
+  // on `38/2005/QH11` (Điều 41's Khoản 2 duplicated) and consistent across a
+  // further sample: `[parent-id]` never appears on a legitimate, singly-
+  // rendered card. Removing it outright (not just skipping it) is safe — the
+  // page is discarded/navigated away from right after this extraction runs.
+  pane
+    ?.querySelectorAll('[parent-id]')
+    .forEach((shadowCard) => shadowCard.remove());
+
   return {
     scope,
     title,

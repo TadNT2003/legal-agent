@@ -2,6 +2,8 @@
 
 **Status: mixed.** §1's Postgres schema is implemented for `issuing_body`/`document`/`document_node`/`document_reference` — migrations exist under `server/src/law-index/persistence/migrations/`, and [../docs/schema/legal-agent.dbml](schema/legal-agent.dbml) mirrors the actual shipped schema (treat that file, not the narrative code block below, as authoritative on exact current columns/types where they disagree — this section retains some proposal-stage detail, e.g. a separate `ordinal_suffix` column, that the implementation resolved differently). `document_sync_state` (§1's last table) and everything in §2-4 (Neo4j, OpenSearch, the vector store) remain **proposal, not yet implemented** — no index mappings, collection configs, or projector code exist in this repo yet. This is the design reference for all four data stores — Postgres, OpenSearch, Neo4j, and a vector store (Qdrant/ChromaDB/ClickHouse, under evaluation) — kept in one place since they're meant to stay derivable from each other, not designed independently. See [../README.md](../README.md) for infra setup and the [CDC pipeline proposal](../README.md#cdc-pipeline-proposed) that's meant to keep them in sync.
 
+> **Vietnamese version:** [database-design.vi.md](database-design.vi.md). This English version is canonical — prefer it where the two diverge. Section (§) numbering is 1:1 across both.
+
 ## Design principles
 
 - **Postgres is the single structural source of truth.** The other three stores are derived read views, each holding a different *projection* of the same underlying content — not independent copies that happen to agree.

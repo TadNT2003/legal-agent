@@ -4,6 +4,8 @@
 
 The `server/` directory contains a NestJS application with Jest-based unit tests. Tests focus on business-critical services and pure helper functions — controllers, DTOs, modules, schemas, and config files are intentionally not unit-tested as they contain no standalone logic.
 
+> **Vietnamese version:** [README.vi.md](README.vi.md). This English version is canonical — prefer it where the two diverge.
+
 ## Running Tests
 
 ```bash

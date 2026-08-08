@@ -2,6 +2,8 @@
 
 **Status: implemented.** This is the planning document that guided `agent-bot/` — a standalone PoC tool-calling legal agent exposed via Discord, deliberately kept as its own deployable package, separate from the scraper/ingestion server (`server/`). Preserved here for the design rationale and the gaps found while building and end-to-end verifying against a live self-hosted LLM and a real Discord bot — not visible from reading the plan alone.
 
+> **Vietnamese version:** [agent-bot-plan.vi.md](agent-bot-plan.vi.md). This English version is canonical — prefer it where the two diverge.
+
 A handful of things changed between the original plan and the shipped code:
 
 - **Architecture pivoted from NestJS to a plain ESM Node/TS script.** The plan originally scaffolded `agent-bot/` as a second NestJS app (mirroring `server/`'s stack: modules, DI, decorators, Joi validation, Swagger). The user pushed back mid-build and pointed at their prior Discord bot project (`crimson_duchess`) as the actual convention to follow: discord.js's `Client` is self-contained (create it, attach handlers, call `login()`) and doesn't need a framework wrapping it. Rebuilt as a plain script: `index.ts` (entry) → `bot.ts` (Client + login, non-fatal on bad token) / `server.ts` (thin Express app, only for a manual `POST /agent/chat` test route) → `agent/agentService.ts` (hand-rolled `openai` SDK tool-calling loop — also confirmed with the user, not migrated to LangGraph.js/Mastra/Vercel AI SDK, since a single linear loop over 3 tools doesn't earn that machinery yet). Config centralized in one `config.ts` with a `requireEnv` fail-fast helper instead of NestJS `registerAs`/Joi. Dropped `@nestjs/*`, `class-validator`/`class-transformer`, Swagger entirely.
@@ -66,6 +68,7 @@ No `nest-cli.json`, no `tsconfig.build.json`, no decorators, no DI container —
 ### `LawApiClient` (`agent-bot/src/lawApi/client.ts`)
 
 Thin wrapper over Node's built-in global `fetch` (no HTTP dependency needed) hitting three endpoints on the scraper server, unchanged from the original design:
+
 - `search(params)` → `GET {LAW_API_BASE_URL}/laws/index/retrieve?...`
 - `getById(documentId)` → `GET {LAW_API_BASE_URL}/laws/index/retrieve/:id`
 - `getNodes(params)` → `GET {LAW_API_BASE_URL}/laws/index/retrieve/nodes?...`
@@ -91,6 +94,7 @@ discord.js `Client` with `Guilds` + `GuildMessages` + `MessageContent` + `Direct
 ## Config (`agent-bot/.env.example` + `config.ts`)
 
 Own env file, own fail-fast validation — entirely separate from `server/.env`:
+
 - `PORT` — this server's own HTTP port (`3100` suggested; must differ from the scraper's `3000` since both run locally at once).
 - `LAW_API_BASE_URL` — e.g. `http://localhost:3000`, wherever the scraper server is actually running.
 - `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` — self-hosted OpenAI-compatible endpoint (Bifrost/vLLM in practice).

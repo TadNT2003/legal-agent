@@ -2,6 +2,8 @@
 
 **Status: implemented.** This is the planning document that guided `server/src/law-index/` (see that module's files, and `server/README.md`'s "Law index" section for the current, user-facing description). Preserved here for the design rationale — the vbpl.vn-vs-DBML gap analysis in particular is not duplicated anywhere else in the repo.
 
+> **Vietnamese version:** [law-index-plan.vi.md](law-index-plan.vi.md). This English version is canonical — prefer it where the two diverge.
+
 A handful of things changed between this plan and the shipped code, found while building and end-to-end verifying against the live site and a real Postgres instance — not visible from reading the plan alone:
 
 - **Relation-target resolution has no hrefs to use.** The plan (Scraping section) suggested checking whether relation list items carry a link to the target document. Confirmed live they don't — vbpl.vn's relation entries are plain React click handlers, not anchor tags with `href`. Citation-text extraction (`extractCitationFromTitle` in `vbpl.parser.ts`) is the only resolution path, not a fallback.

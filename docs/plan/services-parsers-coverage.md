@@ -3,6 +3,8 @@
 **Branch:** `test/service-unit-test`
 **Goal:** Increase service and parser test coverage from 46% overall toward 70%+ by targeting the low-coverage gaps.
 
+> **Vietnamese version:** [services-parsers-coverage.vi.md](services-parsers-coverage.vi.md). This English version is canonical — prefer it where the two diverge.
+
 ---
 
 ## Current State
