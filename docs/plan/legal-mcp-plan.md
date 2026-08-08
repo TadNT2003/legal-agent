@@ -14,15 +14,15 @@ That raises a real fork: should the harness be *only* retrieval tools (thin, pro
 
 `agent-bot/src/agent/tools.ts` already wraps 3 of `RetrieveController`'s 7 routes as LLM-callable tools (OpenAI function-calling shape), talking to `server/` over HTTP via `agent-bot/src/lawApi/client.ts`. This is the exact logic to extract and generalize — not a rewrite. Full current `RetrieveController` surface (`server/src/law-index/retrieve/retrieve.controller.ts`, mounted at `/laws/index/retrieve`):
 
-| Route | Method | Wrapped by `agent-bot` today? |
-|---|---|---|
-| `/laws/index/retrieve` | GET (search) | Yes — `search_documents` |
-| `/laws/index/retrieve/nodes` | GET | Yes — `get_document_nodes` |
-| `/laws/index/retrieve/references` | GET | No |
-| `/laws/index/retrieve/issuing-bodies` | GET | No |
-| `/laws/index/retrieve/:id` | GET | Yes — `get_document` |
-| `/laws/index/retrieve/:id` | DELETE | No (destructive — never should be) |
-| `/laws/index/retrieve` | DELETE (bulk) | No (destructive — never should be) |
+| Route                                   | Method        | Wrapped by`agent-bot` today?      |
+| --------------------------------------- | ------------- | ----------------------------------- |
+| `/laws/index/retrieve`                | GET (search)  | Yes —`search_documents`          |
+| `/laws/index/retrieve/nodes`          | GET           | Yes —`get_document_nodes`        |
+| `/laws/index/retrieve/references`     | GET           | No                                  |
+| `/laws/index/retrieve/issuing-bodies` | GET           | No                                  |
+| `/laws/index/retrieve/:id`            | GET           | Yes —`get_document`              |
+| `/laws/index/retrieve/:id`            | DELETE        | No (destructive — never should be) |
+| `/laws/index/retrieve`                | DELETE (bulk) | No (destructive — never should be) |
 
 ### Research grounding
 
