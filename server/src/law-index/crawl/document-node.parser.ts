@@ -156,6 +156,18 @@ function isTableHeader(line: string): boolean {
   );
 }
 
+// §17's "un-modeled outer list grouping" cause: some older administrative
+// decrees group Khoản-numbered content under an uppercase-letter category
+// heading ("A. Uỷ ban nhân dân thành phố... như sau:", "B. Uỷ ban nhân dân
+// các tỉnh... như sau:", ...) — a period-terminated shape distinct from
+// Điểm's own "a)" convention (DIEM_PATTERN), so the parser has no
+// representation for this level at all; every category's own "1./2./3."
+// list restarts and collides with the previous category's. Confirmed live
+// on 174-CP (UBND membership structure, categories A through G by
+// administrative-unit tier, skipping F per Vietnamese ordinal-lettering
+// convention — same reason DIEM_PATTERN's own suffix set has gaps).
+const GROUP_MARKER_PATTERN = /^[A-ZĐ]\.\s+\S/u;
+
 // §12c (extends §7): a citing sentence — "<verb> ... như sau:" or, confirmed
 // broadened, without "như sau" at all ("Bổ sung Điều 17c:") — followed by a
 // quoted block carries the TARGET document's own numbering, independent of
@@ -316,6 +328,14 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
   let inTable = false;
   let quoteDepth = 0;
   let pendingQuoteCitation = false;
+  // §17 outer-grouping suppression — see GROUP_MARKER_PATTERN above. The
+  // FIRST marker seen (per container scope) is left alone so its own
+  // "1./2./3." list stays real structure; only the SECOND and later markers
+  // — which is where the restart/collision actually happens — trigger
+  // suppression. Reset at the same container boundaries as inTable/
+  // quoteDepth.
+  let seenGroupMarker = false;
+  let inGroupSuppress = false;
 
   const openNode = (
     nodeType: Exclude<DocumentNodeType, 'phu_luc'>,
@@ -334,31 +354,55 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
   };
 
   /**
-   * A container-level node (dieu/phan/chuong/muc/tieu_muc — never
-   * khoan/diem, which restart every Điều by design) about to be opened at
-   * document ROOT (no currently-open Phần/Chương/Mục wrapping it) whose
-   * ordinal duplicates an EXISTING root sibling of the same type signals a
-   * duplicated/re-attached block, not a genuine second occurrence — Điều
-   * numbering in particular is never supposed to restart within one
-   * document (continuous across Chương, unlike Khoản). Confirmed live on
-   * two distinct real shapes with this exact signature: a short "ban hành"
-   * decree whose attached "QUY ĐỊNH"/"QUY CHẾ" restarts its own Điều
-   * numbering at 1 (12-CP: decree's own Điều 1-3, then a fully independent
-   * attached regulation's own Điều 1-6), and a document whose scraped text
-   * contains the entire document twice, verbatim, with no signature block
-   * in between (364/2025/NĐ-CP: a second "Chương I / QUY ĐỊNH CHUNG / Điều
-   * 1..." with identical body text follows the real Điều 11). Same
-   * "suppress, don't reconstruct" trade-off as 12b/12c: rather than
-   * building a second nested tree for content whose relationship to the
-   * first occurrence isn't reliably inferable from a line-based parser,
+   * §17 (docs/monitoring/law-index-flagged-documents.md): a container-level
+   * node about to be opened whose ordinal duplicates one already used for
+   * that same type signals a duplicated/re-attached block, not a genuine
+   * second occurrence — confirmed live on two distinct real shapes: a short
+   * "ban hành" decree whose attached "QUY ĐỊNH"/"QUY CHẾ" restarts its own
+   * Điều numbering at 1 (12-CP: decree's own Điều 1-3, then a fully
+   * independent attached regulation's own Điều 1-6), and a document whose
+   * scraped text contains the entire document twice, verbatim, with no
+   * signature block in between (364/2025/NĐ-CP: a second "Chương I / QUY
+   * ĐỊNH CHUNG / Điều 1..." with identical body text follows the real Điều
+   * 11). Same "suppress, don't reconstruct" trade-off as 12b/12c: rather
+   * than building a second nested tree for content whose relationship to
+   * the first occurrence isn't reliably inferable from a line-based parser,
    * this and everything after it folds into one flat generic-annex node
-   * (reusing the existing QCVN/Biểu số mechanism) — checked only at
-   * document root, not at every nesting level, to stay conservative against
-   * a real Chương legitimately reusing an ordinal deeper in the tree
-   * (not observed, but not ruled out either).
+   * (reusing the existing QCVN/Biểu số mechanism).
+   *
+   * Điều/Chương/Phần are tracked document-wide (any nesting depth), not
+   * just at root — per docs/vn-legal-document-structure.md (Điều 63 khoản
+   * 1, Nghị định 78/2025/NĐ-CP: "việc đánh số các điều... bắt đầu từ Điều
+   * 1", i.e. Điều numbering is one continuous sequence for the whole
+   * document, never restarting at a Chương boundary) and confirmed live: a
+   * document can duplicate just one inner Điều (nested inside an otherwise-
+   * legitimate, non-duplicated Chương) rather than repeating from document
+   * root — 02/2026/NĐ-CP's "Điều 13" appears twice within the same real
+   * Chương II, which a root-only check misses entirely. Mục/Tiểu mục
+   * deliberately use a narrower ROOT-ONLY check instead — Vietnamese
+   * drafting convention for whether their numbering restarts per Chương
+   * isn't confirmed either way in this repo's own reference doc, and
+   * getting that wrong would wrongly swallow real content; same reasoning
+   * extends the document-wide check to Chương itself with a small
+   * acknowledged gap — a document legitimately using Phần-scoped Chương
+   * numbering (Chương restarting at 1 per Phần) isn't confirmed absent
+   * either, not observed in any real sample so far.
    */
+  const seenDieu = new Set<string>();
+  const seenChuong = new Set<string>();
+  const seenPhan = new Set<string>();
+  const documentWideSeen: Record<'dieu' | 'chuong' | 'phan', Set<string>> = {
+    dieu: seenDieu,
+    chuong: seenChuong,
+    phan: seenPhan,
+  };
+  const wouldRestartDocumentWide = (
+    nodeType: 'dieu' | 'chuong' | 'phan',
+    ordinal: string,
+  ): boolean => documentWideSeen[nodeType].has(ordinal);
+
   const wouldRestartAtRoot = (
-    nodeType: Exclude<DocumentNodeType, 'phu_luc' | 'khoan' | 'diem'>,
+    nodeType: 'muc' | 'tieu_muc',
     ordinal: string,
   ): boolean => {
     const wouldBeRoot = !stack.some((s) => s.level < LEVEL[nodeType]);
@@ -457,6 +501,8 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       inTable = false;
       quoteDepth = 0;
       pendingQuoteCitation = false;
+      seenGroupMarker = false;
+      inGroupSuppress = false;
       stack.length = 0; // Phụ lục always sits at document root, sibling to top-level Chương/Điều.
       i += openPhuLucFromMatch(phuLucMatch, i);
       continue;
@@ -476,6 +522,8 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       inTable = false;
       quoteDepth = 0;
       pendingQuoteCitation = false;
+      seenGroupMarker = false;
+      inGroupSuppress = false;
       continue;
     }
 
@@ -513,12 +561,15 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       inTable = false;
       quoteDepth = 0;
       pendingQuoteCitation = false;
+      seenGroupMarker = false;
+      inGroupSuppress = false;
       const ordinal = `${dieuMatch[1]}${dieuMatch[2]}`;
-      if (wouldRestartAtRoot('dieu', ordinal)) {
+      if (wouldRestartDocumentWide('dieu', ordinal)) {
         stack.length = 0;
         openGenericAnnex(line);
         continue;
       }
+      seenDieu.add(ordinal);
       const label = `Điều ${ordinal}`;
       const [heading, skip] = resolveHeading(dieuMatch[3], lines, i);
       i += skip;
@@ -531,16 +582,19 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       inTable = false;
       quoteDepth = 0;
       pendingQuoteCitation = false;
+      seenGroupMarker = false;
+      inGroupSuppress = false;
       const keyword = phanChuongMatch[1];
       const nodeType: 'phan' | 'chuong' = /^phần$/i.test(keyword)
         ? 'phan'
         : 'chuong';
       const ordinal = romanToArabic(phanChuongMatch[2]);
-      if (wouldRestartAtRoot(nodeType, ordinal)) {
+      if (wouldRestartDocumentWide(nodeType, ordinal)) {
         stack.length = 0;
         openGenericAnnex(line);
         continue;
       }
+      documentWideSeen[nodeType].add(ordinal);
       const label = `${keyword} ${phanChuongMatch[2]}`;
       const [heading, skip] = resolveHeading(phanChuongMatch[3], lines, i);
       i += skip;
@@ -553,6 +607,8 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       inTable = false;
       quoteDepth = 0;
       pendingQuoteCitation = false;
+      seenGroupMarker = false;
+      inGroupSuppress = false;
       const ordinal = tieuMucMatch[2];
       if (wouldRestartAtRoot('tieu_muc', ordinal)) {
         stack.length = 0;
@@ -571,6 +627,8 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       inTable = false;
       quoteDepth = 0;
       pendingQuoteCitation = false;
+      seenGroupMarker = false;
+      inGroupSuppress = false;
       const ordinal = mucMatch[2];
       if (wouldRestartAtRoot('muc', ordinal)) {
         stack.length = 0;
@@ -594,6 +652,25 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
     }
     if (isTableHeader(line)) {
       inTable = true;
+      const current = stack[stack.length - 1]?.node;
+      if (current) appendText(current, line);
+      continue;
+    }
+
+    // §17 outer-grouping suppression — see GROUP_MARKER_PATTERN above. The
+    // first marker's own numbered list is left as real structure; only the
+    // second (and later) marker means we've entered the collision zone.
+    if (inGroupSuppress) {
+      const current = stack[stack.length - 1]?.node;
+      if (current) appendText(current, line);
+      continue;
+    }
+    if (GROUP_MARKER_PATTERN.test(line)) {
+      if (seenGroupMarker) {
+        inGroupSuppress = true;
+      } else {
+        seenGroupMarker = true;
+      }
       const current = stack[stack.length - 1]?.node;
       if (current) appendText(current, line);
       continue;

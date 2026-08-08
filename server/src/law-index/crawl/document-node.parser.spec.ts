@@ -665,4 +665,69 @@ describe('parseDocumentBody', () => {
     expect(roots[1].children).toHaveLength(1);
     expect(roots[1].children[0]).toMatchObject({ ordinal: '3' });
   });
+
+  it('root-restart fix: catches a restart nested inside an otherwise-legitimate Chương, not just at document root, confirmed against real vbpl.vn output (02/2026/NĐ-CP — "Điều 13" duplicated within the same real Chương II)', () => {
+    const fullText = [
+      'Chương I',
+      'Điều 1. Nội dung điều 1.',
+      'Chương II',
+      'Điều 2. Nội dung điều 2.',
+      'Điều 3. Nội dung điều 3.',
+      'Điều 2. Nội dung điều 2 lặp lại, không liên quan đến điều 2 thật.',
+    ].join('\n');
+
+    const roots = parseDocumentBody(fullText);
+
+    // Chương I and the real Chương II (with its real Điều 2/3) stay intact;
+    // the duplicated inner "Điều 2" folds into a root-level annex instead of
+    // colliding as a 3rd child of Chương II.
+    expect(roots).toHaveLength(3);
+    expect(roots[0]).toMatchObject({ nodeType: 'chuong', ordinal: '1' });
+    expect(roots[1]).toMatchObject({ nodeType: 'chuong', ordinal: '2' });
+    expect(roots[1].children.map((c) => c.ordinal)).toEqual(['2', '3']);
+    expect(roots[2].nodeType).toBe('phu_luc');
+    expect(roots[2].textContent).toContain(
+      'Điều 2. Nội dung điều 2 lặp lại, không liên quan đến điều 2 thật.',
+    );
+  });
+
+  it("§17 outer-grouping fix: preserves the first uppercase-letter category's own Khoản list as real structure, but suppresses subsequent categories' restarting lists instead of colliding, confirmed against real vbpl.vn output (174-CP)", () => {
+    const fullText = [
+      'Điều 1.- Nay quy định cơ cấu thành viên Uỷ ban nhân dân như sau:',
+      'A. Uỷ ban nhân dân thành phố Hà Nội gồm có 1 Chủ tịch, 4 Phó Chủ tịch như sau:',
+      '1. Chủ tịch phụ trách chung.',
+      '2. Một Phó Chủ tịch phụ trách kinh tế.',
+      'B. Uỷ ban nhân dân các tỉnh gồm có 1 Chủ tịch, 3 Phó Chủ tịch như sau:',
+      '1. Chủ tịch phụ trách chung, nội chính.',
+      '2. Một Phó Chủ tịch phụ trách kinh tế, tài chính.',
+      'C. Uỷ ban nhân dân huyện gồm có 1 Chủ tịch, 2 Phó Chủ tịch như sau:',
+      '1. Chủ tịch phụ trách chung, an ninh.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+
+    // Category A's own list stays real structure (2 real Khoản).
+    expect(dieu.children).toHaveLength(2);
+    expect(dieu.children[0]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '1',
+      textContent: 'Chủ tịch phụ trách chung.',
+    });
+    expect(dieu.children[1]).toMatchObject({ nodeType: 'khoan', ordinal: '2' });
+    expect(dieu.children[1].textContent).toMatch(
+      /^Một Phó Chủ tịch phụ trách kinh tế\./,
+    );
+    // Categories B and C (their own restarting "1./2." lists) are folded
+    // into the last real node's text instead of colliding as fake Khoản 1/2
+    // siblings.
+    expect(dieu.children[1].textContent).toContain(
+      'B. Uỷ ban nhân dân các tỉnh gồm có 1 Chủ tịch, 3 Phó Chủ tịch như sau:',
+    );
+    expect(dieu.children[1].textContent).toContain(
+      '1. Chủ tịch phụ trách chung, nội chính.',
+    );
+    expect(dieu.children[1].textContent).toContain(
+      'C. Uỷ ban nhân dân huyện gồm có 1 Chủ tịch, 2 Phó Chủ tịch như sau:',
+    );
+  });
 });
