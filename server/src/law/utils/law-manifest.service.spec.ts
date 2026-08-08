@@ -21,7 +21,7 @@ describe('LawManifestService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new LawManifestService(MOCK_CONFIG as any);
+    service = new LawManifestService(MOCK_CONFIG);
   });
 
   describe('dir getter', () => {
@@ -311,7 +311,9 @@ describe('LawManifestService', () => {
         bytes: 2048,
       });
       const appended = (mockedFs.appendFile as jest.Mock).mock.calls[0][1];
-      expect(appended).not.toContain('citation,subdir,filename,http_code,bytes');
+      expect(appended).not.toContain(
+        'citation,subdir,filename,http_code,bytes',
+      );
       expect(appended).toContain('91/2015/QH13');
     });
 

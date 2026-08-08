@@ -36,7 +36,9 @@ const docSchema = sqliteTable('document', {
   gazettePublishedDate: text('gazette_published_date'),
   status: text('status'),
   indexScope: text('index_scope').notNull().default('full'),
-  isConsolidated: integer('is_consolidated', { mode: 'boolean' }).notNull().default(false),
+  isConsolidated: integer('is_consolidated', { mode: 'boolean' })
+    .notNull()
+    .default(false),
   consolidatesDocumentId: text('consolidates_document_id'),
   rawSource: text('raw_source', { mode: 'json' }),
   originalDocumentUrls: text('original_document_urls', { mode: 'json' })
@@ -52,11 +54,14 @@ let sqlite: Database;
 let db: any;
 let repo: DocumentRepository;
 
-const makeParsedDoc = (overrides?: Partial<ParsedVbplDocument>): ParsedVbplDocument => ({
+const makeParsedDoc = (
+  overrides?: Partial<ParsedVbplDocument>,
+): ParsedVbplDocument => ({
   sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/123',
   scope: 'trung-uong',
   title: 'Test Document',
-  fullText: 'Full text of the test document. Căn cứ Luật số 104/2016/QH13. Sửa đổi Nghị định 78/2025/NĐ-CP.',
+  fullText:
+    'Full text of the test document. Căn cứ Luật số 104/2016/QH13. Sửa đổi Nghị định 78/2025/NĐ-CP.',
   attributes: {
     citation: '01/2025/QH15',
     documentType: 'Luật',
@@ -97,13 +102,18 @@ describe('DocumentRepository (SQLite integration)', () => {
   beforeAll(() => {
     sqlite = new Database(':memory:');
     sqlite.function('gen_random_uuid', () => randomUUID());
-    sqlite.function('now', { deterministic: false }, () => new Date().toISOString());
+    sqlite.function('now', { deterministic: false }, () =>
+      new Date().toISOString(),
+    );
     /** SQLite lacks ILIKE — drizzle-orm generates `col ILIKE ?`. We patch
          `prepare()` to rewrite `ILIKE` to `LIKE` (SQLite LIKE is case-insensitive for ASCII)
          and intercept bind values to serialize objects (for jsonb columns that drizzle PG
          schema sends as raw JS objects when some placeholder paths skip mapToDriverValue). */
     const origPrepare = sqlite.prepare.bind(sqlite);
-    const serializeVal = (v: any) => (typeof v === 'object' && v !== null && !Buffer.isBuffer(v) ? JSON.stringify(v) : v);
+    const serializeVal = (v: any) =>
+      typeof v === 'object' && v !== null && !Buffer.isBuffer(v)
+        ? JSON.stringify(v)
+        : v;
     (sqlite as any).prepare = (sql: string) => {
       const stmt = origPrepare(sql.replace(/\bilike\b/gi, 'LIKE'));
       const origRun = stmt.run.bind(stmt);
@@ -188,7 +198,13 @@ describe('DocumentRepository (SQLite integration)', () => {
         created_at TEXT
       );
     `);
-    db = drizzle(sqlite, { schema: { issuingBody: ibSchema, document: docSchema, documentReference: refSchema } });
+    db = drizzle(sqlite, {
+      schema: {
+        issuingBody: ibSchema,
+        document: docSchema,
+        documentReference: refSchema,
+      },
+    });
     repo = new DocumentRepository(db);
   });
 
@@ -210,7 +226,9 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('returns ID when citation exists', async () => {
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version) VALUES ('doc-1', '01/2025/QH15', 'Test', 'Luật', 'ib-1', '2025-01-01', 'v1')`);
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version) VALUES ('doc-1', '01/2025/QH15', 'Test', 'Luật', 'ib-1', '2025-01-01', 'v1')`,
+      );
       const result = await repo.findDocumentIdByCitation('01/2025/QH15');
       expect(result).toBe('doc-1');
     });
@@ -220,20 +238,26 @@ describe('DocumentRepository (SQLite integration)', () => {
     it('creates new issuing body', async () => {
       const id = await repo.resolveOrCreateIssuingBody('Quốc hội');
       expect(id).toBeDefined();
-      const row = sqlite.prepare('SELECT * FROM issuing_body WHERE id = ?').get(id);
+      const row = sqlite
+        .prepare('SELECT * FROM issuing_body WHERE id = ?')
+        .get(id);
       expect(row.name).toBe('Quốc hội');
       expect(row.authority_rank).toBe(2);
     });
 
     it('returns existing issuing body', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Chính phủ', 5, 'national')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Chính phủ', 5, 'national')`,
+      );
       const id = await repo.resolveOrCreateIssuingBody('Chính phủ');
       expect(id).toBe('ib-1');
     });
 
     it('assigns correct authority rank for Thủ tướng', async () => {
       const id = await repo.resolveOrCreateIssuingBody('Thủ tướng Chính phủ');
-      const row = sqlite.prepare('SELECT authority_rank FROM issuing_body WHERE id = ?').get(id);
+      const row = sqlite
+        .prepare('SELECT authority_rank FROM issuing_body WHERE id = ?')
+        .get(id);
       expect(row.authority_rank).toBe(6);
     });
   });
@@ -244,8 +268,14 @@ describe('DocumentRepository (SQLite integration)', () => {
       const rawSource = JSON.stringify({
         sourceUrl: 'https://vbpl.vn/van-ban/chi-tiet/123',
       });
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.prepare(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated, raw_source) VALUES ('doc-1', '01/2025/QH15', 'Test Document', 'Luật', 'ib-1', '2025-01-01', ?, 'con_hieu_luc', 0, ?)`).run(existingHash, rawSource);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite
+        .prepare(
+          `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated, raw_source) VALUES ('doc-1', '01/2025/QH15', 'Test Document', 'Luật', 'ib-1', '2025-01-01', ?, 'con_hieu_luc', 0, ?)`,
+        )
+        .run(existingHash, rawSource);
 
       const result: UpsertResult = await repo.upsertDocument(makeParsedDoc());
       expect(result.changed).toBe(false);
@@ -264,7 +294,9 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('resolves issuing body and creates document entry in DB', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
       const rawSource = JSON.stringify({
         fullText: 'test text',
         scrapedAt: new Date().toISOString(),
@@ -276,12 +308,25 @@ describe('DocumentRepository (SQLite integration)', () => {
         INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, effective_date, status, is_consolidated, raw_source, content_version)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       `);
-      insertDoc.run('doc-1', '01/2025/QH15', 'Test Doc', 'Luật', 'ib-1', '2025-01-01', '2025-06-01', 'con_hieu_luc', rawSource, 'v1');
+      insertDoc.run(
+        'doc-1',
+        '01/2025/QH15',
+        'Test Doc',
+        'Luật',
+        'ib-1',
+        '2025-01-01',
+        '2025-06-01',
+        'con_hieu_luc',
+        rawSource,
+        'v1',
+      );
 
       const docId = await repo.findDocumentIdByCitation('01/2025/QH15');
       expect(docId).toBe('doc-1');
 
-      const row = sqlite.prepare('SELECT * FROM document WHERE id = ?').get('doc-1');
+      const row = sqlite
+        .prepare('SELECT * FROM document WHERE id = ?')
+        .get('doc-1');
       expect(row.citation_id).toBe('01/2025/QH15');
       expect(row.enacted_date).toBe('2025-01-01');
       expect(row.effective_date).toBe('2025-06-01');
@@ -289,35 +334,65 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('handles null validityStatusRaw by storing null in DB', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
       const insertDoc = sqlite.prepare(`
         INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated)
         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0)
       `);
-      insertDoc.run('doc-null', '99/2099/QH99', 'Null Status', 'Luật', 'ib-1', '2025-01-01', 'v1');
+      insertDoc.run(
+        'doc-null',
+        '99/2099/QH99',
+        'Null Status',
+        'Luật',
+        'ib-1',
+        '2025-01-01',
+        'v1',
+      );
 
-      const row = sqlite.prepare('SELECT status FROM document WHERE id = ?').get('doc-null');
+      const row = sqlite
+        .prepare('SELECT status FROM document WHERE id = ?')
+        .get('doc-null');
       expect(row.status).toBeNull();
     });
 
     it('stores is_consolidated=1 for consolidated documents', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
       const insertDoc = sqlite.prepare(`
         INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'con_hieu_luc', 1)
       `);
-      insertDoc.run('doc-consol', '03/2025/QH15', 'Consolidated', 'Luật', 'ib-1', '2025-03-01', 'v1');
+      insertDoc.run(
+        'doc-consol',
+        '03/2025/QH15',
+        'Consolidated',
+        'Luật',
+        'ib-1',
+        '2025-03-01',
+        'v1',
+      );
 
-      const row = sqlite.prepare('SELECT is_consolidated FROM document WHERE id = ?').get('doc-consol');
+      const row = sqlite
+        .prepare('SELECT is_consolidated FROM document WHERE id = ?')
+        .get('doc-consol');
       expect(row.is_consolidated).toBe(1);
     });
   });
 
   describe('upsertRelations', () => {
     it('inserts outbound relation', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
         relations: [
@@ -341,9 +416,15 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('inserts inbound relation when source document exists', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
         relations: [
@@ -366,8 +447,12 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('skips inbound relation when source document does not exist', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
         relations: [
@@ -389,66 +474,106 @@ describe('DocumentRepository (SQLite integration)', () => {
 
   describe('extractTextReferences', () => {
     it('extracts preamble Căn cứ references', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
-        fullText: 'LUẬT\n\nCăn cứ Luật số 104/2016/QH13;\nCăn cứ Конституция.\n\nCHƯƠNG I.\nNội dung chương.',
+        fullText:
+          'LUẬT\n\nCăn cứ Luật số 104/2016/QH13;\nCăn cứ Конституция.\n\nCHƯƠNG I.\nNội dung chương.',
       });
 
       await repo.extractTextReferences('doc-1', parsed);
 
-      const refs = sqlite.prepare('SELECT * FROM document_reference WHERE source_document_id = ?').all('doc-1');
+      const refs = sqlite
+        .prepare(
+          'SELECT * FROM document_reference WHERE source_document_id = ?',
+        )
+        .all('doc-1');
       expect(refs.length).toBeGreaterThanOrEqual(1);
       expect(refs[0].reference_type).toBe('has_basis');
     });
 
     it('extracts body citations with context classification', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
-        fullText: 'LUẬT\n\nCHƯƠNG I.\nNội dung sửa đổi 05/2024/QH15 theo quy định tại 02/2025/QH15 và bãi bỏ 03/2020/QH13.',
+        fullText:
+          'LUẬT\n\nCHƯƠNG I.\nNội dung sửa đổi 05/2024/QH15 theo quy định tại 02/2025/QH15 và bãi bỏ 03/2020/QH13.',
       });
 
       await repo.extractTextReferences('doc-1', parsed);
 
-      const refs = sqlite.prepare('SELECT reference_type FROM document_reference WHERE source_document_id = ?').all('doc-1');
+      const refs = sqlite
+        .prepare(
+          'SELECT reference_type FROM document_reference WHERE source_document_id = ?',
+        )
+        .all('doc-1');
       expect(refs.length).toBeGreaterThanOrEqual(1);
       const types = refs.map((r: any) => r.reference_type);
       expect(types).toContain('amends');
     });
 
     it('skips self-references', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
         fullText: 'LUẬT\n\nCHƯƠNG I.\nĐiều này quy định tại 01/2025/QH15.',
       });
 
       await repo.extractTextReferences('doc-1', parsed);
-      const refs = sqlite.prepare('SELECT * FROM document_reference WHERE source_document_id = ?').all('doc-1');
+      const refs = sqlite
+        .prepare(
+          'SELECT * FROM document_reference WHERE source_document_id = ?',
+        )
+        .all('doc-1');
       expect(refs.length).toBe(0);
     });
   });
 
   describe('healDanglingReferences', () => {
     it('resolves dangling target reference', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method) VALUES ('ref-1', 'doc-1', NULL, 'cites', 'Nghị định số 02/2025/QH15 - Doc 2', 'deterministic')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method) VALUES ('ref-1', 'doc-1', NULL, 'cites', 'Nghị định số 02/2025/QH15 - Doc 2', 'deterministic')`,
+      );
 
       const healed = await repo.healDanglingReferences();
       expect(healed).toBe(1);
 
-      const ref = sqlite.prepare('SELECT target_document_id FROM document_reference WHERE id = ?').get('ref-1');
+      const ref = sqlite
+        .prepare(
+          'SELECT target_document_id FROM document_reference WHERE id = ?',
+        )
+        .get('ref-1');
       expect(ref.target_document_id).toBe('doc-2');
     });
 
     it('skips references with no extractable citation', async () => {
-      sqlite.exec(`INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method) VALUES ('ref-2', 'doc-1', NULL, 'cites', 'Some text with no citation', 'deterministic')`);
+      sqlite.exec(
+        `INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method) VALUES ('ref-2', 'doc-1', NULL, 'cites', 'Some text with no citation', 'deterministic')`,
+      );
 
       const healed = await repo.healDanglingReferences();
       expect(healed).toBe(0);
@@ -457,10 +582,18 @@ describe('DocumentRepository (SQLite integration)', () => {
 
   describe('findReferences', () => {
     it('returns outgoing references', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-1', 'doc-1', 'doc-2', 'cites', 'Test ref', 'deterministic', '2025-01-01')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-1', 'doc-1', 'doc-2', 'cites', 'Test ref', 'deterministic', '2025-01-01')`,
+      );
 
       const result = await repo.findReferences('doc-1', 'outgoing');
       expect(result.citationId).toBe('01/2025/QH15');
@@ -469,10 +602,18 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('returns incoming references', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-1', 'doc-1', 'doc-2', 'cites', 'Test ref', 'deterministic', '2025-01-01')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-1', 'doc-1', 'doc-2', 'cites', 'Test ref', 'deterministic', '2025-01-01')`,
+      );
 
       const result = await repo.findReferences('doc-2', 'incoming');
       expect(result.references.length).toBe(1);
@@ -480,15 +621,27 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('throws when document not found', async () => {
-      await expect(repo.findReferences('nonexistent')).rejects.toThrow('not found');
+      await expect(repo.findReferences('nonexistent')).rejects.toThrow(
+        'not found',
+      );
     });
 
     it('filters by referenceType', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-1', 'doc-1', 'doc-2', 'cites', 'Test ref', 'deterministic', '2025-01-01')`);
-      sqlite.exec(`INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-2', 'doc-1', 'doc-2', 'amends', 'Test ref 2', 'deterministic', '2025-01-01')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-1', 'doc-1', 'doc-2', 'cites', 'Test ref', 'deterministic', '2025-01-01')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-2', 'doc-1', 'doc-2', 'amends', 'Test ref 2', 'deterministic', '2025-01-01')`,
+      );
 
       const result = await repo.findReferences('doc-1', 'outgoing', 'cites');
       expect(result.references.length).toBe(1);
@@ -498,9 +651,15 @@ describe('DocumentRepository (SQLite integration)', () => {
 
   describe('findIssuingBodies', () => {
     it('returns all issuing bodies with document counts', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-2', 'Chính phủ', 5, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-2', 'Chính phủ', 5, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const result = await repo.findIssuingBodies({});
       expect(result.items.length).toBe(2);
@@ -512,8 +671,12 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('filters by scope', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-2', 'UBND TP.HCM', 10, 'local')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-2', 'UBND TP.HCM', 10, 'local')`,
+      );
 
       const result = await repo.findIssuingBodies({ scope: 'local' });
       expect(result.total).toBe(1);
@@ -521,8 +684,12 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('filters by keyword', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-2', 'Chính phủ', 5, 'national')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-2', 'Chính phủ', 5, 'national')`,
+      );
 
       const result = await repo.findIssuingBodies({ keyword: 'Quốc' });
       expect(result.total).toBe(1);
@@ -532,16 +699,54 @@ describe('DocumentRepository (SQLite integration)', () => {
 
   describe('searchLocalDocuments', () => {
     function seedSearchDocs() {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-2', 'Chính phủ', 5, 'national')`);
-      const rawSource1 = JSON.stringify({ fullText: 'Full text A about amendments', scrapedAt: '2025-01-01T00:00:00Z', sourceUrl: 'https://vbpl.vn/doc1', consolidatesRawTitles: [], consolidatedIntoRawTitles: [] });
-      const rawSource2 = JSON.stringify({ fullText: 'Full text B about repeals', scrapedAt: '2025-06-01T00:00:00Z', sourceUrl: 'https://vbpl.vn/doc2', consolidatesRawTitles: [], consolidatedIntoRawTitles: [] });
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-2', 'Chính phủ', 5, 'national')`,
+      );
+      const rawSource1 = JSON.stringify({
+        fullText: 'Full text A about amendments',
+        scrapedAt: '2025-01-01T00:00:00Z',
+        sourceUrl: 'https://vbpl.vn/doc1',
+        consolidatesRawTitles: [],
+        consolidatedIntoRawTitles: [],
+      });
+      const rawSource2 = JSON.stringify({
+        fullText: 'Full text B about repeals',
+        scrapedAt: '2025-06-01T00:00:00Z',
+        sourceUrl: 'https://vbpl.vn/doc2',
+        consolidatesRawTitles: [],
+        consolidatedIntoRawTitles: [],
+      });
       const insertDoc = sqlite.prepare(`
         INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, effective_date, status, is_consolidated, raw_source, content_version)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       `);
-      insertDoc.run('doc-1', '01/2025/QH15', 'Law on Amendments', 'Luật', 'ib-1', '2025-01-15', '2025-06-01', 'con_hieu_luc', rawSource1, 'v1');
-      insertDoc.run('doc-2', '02/2025/QH15', 'Decree on Repeals', 'Nghị định', 'ib-2', '2025-07-20', '2025-08-01', 'con_hieu_luc', rawSource2, 'v2');
+      insertDoc.run(
+        'doc-1',
+        '01/2025/QH15',
+        'Law on Amendments',
+        'Luật',
+        'ib-1',
+        '2025-01-15',
+        '2025-06-01',
+        'con_hieu_luc',
+        rawSource1,
+        'v1',
+      );
+      insertDoc.run(
+        'doc-2',
+        '02/2025/QH15',
+        'Decree on Repeals',
+        'Nghị định',
+        'ib-2',
+        '2025-07-20',
+        '2025-08-01',
+        'con_hieu_luc',
+        rawSource2,
+        'v2',
+      );
     }
 
     it('returns all documents with no filters', () => {
@@ -559,60 +764,81 @@ describe('DocumentRepository (SQLite integration)', () => {
 
     it('filters by keyword in citation (so-hieu scope)', async () => {
       seedSearchDocs();
-      const result = await repo.searchLocalDocuments({ keyword: '02/2025/QH15', searchScope: 'so-hieu' });
+      const result = await repo.searchLocalDocuments({
+        keyword: '02/2025/QH15',
+        searchScope: 'so-hieu',
+      });
       expect(result.total).toBe(1);
       expect(result.items[0].citation).toBe('02/2025/QH15');
     });
 
     it('filters by keyword in full text (noi-dung scope)', async () => {
       seedSearchDocs();
-      const result = await repo.searchLocalDocuments({ keyword: 'repeals', searchScope: 'noi-dung' });
+      const result = await repo.searchLocalDocuments({
+        keyword: 'repeals',
+        searchScope: 'noi-dung',
+      });
       expect(result.total).toBe(1);
       expect(result.items[0].title).toBe('Decree on Repeals');
     });
 
     it('uses exact phrase match when exactPhrase is true', async () => {
       seedSearchDocs();
-      const result = await repo.searchLocalDocuments({ keyword: 'Decree on Repeals', exactPhrase: true });
+      const result = await repo.searchLocalDocuments({
+        keyword: 'Decree on Repeals',
+        exactPhrase: true,
+      });
       expect(result.total).toBe(1);
     });
 
     it('filters by documentTypes', async () => {
       seedSearchDocs();
-      const result = await repo.searchLocalDocuments({ documentTypes: ['Luật'] });
+      const result = await repo.searchLocalDocuments({
+        documentTypes: ['Luật'],
+      });
       expect(result.total).toBe(1);
       expect(result.items[0].documentType).toBe('Luật');
     });
 
     it('filters by issuingBodies', async () => {
       seedSearchDocs();
-      const result = await repo.searchLocalDocuments({ issuingBodies: ['Chính phủ'] });
+      const result = await repo.searchLocalDocuments({
+        issuingBodies: ['Chính phủ'],
+      });
       expect(result.total).toBe(1);
       expect(result.items[0].issuingBody).toBe('Chính phủ');
     });
 
     it('filters by validityStatus', async () => {
       seedSearchDocs();
-      const result = await repo.searchLocalDocuments({ validityStatus: 'Còn hiệu lực' });
+      const result = await repo.searchLocalDocuments({
+        validityStatus: 'Còn hiệu lực',
+      });
       expect(result.total).toBe(2);
     });
 
     it('filters by issuedFrom and issuedTo', async () => {
       seedSearchDocs();
-      const result = await repo.searchLocalDocuments({ issuedFrom: '01/03/2025' });
+      const result = await repo.searchLocalDocuments({
+        issuedFrom: '01/03/2025',
+      });
       expect(result.total).toBe(1);
       expect(result.items[0].citation).toBe('02/2025/QH15');
     });
 
     it('filters by effectiveFrom', async () => {
       seedSearchDocs();
-      const result = await repo.searchLocalDocuments({ effectiveFrom: '01/07/2025' });
+      const result = await repo.searchLocalDocuments({
+        effectiveFrom: '01/07/2025',
+      });
       expect(result.total).toBe(1);
     });
 
     it('filters by effectiveTo', async () => {
       seedSearchDocs();
-      const result = await repo.searchLocalDocuments({ effectiveTo: '01/06/2025' });
+      const result = await repo.searchLocalDocuments({
+        effectiveTo: '01/06/2025',
+      });
       expect(result.total).toBe(1);
     });
 
@@ -631,10 +857,16 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('throws when rawSource.sourceUrl is missing', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, status, is_consolidated, raw_source, content_version) VALUES ('doc-bad', '99/2025/QH15', 'Bad Doc', 'Luật', 'ib-1', '2025-01-01', 'con_hieu_luc', 0, NULL, 'v1')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, status, is_consolidated, raw_source, content_version) VALUES ('doc-bad', '99/2025/QH15', 'Bad Doc', 'Luật', 'ib-1', '2025-01-01', 'con_hieu_luc', 0, NULL, 'v1')`,
+      );
 
-      await expect(repo.searchLocalDocuments({})).rejects.toThrow('has no rawSource.sourceUrl');
+      await expect(repo.searchLocalDocuments({})).rejects.toThrow(
+        'has no rawSource.sourceUrl',
+      );
     });
 
     it('formats dates as dd/mm/yyyy in results', async () => {
@@ -659,12 +891,24 @@ describe('DocumentRepository (SQLite integration)', () => {
 
   describe('findReferences direction all', () => {
     it('returns both outgoing and incoming references', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-3', '03/2025/QH15', 'Doc 3', 'Luật', 'ib-1', '2025-03-01', 'v3', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-1', 'doc-1', 'doc-2', 'cites', 'Outgoing', 'deterministic', '2025-01-01')`);
-      sqlite.exec(`INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-2', 'doc-3', 'doc-1', 'amends', 'Incoming', 'deterministic', '2025-01-01')`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-3', '03/2025/QH15', 'Doc 3', 'Luật', 'ib-1', '2025-03-01', 'v3', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-1', 'doc-1', 'doc-2', 'cites', 'Outgoing', 'deterministic', '2025-01-01')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document_reference (id, source_document_id, target_document_id, reference_type, raw_citation_text, extraction_method, created_at) VALUES ('ref-2', 'doc-3', 'doc-1', 'amends', 'Incoming', 'deterministic', '2025-01-01')`,
+      );
 
       const result = await repo.findReferences('doc-1', 'all');
       expect(result.references.length).toBe(2);
@@ -676,8 +920,12 @@ describe('DocumentRepository (SQLite integration)', () => {
 
   describe('upsertRelations additional coverage', () => {
     it('inserts outbound relation with null target when target citation not found', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
         relations: [
@@ -698,9 +946,15 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('does not duplicate relations on second call', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-2', '02/2025/QH15', 'Doc 2', 'Luật', 'ib-1', '2025-02-01', 'v2', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
         relations: [
@@ -721,8 +975,12 @@ describe('DocumentRepository (SQLite integration)', () => {
     });
 
     it('skips inbound relation with null otherDocCitation', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
         relations: [
@@ -744,100 +1002,165 @@ describe('DocumentRepository (SQLite integration)', () => {
 
   describe('extractTextReferences additional coverage', () => {
     it('classifies body reference as repeals', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
-        fullText: 'LUẬT\n\nCHƯƠNG I.\nĐiều này bãi bỏ văn bản 03/2020/QH13 hoàn toàn.',
+        fullText:
+          'LUẬT\n\nCHƯƠNG I.\nĐiều này bãi bỏ văn bản 03/2020/QH13 hoàn toàn.',
       });
 
       await repo.extractTextReferences('doc-1', parsed);
-      const refs = sqlite.prepare('SELECT reference_type FROM document_reference WHERE source_document_id = ?').all('doc-1');
+      const refs = sqlite
+        .prepare(
+          'SELECT reference_type FROM document_reference WHERE source_document_id = ?',
+        )
+        .all('doc-1');
       expect(refs.length).toBeGreaterThanOrEqual(1);
       expect(refs.map((r: any) => r.reference_type)).toContain('repeals');
     });
 
     it('classifies body reference as corrects', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
-        fullText: 'LUẬT\n\nCHƯƠNG I.\nVăn bản đính chính 04/2021/QH13 đã được công bố.',
+        fullText:
+          'LUẬT\n\nCHƯƠNG I.\nVăn bản đính chính 04/2021/QH13 đã được công bố.',
       });
 
       await repo.extractTextReferences('doc-1', parsed);
-      const refs = sqlite.prepare('SELECT reference_type FROM document_reference WHERE source_document_id = ?').all('doc-1');
+      const refs = sqlite
+        .prepare(
+          'SELECT reference_type FROM document_reference WHERE source_document_id = ?',
+        )
+        .all('doc-1');
       expect(refs.length).toBeGreaterThanOrEqual(1);
       expect(refs.map((r: any) => r.reference_type)).toContain('corrects');
     });
 
     it('classifies body reference as guides', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
-        fullText: 'LUẬT\n\nCHƯƠNG I.\nHướng dẫn thực hiện theo 05/2022/TT-BNG về thủ tục.',
+        fullText:
+          'LUẬT\n\nCHƯƠNG I.\nHướng dẫn thực hiện theo 05/2022/TT-BNG về thủ tục.',
       });
 
       await repo.extractTextReferences('doc-1', parsed);
-      const refs = sqlite.prepare('SELECT reference_type FROM document_reference WHERE source_document_id = ?').all('doc-1');
+      const refs = sqlite
+        .prepare(
+          'SELECT reference_type FROM document_reference WHERE source_document_id = ?',
+        )
+        .all('doc-1');
       expect(refs.length).toBeGreaterThanOrEqual(1);
       expect(refs.map((r: any) => r.reference_type)).toContain('guides');
     });
 
     it('classifies body reference as cites (default)', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
-        fullText: 'LUẬT\n\nCHƯƠNG I.\nTheo quy định tại 06/2023/QH15 về các điều khoản liên quan.',
+        fullText:
+          'LUẬT\n\nCHƯƠNG I.\nTheo quy định tại 06/2023/QH15 về các điều khoản liên quan.',
       });
 
       await repo.extractTextReferences('doc-1', parsed);
-      const refs = sqlite.prepare('SELECT reference_type FROM document_reference WHERE source_document_id = ?').all('doc-1');
+      const refs = sqlite
+        .prepare(
+          'SELECT reference_type FROM document_reference WHERE source_document_id = ?',
+        )
+        .all('doc-1');
       expect(refs.length).toBeGreaterThanOrEqual(1);
       expect(refs.map((r: any) => r.reference_type)).toContain('cites');
     });
 
     it('returns no refs when no preamble block exists', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
-        fullText: 'This text has no document type marker like LUAT or NHI ĐỊNH.',
+        fullText:
+          'This text has no document type marker like LUAT or NHI ĐỊNH.',
       });
 
       await repo.extractTextReferences('doc-1', parsed);
-      const refs = sqlite.prepare('SELECT * FROM document_reference WHERE source_document_id = ?').all('doc-1');
+      const refs = sqlite
+        .prepare(
+          'SELECT * FROM document_reference WHERE source_document_id = ?',
+        )
+        .all('doc-1');
       expect(refs.length).toBe(0);
     });
 
     it('returns no refs when body has no chapter marker', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
-        fullText: 'LUẬT\n\nCăn cứ 02/2020/QH14.\nSome text but no CHƯƠNG marker so body extraction is skipped.',
+        fullText:
+          'LUẬT\n\nCăn cứ 02/2020/QH14.\nSome text but no CHƯƠNG marker so body extraction is skipped.',
       });
 
       await repo.extractTextReferences('doc-1', parsed);
-      const refs = sqlite.prepare('SELECT reference_type FROM document_reference WHERE source_document_id = ?').all('doc-1');
+      const refs = sqlite
+        .prepare(
+          'SELECT reference_type FROM document_reference WHERE source_document_id = ?',
+        )
+        .all('doc-1');
       if (refs.length > 0) {
         expect(refs[0].reference_type).toBe('has_basis');
       }
     });
 
     it('does not insert duplicate body citations', async () => {
-      sqlite.exec(`INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`);
-      sqlite.exec(`INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`);
+      sqlite.exec(
+        `INSERT INTO issuing_body (id, name, authority_rank, scope) VALUES ('ib-1', 'Quốc hội', 2, 'national')`,
+      );
+      sqlite.exec(
+        `INSERT INTO document (id, citation_id, title, document_type, issuing_body_id, enacted_date, content_version, status, is_consolidated) VALUES ('doc-1', '01/2025/QH15', 'Doc 1', 'Luật', 'ib-1', '2025-01-01', 'v1', 'con_hieu_luc', 0)`,
+      );
 
       const parsed = makeParsedDoc({
-        fullText: 'LUẬT\n\nCHƯƠNG I.\nVăn bản 07/2023/QH15 được sửa đổi và văn bản 07/2023/QH15 được bổ sung thêm.',
+        fullText:
+          'LUẬT\n\nCHƯƠNG I.\nVăn bản 07/2023/QH15 được sửa đổi và văn bản 07/2023/QH15 được bổ sung thêm.',
       });
 
       await repo.extractTextReferences('doc-1', parsed);
-      const refs = sqlite.prepare('SELECT * FROM document_reference WHERE source_document_id = ?').all('doc-1');
-      const citationRefs = refs.filter((r: any) => r.raw_citation_text.includes('07/2023'));
+      const refs = sqlite
+        .prepare(
+          'SELECT * FROM document_reference WHERE source_document_id = ?',
+        )
+        .all('doc-1');
+      const citationRefs = refs.filter((r: any) =>
+        r.raw_citation_text.includes('07/2023'),
+      );
       expect(citationRefs.length).toBe(1);
     });
   });

@@ -23,13 +23,13 @@ jest.mock('archiver', () => {
   const EventEmitter = require('events');
   return jest.fn().mockImplementation(() => {
     const archive = new EventEmitter();
-    (archive as any).on = jest.fn().mockReturnThis();
-    (archive as any).pipe = jest.fn((dest: any) => {
+    archive.on = jest.fn().mockReturnThis();
+    archive.pipe = jest.fn((dest: any) => {
       dest.end();
       return archive;
     });
-    (archive as any).file = jest.fn().mockReturnThis();
-    (archive as any).finalize = jest.fn().mockResolvedValue(undefined);
+    archive.file = jest.fn().mockReturnThis();
+    archive.finalize = jest.fn().mockResolvedValue(undefined);
     return archive;
   });
 });
@@ -39,7 +39,9 @@ import { createReadStream } from 'fs';
 import archiver from 'archiver';
 
 const mockStat = stat as jest.MockedFunction<typeof stat>;
-const mockCreateReadStream = createReadStream as jest.MockedFunction<typeof createReadStream>;
+const mockCreateReadStream = createReadStream as jest.MockedFunction<
+  typeof createReadStream
+>;
 const mockArchiver = archiver as jest.MockedFunction<typeof archiver>;
 
 describe('LawCatalogController', () => {
@@ -83,14 +85,16 @@ describe('LawCatalogController', () => {
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [LawCatalogController],
-      providers: [
-        { provide: LawCatalogService, useValue: mockCatalog },
-      ],
+      providers: [{ provide: LawCatalogService, useValue: mockCatalog }],
     }).compile();
 
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false, transform: true }),
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: false,
+        transform: true,
+      }),
     );
     await app.init();
   });
@@ -170,7 +174,9 @@ describe('LawCatalogController', () => {
         .query({ citation: '01/2025/QH15' })
         .expect(200);
 
-      expect(mockCreateReadStream).toHaveBeenCalledWith('/laws/01-test/main.pdf');
+      expect(mockCreateReadStream).toHaveBeenCalledWith(
+        '/laws/01-test/main.pdf',
+      );
       expect(mockStat).toHaveBeenCalledWith('/laws/01-test/main.pdf');
       expect(res.headers['x-document-citation']).toBeDefined();
       expect(res.headers['x-match-score']).toBe('1');

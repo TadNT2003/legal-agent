@@ -1,7 +1,4 @@
-import {
-  BadGatewayException,
-  BadRequestException,
-} from '@nestjs/common';
+import { BadGatewayException, BadRequestException } from '@nestjs/common';
 import { VanBanChinhPhuClientService } from './vanban-chinh-phu-client.service';
 import {
   REQUEST_USER_AGENT,
@@ -42,16 +39,14 @@ describe('VanBanChinhPhuClientService', () => {
     });
 
     it('rejects an invalid URL string', () => {
-      expect(() =>
-        service.assertTrustedPageUrl('not-a-url'),
-      ).toThrow('Not a valid URL');
+      expect(() => service.assertTrustedPageUrl('not-a-url')).toThrow(
+        'Not a valid URL',
+      );
     });
 
     it('rejects subdomain of vanban.chinhphu.vn', () => {
       expect(() =>
-        service.assertTrustedPageUrl(
-          'https://subdomain.vanban.chinhphu.vn/',
-        ),
+        service.assertTrustedPageUrl('https://subdomain.vanban.chinhphu.vn/'),
       ).toThrow('Only https://vanban.chinhphu.vn URLs are accepted');
     });
   });
@@ -73,9 +68,7 @@ describe('VanBanChinhPhuClientService', () => {
 
     it('rejects a non-https file URL', () => {
       expect(() =>
-        service.assertTrustedFileUrl(
-          'http://datafiles.chinhphu.vn/x/bldd.pdf',
-        ),
+        service.assertTrustedFileUrl('http://datafiles.chinhphu.vn/x/bldd.pdf'),
       ).toThrow('Refusing to download file from untrusted host');
     });
 
@@ -86,9 +79,9 @@ describe('VanBanChinhPhuClientService', () => {
     });
 
     it('rejects an invalid URL string', () => {
-      expect(() =>
-        service.assertTrustedFileUrl('not-a-url'),
-      ).toThrow('vanban.chinhphu.vn linked to an invalid file URL');
+      expect(() => service.assertTrustedFileUrl('not-a-url')).toThrow(
+        'vanban.chinhphu.vn linked to an invalid file URL',
+      );
     });
   });
 

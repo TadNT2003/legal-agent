@@ -1,15 +1,16 @@
 import { RetrieveService } from './retrieve.service';
 import type { DocumentRepository } from '../persistence/document.repository';
-import type { DocumentNodeRepository, FlatNodeRow } from '../persistence/document-node.repository';
+import type {
+  DocumentNodeRepository,
+  FlatNodeRow,
+} from '../persistence/document-node.repository';
 import type { RetrieveNodeItemDto } from '../dto/retrieve-node-response.dto';
 
 const docId = 'doc-1';
 const citationId = '51/2024/QH15';
 const title = 'Luật Đất đai';
 
-function mkRow(
-  overrides: Partial<FlatNodeRow> & { id: string },
-): FlatNodeRow {
+function mkRow(overrides: Partial<FlatNodeRow> & { id: string }): FlatNodeRow {
   return {
     id: overrides.id,
     documentId: docId,
@@ -36,7 +37,8 @@ function buildMockRepo(
 ): { repo: DocumentRepository; nodeRepo: DocumentNodeRepository } {
   const nodeRepo = {
     fetchDocumentInfo: jest.fn().mockResolvedValue({ citationId, title }),
-    findAllNodes: jest.fn()
+    findAllNodes: jest
+      .fn()
       .mockResolvedValueOnce(findAllNodesResult)
       .mockResolvedValue(findAllNodesResult),
     findNodeSubtree: jest.fn().mockResolvedValue({
@@ -47,7 +49,10 @@ function buildMockRepo(
 
   const repo = {
     searchLocalDocuments: jest.fn().mockResolvedValue({
-      total: 0, page: 1, pageSize: 10, items: [],
+      total: 0,
+      page: 1,
+      pageSize: 10,
+      items: [],
     }),
   } as unknown as DocumentRepository;
 
@@ -67,7 +72,7 @@ describe('RetrieveService', () => {
   describe('search()', () => {
     it('delegates to repo.searchLocalDocuments', async () => {
       const filters = { keyword: 'test' };
-      const result = await service.search(filters as any);
+      const result = await service.search(filters);
       expect(repo.searchLocalDocuments).toHaveBeenCalledWith(filters);
       expect(result).toBeDefined();
     });
@@ -183,7 +188,8 @@ describe('RetrieveService', () => {
 
       const nodeRepo = {
         fetchDocumentInfo: jest.fn().mockResolvedValue({ citationId, title }),
-        findAllNodes: jest.fn()
+        findAllNodes: jest
+          .fn()
           .mockResolvedValueOnce(matched)
           .mockResolvedValueOnce(allNodes),
         findNodeSubtree: jest.fn(),
@@ -197,7 +203,12 @@ describe('RetrieveService', () => {
         number: '1',
       });
 
-      expect(nodeRepo.findAllNodes).toHaveBeenNthCalledWith(1, docId, 'dieu', '1');
+      expect(nodeRepo.findAllNodes).toHaveBeenNthCalledWith(
+        1,
+        docId,
+        'dieu',
+        '1',
+      );
       expect(nodeRepo.findAllNodes).toHaveBeenNthCalledWith(2, docId);
       expect(result.nodes).toHaveLength(1);
       expect(result.nodes[0].id).toBe('n2');
@@ -259,7 +270,9 @@ describe('RetrieveService', () => {
       expect(result.nodes[0].fullText).toContain('Nội dung khoản 1');
       expect(result.nodes[0].children).toHaveLength(1);
       expect(result.nodes[0].children[0].fullText).toContain('Khoản 1');
-      expect(result.nodes[0].children[0].fullText).toContain('Nội dung khoản 1');
+      expect(result.nodes[0].children[0].fullText).toContain(
+        'Nội dung khoản 1',
+      );
     });
   });
 
@@ -374,7 +387,9 @@ describe('RetrieveService', () => {
       expect(result[0].children[0].id).toBe('n2');
       expect(result[0].children[0].children[0].id).toBe('n3');
       expect(result[0].children[0].children[0].children[0].id).toBe('n4');
-      expect(result[0].children[0].children[0].children[0].children[0].id).toBe('n5');
+      expect(result[0].children[0].children[0].children[0].children[0].id).toBe(
+        'n5',
+      );
     });
 
     it('handles empty input', () => {
@@ -527,7 +542,9 @@ describe('RetrieveService', () => {
       expect(result.fullText).toContain('Nội dung điều');
       expect(result.children[0].fullText).toContain('Nội dung điểm');
       expect(result.children[0].fullText).toContain('Nội dung khoản');
-      expect(result.children[0].children[0].fullText).toBe('Điểm a\nNội dung điểm');
+      expect(result.children[0].children[0].fullText).toBe(
+        'Điểm a\nNội dung điểm',
+      );
     });
   });
 

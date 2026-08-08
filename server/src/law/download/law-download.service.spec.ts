@@ -1,4 +1,7 @@
-import type { ParsedLawDocument, SearchResultRow } from './parsed-law-document.interface';
+import type {
+  ParsedLawDocument,
+  SearchResultRow,
+} from './parsed-law-document.interface';
 import { LawDownloadService } from './law-download.service';
 
 jest.mock('./vanban-chinh-phu.parser', () => ({
@@ -42,11 +45,22 @@ jest.mock('stream', () => ({
   Readable: { fromWeb: jest.fn().mockReturnValue({ on: jest.fn() }) },
 }));
 
-const mockParseDocumentDetailPage = parseDocumentDetailPage as jest.MockedFunction<typeof parseDocumentDetailPage>;
-const mockParseSearchPage = parseSearchPage as jest.MockedFunction<typeof parseSearchPage>;
-const mockClassifyTier = classifyTier as jest.MockedFunction<typeof classifyTier>;
-const mockBuildFilename = buildFilename as jest.MockedFunction<typeof buildFilename>;
-const mockBuildLawFolderName = buildLawFolderName as jest.MockedFunction<typeof buildLawFolderName>;
+const mockParseDocumentDetailPage =
+  parseDocumentDetailPage as jest.MockedFunction<
+    typeof parseDocumentDetailPage
+  >;
+const mockParseSearchPage = parseSearchPage as jest.MockedFunction<
+  typeof parseSearchPage
+>;
+const mockClassifyTier = classifyTier as jest.MockedFunction<
+  typeof classifyTier
+>;
+const mockBuildFilename = buildFilename as jest.MockedFunction<
+  typeof buildFilename
+>;
+const mockBuildLawFolderName = buildLawFolderName as jest.MockedFunction<
+  typeof buildLawFolderName
+>;
 
 const makeParsedDoc = (): ParsedLawDocument => ({
   citation: '45/2019/QH14',
@@ -80,21 +94,22 @@ describe('LawDownloadService', () => {
       appendLogEntry: jest.fn(),
     };
 
-    service = new LawDownloadService(
-      mockClient as any,
-      mockManifest as any,
-    );
+    service = new LawDownloadService(mockClient, mockManifest);
   });
 
   describe('downloadFromUrl', () => {
     it('downloads a document and returns outcome', async () => {
       const parsed = makeParsedDoc();
       mockParseDocumentDetailPage.mockReturnValue(parsed);
-      mockClassifyTier.mockReturnValue({ subdir: '02-luat-nghi-quyet-quoc-hoi/luat-bo-luat' });
+      mockClassifyTier.mockReturnValue({
+        subdir: '02-luat-nghi-quyet-quoc-hoi/luat-bo-luat',
+      });
       mockBuildLawFolderName.mockReturnValue('45-2019-QH14_bo-luat-lao-dong');
       mockBuildFilename.mockReturnValue('45-2019-QH14_bo-luat-lao-dong.pdf');
       mockManifest.fileExists.mockResolvedValue(false);
-      mockManifest.ensureTargetDir.mockResolvedValue('/tmp/laws/02-luat/folder');
+      mockManifest.ensureTargetDir.mockResolvedValue(
+        '/tmp/laws/02-luat/folder',
+      );
       mockClient.fetchFile.mockResolvedValue({
         body: new ReadableStream(),
         status: 200,
@@ -135,7 +150,9 @@ describe('LawDownloadService', () => {
       });
 
       expect(outcomes).toHaveLength(1);
-      expect(outcomes[0].error).toBe('No attached file found on this document page.');
+      expect(outcomes[0].error).toBe(
+        'No attached file found on this document page.',
+      );
     });
 
     it('skips file when already downloaded and force is false', async () => {
@@ -162,7 +179,9 @@ describe('LawDownloadService', () => {
       mockBuildLawFolderName.mockReturnValue('45-2019-QH14');
       mockBuildFilename.mockReturnValue('45-2019-QH14.pdf');
       mockManifest.fileExists.mockResolvedValue(true);
-      mockManifest.ensureTargetDir.mockResolvedValue('/tmp/laws/02-luat/folder');
+      mockManifest.ensureTargetDir.mockResolvedValue(
+        '/tmp/laws/02-luat/folder',
+      );
       mockClient.fetchFile.mockResolvedValue({
         body: new ReadableStream(),
         status: 200,
@@ -236,7 +255,9 @@ describe('LawDownloadService', () => {
       mockBuildLawFolderName.mockReturnValue('45-2019-QH14');
       mockBuildFilename.mockReturnValue('45-2019-QH14.pdf');
       mockManifest.fileExists.mockResolvedValue(false);
-      mockManifest.ensureTargetDir.mockResolvedValue('/tmp/laws/02-luat/folder');
+      mockManifest.ensureTargetDir.mockResolvedValue(
+        '/tmp/laws/02-luat/folder',
+      );
       mockClient.fetchFile.mockResolvedValue({
         body: new ReadableStream(),
         status: 200,
@@ -259,7 +280,9 @@ describe('LawDownloadService', () => {
       mockBuildLawFolderName.mockReturnValueOnce('45-2019-QH14');
       mockBuildFilename.mockReturnValueOnce('45-2019-QH14.pdf');
       mockManifest.fileExists.mockResolvedValue(false);
-      mockManifest.ensureTargetDir.mockResolvedValue('/tmp/laws/02-luat/folder');
+      mockManifest.ensureTargetDir.mockResolvedValue(
+        '/tmp/laws/02-luat/folder',
+      );
       mockClient.fetchFile.mockResolvedValue({
         body: new ReadableStream(),
         status: 200,
@@ -293,7 +316,15 @@ describe('LawDownloadService', () => {
           hiddenFields: { __VIEWSTATE: 'abc' },
         })
         .mockReturnValue({
-          rows: [{ citation: '45/2019/QH14', title: 'Test', date: null, docUrl: null, fileUrls: [] }],
+          rows: [
+            {
+              citation: '45/2019/QH14',
+              title: 'Test',
+              date: null,
+              docUrl: null,
+              fileUrls: [],
+            },
+          ],
           hiddenFields: { __VIEWSTATE: 'abc' },
         });
 
@@ -338,7 +369,9 @@ describe('LawDownloadService', () => {
       mockBuildLawFolderName.mockReturnValue('45-2019-QH14');
       mockBuildFilename.mockReturnValue('45-2019-QH14.pdf');
       mockManifest.fileExists.mockResolvedValue(false);
-      mockManifest.ensureTargetDir.mockResolvedValue('/tmp/laws/02-luat/folder');
+      mockManifest.ensureTargetDir.mockResolvedValue(
+        '/tmp/laws/02-luat/folder',
+      );
       mockClient.fetchFile.mockResolvedValue({
         body: new ReadableStream(),
         status: 200,
@@ -409,7 +442,13 @@ describe('LawDownloadService', () => {
         })
         .mockReturnValue({
           rows: [
-            { citation: '45/2019/QH14', title: 'Test', date: null, docUrl: null, fileUrls: [] },
+            {
+              citation: '45/2019/QH14',
+              title: 'Test',
+              date: null,
+              docUrl: null,
+              fileUrls: [],
+            },
           ],
           hiddenFields: { __VIEWSTATE: 'abc' },
         });

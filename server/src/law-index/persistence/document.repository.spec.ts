@@ -1,5 +1,9 @@
 import { createHash } from 'crypto';
-import type { ParsedVbplAttributes, VbplChangeType, VbplReferenceType } from '../crawl/vbpl-document.interface';
+import type {
+  ParsedVbplAttributes,
+  VbplChangeType,
+  VbplReferenceType,
+} from '../crawl/vbpl-document.interface';
 
 // Test the standalone helper functions from document.repository.ts
 // These are module-scoped (not exported), so we replicate their logic
@@ -8,7 +12,13 @@ import type { ParsedVbplAttributes, VbplChangeType, VbplReferenceType } from '..
 // --- Replicated functions from document.repository.ts ---
 
 // mapValidityStatus
-type DbStatus = 'chua_co_hieu_luc' | 'con_hieu_luc' | 'het_hieu_luc' | 'het_hieu_luc_mot_phan' | 'ngung_hieu_luc' | null;
+type DbStatus =
+  | 'chua_co_hieu_luc'
+  | 'con_hieu_luc'
+  | 'het_hieu_luc'
+  | 'het_hieu_luc_mot_phan'
+  | 'ngung_hieu_luc'
+  | null;
 
 const VALIDITY_STATUS_MAP: Record<string, NonNullable<DbStatus>> = {
   'chưa có hiệu lực': 'chua_co_hieu_luc',
@@ -108,7 +118,9 @@ describe('mapValidityStatus (document.repository)', () => {
   });
 
   it('maps "hết hiệu lực một phần" to het_hieu_luc_mot_phan', () => {
-    expect(mapValidityStatus('hết hiệu lực một phần')).toBe('het_hieu_luc_mot_phan');
+    expect(mapValidityStatus('hết hiệu lực một phần')).toBe(
+      'het_hieu_luc_mot_phan',
+    );
   });
 
   it('maps "ngưng hiệu lực" to ngung_hieu_luc', () => {
@@ -175,7 +187,9 @@ describe('estimateAuthorityRank (document.repository)', () => {
 });
 
 describe('computeContentVersion (document.repository)', () => {
-  const makeParsed = (overrides?: Partial<ParsedVbplDocument>): ParsedVbplDocument => ({
+  const makeParsed = (
+    overrides?: Partial<ParsedVbplDocument>,
+  ): ParsedVbplDocument => ({
     fullText: 'Full text',
     title: 'Title',
     attributes: {
@@ -211,30 +225,71 @@ describe('computeContentVersion (document.repository)', () => {
   });
 
   it('changes when citation changes', () => {
-    const hashA = computeContentVersion(makeParsed({ attributes: { ...makeParsed().attributes, citation: '01/2025/QH15' } }));
-    const hashB = computeContentVersion(makeParsed({ attributes: { ...makeParsed().attributes, citation: '02/2025/QH15' } }));
+    const hashA = computeContentVersion(
+      makeParsed({
+        attributes: { ...makeParsed().attributes, citation: '01/2025/QH15' },
+      }),
+    );
+    const hashB = computeContentVersion(
+      makeParsed({
+        attributes: { ...makeParsed().attributes, citation: '02/2025/QH15' },
+      }),
+    );
     expect(hashA).not.toBe(hashB);
   });
 
   it('changes when validityStatusRaw changes', () => {
-    const hashA = computeContentVersion(makeParsed({ attributes: { ...makeParsed().attributes, validityStatusRaw: 'còn hiệu lực' } }));
-    const hashB = computeContentVersion(makeParsed({ attributes: { ...makeParsed().attributes, validityStatusRaw: 'hết hiệu lực' } }));
+    const hashA = computeContentVersion(
+      makeParsed({
+        attributes: {
+          ...makeParsed().attributes,
+          validityStatusRaw: 'còn hiệu lực',
+        },
+      }),
+    );
+    const hashB = computeContentVersion(
+      makeParsed({
+        attributes: {
+          ...makeParsed().attributes,
+          validityStatusRaw: 'hết hiệu lực',
+        },
+      }),
+    );
     expect(hashA).not.toBe(hashB);
   });
 
   it('handles null effectiveDateRaw', () => {
-    const hash = computeContentVersion(makeParsed({ attributes: { ...makeParsed().attributes, effectiveDateRaw: null } }));
+    const hash = computeContentVersion(
+      makeParsed({
+        attributes: { ...makeParsed().attributes, effectiveDateRaw: null },
+      }),
+    );
     expect(hash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('handles null expiryDateRaw', () => {
-    const hash = computeContentVersion(makeParsed({ attributes: { ...makeParsed().attributes, expiryDateRaw: null } }));
+    const hash = computeContentVersion(
+      makeParsed({
+        attributes: { ...makeParsed().attributes, expiryDateRaw: null },
+      }),
+    );
     expect(hash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('changes when effectiveDateRaw changes from null to value', () => {
-    const hashA = computeContentVersion(makeParsed({ attributes: { ...makeParsed().attributes, effectiveDateRaw: null } }));
-    const hashB = computeContentVersion(makeParsed({ attributes: { ...makeParsed().attributes, effectiveDateRaw: '01/01/2025' } }));
+    const hashA = computeContentVersion(
+      makeParsed({
+        attributes: { ...makeParsed().attributes, effectiveDateRaw: null },
+      }),
+    );
+    const hashB = computeContentVersion(
+      makeParsed({
+        attributes: {
+          ...makeParsed().attributes,
+          effectiveDateRaw: '01/01/2025',
+        },
+      }),
+    );
     expect(hashA).not.toBe(hashB);
   });
 });
@@ -267,7 +322,9 @@ describe('mapDbStatusToDisplay (document.repository)', () => {
   });
 
   it('maps het_hieu_luc_mot_phan to Vietnamese label', () => {
-    expect(mapDbStatusToDisplay('het_hieu_luc_mot_phan')).toBe('Hết hiệu lực một phần');
+    expect(mapDbStatusToDisplay('het_hieu_luc_mot_phan')).toBe(
+      'Hết hiệu lực một phần',
+    );
   });
 
   it('maps ngung_hieu_luc to Vietnamese label', () => {

@@ -26,6 +26,8 @@ describe('foldDiacritics', () => {
   });
 
   it('preserves spaces and punctuation', () => {
-    expect(foldDiacritics('Điều 4, Luật 64/2025/QH15')).toBe('dieu 4, Luat 64/2025/QH15');
+    expect(foldDiacritics('Điều 4, Luật 64/2025/QH15')).toBe(
+      'dieu 4, Luat 64/2025/QH15',
+    );
   });
 });

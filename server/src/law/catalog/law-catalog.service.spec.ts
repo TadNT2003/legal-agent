@@ -21,8 +21,12 @@ jest.mock('fs/promises', () => ({
 
 import * as fs from 'fs/promises';
 
-const mockFindByCitation = findByCitation as jest.MockedFunction<typeof findByCitation>;
-const mockResolveBestMatch = resolveBestMatch as jest.MockedFunction<typeof resolveBestMatch>;
+const mockFindByCitation = findByCitation as jest.MockedFunction<
+  typeof findByCitation
+>;
+const mockResolveBestMatch = resolveBestMatch as jest.MockedFunction<
+  typeof resolveBestMatch
+>;
 const mockedFs = fs as jest.Mocked<typeof fs>;
 
 const makeEntry = (
@@ -53,7 +57,7 @@ describe('LawCatalogService', () => {
       fileExists: jest.fn(),
       ensureTargetDir: jest.fn(),
     };
-    service = new LawCatalogService(mockManifest as any);
+    service = new LawCatalogService(mockManifest);
   });
 
   describe('getTierOverview', () => {
@@ -65,7 +69,7 @@ describe('LawCatalogService', () => {
       };
       mockedFs.readdir
         .mockResolvedValueOnce([mockDirEntry] as any)
-        .mockResolvedValueOnce([] as any);
+        .mockResolvedValueOnce([]);
 
       const overview = await service.getTierOverview();
 
@@ -82,7 +86,7 @@ describe('LawCatalogService', () => {
 
   describe('getTierStats', () => {
     it('returns stats for a valid tier', async () => {
-      mockedFs.readdir.mockResolvedValue([] as any);
+      mockedFs.readdir.mockResolvedValue([]);
       const stats: FolderStats = await service.getTierStats(2);
       expect(stats.subdir).toContain('02-luat');
     });
@@ -95,11 +99,15 @@ describe('LawCatalogService', () => {
     });
 
     it('throws for invalid tier number', async () => {
-      await expect(service.getTierStats(99)).rejects.toThrow(/tier must be an integer/);
+      await expect(service.getTierStats(99)).rejects.toThrow(
+        /tier must be an integer/,
+      );
     });
 
     it('throws for non-integer tier', async () => {
-      await expect(service.getTierStats(2.5)).rejects.toThrow(/tier must be an integer/);
+      await expect(service.getTierStats(2.5)).rejects.toThrow(
+        /tier must be an integer/,
+      );
     });
   });
 
@@ -115,9 +123,11 @@ describe('LawCatalogService', () => {
       mockFindByCitation.mockReturnValue([entry, entry2]);
       mockedFs.access.mockResolvedValue(undefined);
 
-      const result: DocumentGroupLookupResult = await service.findDocumentGroup({
-        citation: '45/2019/QH14',
-      });
+      const result: DocumentGroupLookupResult = await service.findDocumentGroup(
+        {
+          citation: '45/2019/QH14',
+        },
+      );
 
       expect(result.citation).toBe('45/2019/QH14');
       expect(result.files).toHaveLength(2);

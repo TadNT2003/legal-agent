@@ -55,7 +55,10 @@ describe('VbplSitemapService', () => {
             </sitemapindex>`),
       });
 
-      setupMockLoc(['https://vbpl.vn/sitemap-1.xml', 'https://vbpl.vn/sitemap-2.xml']);
+      setupMockLoc([
+        'https://vbpl.vn/sitemap-1.xml',
+        'https://vbpl.vn/sitemap-2.xml',
+      ]);
 
       const urls = await service.fetchTrungUongSitemapUrls();
 
@@ -70,12 +73,15 @@ describe('VbplSitemapService', () => {
     it('throws when Trung uong marker is missing', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
-        text: () => Promise.resolve('<?xml version="1.0"?><sitemapindex></sitemapindex>'),
+        text: () =>
+          Promise.resolve('<?xml version="1.0"?><sitemapindex></sitemapindex>'),
       });
 
       setupMockLoc([]);
 
-      await expect(service.fetchTrungUongSitemapUrls()).rejects.toThrow(/marker.*index structure/);
+      await expect(service.fetchTrungUongSitemapUrls()).rejects.toThrow(
+        /marker.*index structure/,
+      );
     });
   });
 
@@ -96,7 +102,9 @@ describe('VbplSitemapService', () => {
         'https://vbpl.vn/GetLawDetail?tempLawsId=2',
       ]);
 
-      const urls = await service.fetchDocumentUrls('https://vbpl.vn/sitemap-1.xml');
+      const urls = await service.fetchDocumentUrls(
+        'https://vbpl.vn/sitemap-1.xml',
+      );
 
       expect(urls).toContain('https://vbpl.vn/GetLawDetail?tempLawsId=1');
       expect(urls).toContain('https://vbpl.vn/GetLawDetail?tempLawsId=2');
@@ -118,7 +126,9 @@ describe('VbplSitemapService', () => {
 
       setupMockLoc([]);
 
-      const urls = await service.fetchDocumentUrls('https://vbpl.vn/sitemap-empty.xml');
+      const urls = await service.fetchDocumentUrls(
+        'https://vbpl.vn/sitemap-empty.xml',
+      );
       expect(urls).toEqual([]);
     });
   });

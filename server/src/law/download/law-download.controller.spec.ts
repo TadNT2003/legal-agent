@@ -54,14 +54,16 @@ describe('LawDownloadController', () => {
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [LawDownloadController],
-      providers: [
-        { provide: LawDownloadService, useValue: mockService },
-      ],
+      providers: [{ provide: LawDownloadService, useValue: mockService }],
     }).compile();
 
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
     );
     await app.init();
   });

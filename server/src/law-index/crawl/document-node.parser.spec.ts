@@ -419,4 +419,149 @@ describe('parseDocumentBody', () => {
       textContent: 'Phạt tiền từ 1.000.000 đồng đến 5.000.000 đồng.',
     });
   });
+
+  it('§12b fix: suppresses an embedded data table (header vocabulary Thứ tự/Loại đất, no "Đơn vị tính:") instead of misreading its rows as Khoản numbering, confirmed against real vbpl.vn output (10/2007/NQ-CP)', () => {
+    const fullText = [
+      'Điều 2. Xét duyệt kế hoạch sử dụng đất',
+      '1. Diện tích các loại đất:',
+      'Thứ tự',
+      'Loại đất',
+      'Diện tích (ha)',
+      '1',
+      'Đất nông nghiệp',
+      '1.234',
+      '2',
+      'Đất phi nông nghiệp',
+      '567',
+      'Điều 3. Tổ chức thực hiện',
+      'Ủy ban nhân dân thành phố có trách nhiệm thực hiện.',
+    ].join('\n');
+
+    const [dieu2, dieu3] = parseDocumentBody(fullText);
+
+    expect(dieu2.children).toHaveLength(1);
+    expect(dieu2.children[0]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '1',
+      label: 'Khoản 1',
+    });
+    expect(dieu2.children[0].textContent).toBe(
+      [
+        'Diện tích các loại đất:',
+        'Thứ tự',
+        'Loại đất',
+        'Diện tích (ha)',
+        '1',
+        'Đất nông nghiệp',
+        '1.234',
+        '2',
+        'Đất phi nông nghiệp',
+        '567',
+      ].join('\n'),
+    );
+    // The table suppression must not leak past the next real Điều.
+    expect(dieu3).toMatchObject({
+      nodeType: 'dieu',
+      ordinal: '3',
+      textContent: 'Ủy ban nhân dân thành phố có trách nhiệm thực hiện.',
+    });
+  });
+
+  it('§12b fix: recognizes the case-sensitive STT/TT column-header abbreviations as a table trigger', () => {
+    const fullText = [
+      'Điều 5. Biểu thuế suất',
+      '1. Mức thuế suất áp dụng như sau:',
+      'STT',
+      'Mức thuế',
+      '1',
+      '10%',
+      '2',
+      '15%',
+      'Điều 6. Hiệu lực thi hành',
+    ].join('\n');
+
+    const [dieu5, dieu6] = parseDocumentBody(fullText);
+
+    expect(dieu5.children).toHaveLength(1);
+    expect(dieu5.children[0].ordinal).toBe('1');
+    expect(dieu6.ordinal).toBe('6');
+  });
+
+  it('§12c fix: suppresses a quoted target Khoản (curly quotes) instead of letting its own numbering collide with a sibling, confirmed against real vbpl.vn output (07/2022/NĐ-CP)', () => {
+    const fullText = [
+      'Điều 1. Sửa đổi, bổ sung một số điều',
+      '1. Sửa đổi, bổ sung một số khoản của Điều 3 như sau:',
+      'a) Sửa đổi, bổ sung khoản 3 như sau:',
+      '“3. Sản phẩm của động vật rừng.”',
+      'b) Bổ sung khoản 8 như sau:',
+      '“8. Động vật hoang dã trên cạn khác.”',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+
+    expect(dieu.children).toHaveLength(1);
+    const khoan1 = dieu.children[0];
+    expect(khoan1).toMatchObject({ nodeType: 'khoan', ordinal: '1' });
+    // Real structure (the citing document's own a)/b) list) is preserved —
+    // only the quoted target Khoản numbering inside each is suppressed.
+    expect(khoan1.children).toHaveLength(2);
+    expect(khoan1.children[0]).toMatchObject({
+      nodeType: 'diem',
+      ordinal: 'a',
+      textContent:
+        'Sửa đổi, bổ sung khoản 3 như sau:\n“3. Sản phẩm của động vật rừng.”',
+    });
+    expect(khoan1.children[1]).toMatchObject({
+      nodeType: 'diem',
+      ordinal: 'b',
+      textContent:
+        'Bổ sung khoản 8 như sau:\n“8. Động vật hoang dã trên cạn khác.”',
+    });
+  });
+
+  it('§12c fix: suppresses a quoted target Điều (straight quotes, no "như sau" wording) instead of opening it as a fake sibling root, confirmed against real vbpl.vn output (12/1999/QH10)', () => {
+    const fullText = [
+      'Điều 1. Sửa đổi Luật Báo chí',
+      '10. Bổ sung Điều 17c:',
+      '"Điều 17c. Tài chính của cơ quan báo chí',
+      'Cơ quan báo chí được Nhà nước cấp kinh phí."',
+      '11. Điều khoản thi hành',
+    ].join('\n');
+
+    const roots = parseDocumentBody(fullText);
+
+    // No fake "Điều 17c" root — the quoted heading line must not open a real
+    // dieu-level node just because it's shaped like one.
+    expect(roots).toHaveLength(1);
+    const [dieu1] = roots;
+    expect(dieu1.children).toHaveLength(2);
+    expect(dieu1.children[0]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '10',
+    });
+    expect(dieu1.children[0].textContent).toBe(
+      'Bổ sung Điều 17c:\n"Điều 17c. Tài chính của cơ quan báo chí\nCơ quan báo chí được Nhà nước cấp kinh phí."',
+    );
+    expect(dieu1.children[1]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '11',
+    });
+  });
+
+  it('§12c fix: does not suppress a citing sentence with no following quote (e.g. a bare "Bãi bỏ Điều N." with no replacement text)', () => {
+    const fullText = [
+      'Điều 5. Sửa đổi, bãi bỏ',
+      '1. Bãi bỏ Điều 12 và Điều 13.',
+      '2. Nội dung khoản hai.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+    expect(dieu.children).toHaveLength(2);
+    expect(dieu.children[0]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '1',
+      textContent: 'Bãi bỏ Điều 12 và Điều 13.',
+    });
+    expect(dieu.children[1]).toMatchObject({ nodeType: 'khoan', ordinal: '2' });
+  });
 });

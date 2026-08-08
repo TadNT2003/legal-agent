@@ -16,7 +16,9 @@ describe('mimeTypeForFilename', () => {
   });
 
   it('returns octet-stream for unknown extension', () => {
-    expect(mimeTypeForFilename('document.xyz')).toBe('application/octet-stream');
+    expect(mimeTypeForFilename('document.xyz')).toBe(
+      'application/octet-stream',
+    );
   });
 
   it('handles uppercase extension', () => {

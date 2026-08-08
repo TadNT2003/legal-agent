@@ -131,6 +131,63 @@ const ANNEX_RESTART_PATTERN =
 // of the text.
 const FOOTER_START_PATTERN = /^(Nơi\s+nhận\s*:?|(TM|KT|Q)\.\s|THAY\s+MẶT\b)/iu;
 
+// §12b (docs/monitoring/law-index-flagged-documents.md): embedded data
+// tables (land-use-planning statistics, tax-bracket schedules, tariff
+// schedules, station registries, ...) get flattened to plain text by the
+// scrape, and their header row / numeric cells match KHOAN_PATTERN's
+// "<digits>." shape (Vietnamese uses "." as a thousands separator), each
+// producing a fake Khoản node. Detected by a standalone header-row line
+// rather than by row shape — a row's own text (a bare number, a short
+// place/category name) is indistinguishable from a genuine short Khoản,
+// but a real Khoản is never just "Thứ tự" or "Đơn vị tính: ha" on its own
+// line. Vocabulary harvested from real affected documents (see §12's
+// 2026-08-07/08 updates), not exhaustive — a table using none of these
+// words falls back to the dedupeOrdinal backstop below (uniqueness-safe,
+// not actually suppressed).
+const TABLE_HEADER_PATTERN =
+  /^(?:Đơn\s+vị\s+tính|Thứ\s+tự|Số\s+thứ\s+tự|Loại\s+đất|Bậc)\s*[:.]?\s*.{0,30}$/iu;
+// STT/TT checked case-sensitively (uppercase only) — as a bare 2-3 letter
+// lowercase match these would be far too promiscuous against ordinary text.
+const TABLE_HEADER_ABBREV_PATTERN = /^(?:STT|TT)\s*[:.]?\s*.{0,10}$/u;
+
+function isTableHeader(line: string): boolean {
+  return (
+    TABLE_HEADER_PATTERN.test(line) || TABLE_HEADER_ABBREV_PATTERN.test(line)
+  );
+}
+
+// §12c (extends §7): a citing sentence — "<verb> ... như sau:" or, confirmed
+// broadened, without "như sau" at all ("Bổ sung Điều 17c:") — followed by a
+// quoted block carries the TARGET document's own numbering, independent of
+// and colliding with the citing document's structure. Confirmed on real
+// documents using either straight (") or curly (" ") quote marks, opening on
+// the line immediately after the citing colon (never same-line) — both
+// tracked. The citing-verb requirement is a cheap extra safety margin, not
+// the real gate: the actual trigger for suppression is a quote character
+// genuinely appearing on the very next line (see isCitingColon's caller) —
+// a colon-ended line whose next line ISN'T a quote just falls through to
+// normal parsing, so a false match here costs nothing.
+const CITING_VERB_PATTERN = /(sửa\s+đổi|bổ\s+sung|bãi\s+bỏ|thay\s+thế)/iu;
+
+function isCitingColon(line: string): boolean {
+  return line.endsWith(':') && CITING_VERB_PATTERN.test(line);
+}
+
+function startsWithOpenQuote(line: string): boolean {
+  return line.length > 0 && (line[0] === '"' || line[0] === '“');
+}
+
+/** Updates quote-nesting depth from a line's quote characters. Curly open/close (“ ”, U+201C/U+201D) are unambiguous and support real nesting; a straight " (U+0022) toggles, since the same glyph serves both roles for this content. */
+function updateQuoteDepth(depth: number, line: string): number {
+  let next = depth;
+  for (const ch of line) {
+    if (ch === '“') next += 1;
+    else if (ch === '”') next = Math.max(0, next - 1);
+    else if (ch === '"') next = next > 0 ? next - 1 : next + 1;
+  }
+  return next;
+}
+
 /** Per database-design.md §1a: a heading heuristic, not a hard rule — defaults to normative rather than throwing on an unrecognized heading, since this is an explicitly soft/ingest-time judgment call, not a validation error. */
 function classifyPhuLuc(heading: string | null): ContentClass {
   if (heading && /mẫu\s+số/i.test(heading)) return 'template';
@@ -235,6 +292,14 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
   let phuLucRawOrdinal: string | null = null;
   let inFooter = false;
   let annexCounter = 0;
+  // §12b/§12c suppression state — see TABLE_HEADER_PATTERN/isCitingColon
+  // above. All three are reset wherever a container-level heading
+  // (Điều/Chương/Mục/Tiểu mục/Phụ lục) is opened, mirroring how a new
+  // container already resets `stack` via openNode: whatever table/quote was
+  // in progress can't span past a real structural boundary.
+  let inTable = false;
+  let quoteDepth = 0;
+  let pendingQuoteCitation = false;
 
   const openNode = (
     nodeType: Exclude<DocumentNodeType, 'phu_luc'>,
@@ -338,6 +403,9 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
     const phuLucMatch = line.match(PHU_LUC_PATTERN);
     if (phuLucMatch) {
       inFooter = false;
+      inTable = false;
+      quoteDepth = 0;
+      pendingQuoteCitation = false;
       stack.length = 0; // Phụ lục always sits at document root, sibling to top-level Chương/Điều.
       i += openPhuLucFromMatch(phuLucMatch, i);
       continue;
@@ -354,11 +422,46 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
 
     if (FOOTER_START_PATTERN.test(line)) {
       inFooter = true;
+      inTable = false;
+      quoteDepth = 0;
+      pendingQuoteCitation = false;
       continue;
+    }
+
+    // §12c suppression — checked before any structural pattern (including
+    // Điều/Chương), since real quoted target text routinely itself contains
+    // "Điều N. <heading>"-shaped lines (that's the whole failure mode this
+    // fixes: the target document's own Điều/Khoản structure must stay
+    // suppressed, not open real sibling nodes). Deliberate trade-off, same
+    // posture as this file's other best-effort rules: an in-source quote
+    // that never actually closes (malformed/truncated text) would suppress
+    // everything for the rest of the document rather than recovering at the
+    // next real heading — not observed in any confirmed sample, and no
+    // safety-net line cap is applied for it; revisit if a real corpus
+    // example surfaces it.
+    if (quoteDepth > 0) {
+      quoteDepth = updateQuoteDepth(quoteDepth, line);
+      const current = stack[stack.length - 1]?.node;
+      if (current) appendText(current, line);
+      continue;
+    }
+    if (pendingQuoteCitation) {
+      pendingQuoteCitation = false;
+      if (startsWithOpenQuote(line)) {
+        quoteDepth = updateQuoteDepth(0, line);
+        const current = stack[stack.length - 1]?.node;
+        if (current) appendText(current, line);
+        continue;
+      }
+      // Expected quote didn't materialize on the very next line — not a
+      // quoted-citation shape after all, fall through to normal parsing.
     }
 
     const dieuMatch = line.match(DIEU_KHOAN_PATTERN);
     if (dieuMatch) {
+      inTable = false;
+      quoteDepth = 0;
+      pendingQuoteCitation = false;
       const ordinal = `${dieuMatch[1]}${dieuMatch[2]}`;
       const label = `Điều ${ordinal}`;
       const [heading, skip] = resolveHeading(dieuMatch[3], lines, i);
@@ -369,6 +472,9 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
 
     const phanChuongMatch = line.match(PHAN_CHUONG_PATTERN);
     if (phanChuongMatch) {
+      inTable = false;
+      quoteDepth = 0;
+      pendingQuoteCitation = false;
       const keyword = phanChuongMatch[1];
       const nodeType: 'phan' | 'chuong' = /^phần$/i.test(keyword)
         ? 'phan'
@@ -383,6 +489,9 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
 
     const tieuMucMatch = line.match(TIEU_MUC_PATTERN);
     if (tieuMucMatch) {
+      inTable = false;
+      quoteDepth = 0;
+      pendingQuoteCitation = false;
       const ordinal = tieuMucMatch[2];
       const label = `${tieuMucMatch[1]} ${ordinal}`;
       const [heading, skip] = resolveHeading(tieuMucMatch[3], lines, i);
@@ -393,6 +502,9 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
 
     const mucMatch = line.match(MUC_PATTERN);
     if (mucMatch) {
+      inTable = false;
+      quoteDepth = 0;
+      pendingQuoteCitation = false;
       const ordinal = mucMatch[2];
       const label = `${mucMatch[1]} ${ordinal}`;
       const [heading, skip] = resolveHeading(mucMatch[3], lines, i);
@@ -400,6 +512,27 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       openNode('muc', newNode('muc', ordinal, label, heading));
       continue;
     }
+
+    // §12b suppression — a table-header line is never real Khoản/Điểm
+    // content; once seen, every subsequent line is inert body text until a
+    // container-level heading resets `inTable` above.
+    if (inTable) {
+      const current = stack[stack.length - 1]?.node;
+      if (current) appendText(current, line);
+      continue;
+    }
+    if (isTableHeader(line)) {
+      inTable = true;
+      const current = stack[stack.length - 1]?.node;
+      if (current) appendText(current, line);
+      continue;
+    }
+
+    // A citing sentence ("<verb> ... như sau:") only actually starts
+    // suppression once the very next line proves out as a quote (handled at
+    // the top of the next iteration) — recording the possibility here costs
+    // nothing if it doesn't pan out.
+    pendingQuoteCitation = isCitingColon(line);
 
     const stackTopLevel = stack[stack.length - 1]?.level;
 

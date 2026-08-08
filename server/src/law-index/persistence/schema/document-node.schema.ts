@@ -54,9 +54,7 @@ export const documentNode = pgTable(
     documentId: uuid('document_id')
       .notNull()
       .references(() => document.id),
-    parentId: uuid('parent_id').references(
-      (): AnyPgColumn => documentNode.id,
-    ),
+    parentId: uuid('parent_id').references((): AnyPgColumn => documentNode.id),
     nodeType: nodeTypeEnum('node_type').notNull(),
     contentClass: contentClassEnum('content_class'),
     // Materialized path mirroring parent_id, e.g. 'chuong2.muc1.dieu5.khoan2'

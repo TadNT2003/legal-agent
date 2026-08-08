@@ -80,14 +80,16 @@ describe('RetrieveController', () => {
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [RetrieveController],
-      providers: [
-        { provide: RetrieveService, useValue: mockService },
-      ],
+      providers: [{ provide: RetrieveService, useValue: mockService }],
     }).compile();
 
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false, transform: true }),
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: false,
+        transform: true,
+      }),
     );
     await app.init();
   });

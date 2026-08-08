@@ -6,7 +6,12 @@ import { DocumentRepository } from '../persistence/document.repository';
 import { DocumentNodeRepository } from '../persistence/document-node.repository';
 import { DbModule, DRIZZLE } from '../persistence/db.module';
 import { postgresConfig } from '../../config/configuration';
-import { createTestDb, createTables, dropTables, closeTestDb } from '../../test/setup-test-db';
+import {
+  createTestDb,
+  createTables,
+  dropTables,
+  closeTestDb,
+} from '../../test/setup-test-db';
 
 describe('RetrieveModule', () => {
   let moduleRef: TestingModule;
