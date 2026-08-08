@@ -29,6 +29,12 @@ const REASONING_EFFORT_NONE = 'none' as unknown as NonNullable<
   ChatCompletionCreateParamsNonStreaming['reasoning_effort']
 >;
 
+export interface ChatResult {
+  reply: string;
+  /** Full accumulated history, including this turn — pass back into the next chat() call to continue the conversation. */
+  messages: ChatCompletionMessageParam[];
+}
+
 export class AgentService {
   constructor(
     private readonly openai: OpenAI,
@@ -38,11 +44,22 @@ export class AgentService {
     private readonly systemPrompt: string,
   ) {}
 
-  async chat(userMessage: string): Promise<string> {
-    const messages: ChatCompletionMessageParam[] = [
-      { role: 'system', content: this.systemPrompt },
-      { role: 'user', content: userMessage },
-    ];
+  /**
+   * `history` is the prior conversation's accumulated messages (empty for a
+   * fresh session) — the system prompt is seeded only when history is empty,
+   * since it's already present at the start of any non-empty history.
+   */
+  async chat(
+    history: ChatCompletionMessageParam[],
+    userMessage: string,
+  ): Promise<ChatResult> {
+    const messages: ChatCompletionMessageParam[] =
+      history.length > 0
+        ? [...history, { role: 'user', content: userMessage }]
+        : [
+            { role: 'system', content: this.systemPrompt },
+            { role: 'user', content: userMessage },
+          ];
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const response = await this.openai.chat.completions.create({
@@ -60,7 +77,7 @@ export class AgentService {
         logger.log(
           `Round ${round}: final answer (${(message.content ?? '').length} chars)`,
         );
-        return message.content ?? '';
+        return { reply: message.content ?? '', messages };
       }
 
       logger.log(
@@ -87,7 +104,11 @@ export class AgentService {
     logger.log(
       `Tool-calling loop hit MAX_TOOL_ROUNDS (${MAX_TOOL_ROUNDS}) without a final answer`,
     );
-    return 'Xin lỗi, tôi chưa thể hoàn thành câu trả lời sau nhiều bước tra cứu. Vui lòng thử hỏi cụ thể hơn.';
+    return {
+      reply:
+        'Xin lỗi, tôi chưa thể hoàn thành câu trả lời sau nhiều bước tra cứu. Vui lòng thử hỏi cụ thể hơn.',
+      messages,
+    };
   }
 
   private async runTool(

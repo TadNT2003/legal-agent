@@ -28,8 +28,10 @@ async function handleChat(
   }
 
   try {
-    const reply = await agentService.chat(message);
-    res.json({ reply });
+    // Stateless on purpose — this route is a manual test path, not a
+    // Discord session; each call starts a fresh conversation.
+    const result = await agentService.chat([], message);
+    res.json({ reply: result.reply });
   } catch (error) {
     logger.error('AgentService.chat failed', error);
     res.status(500).json({ error: 'Internal server error' });

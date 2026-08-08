@@ -1,6 +1,7 @@
 import type { Client, Message } from 'discord.js';
 import { ChannelType, Events } from 'discord.js';
 import type { AgentService } from '../agent/agentService.js';
+import type { Session, SessionStore } from '../agent/sessionStore.js';
 import { createLogger } from '../tools/logging.js';
 
 const logger = createLogger('discord-message');
@@ -10,21 +11,30 @@ const TRIGGER_KEYWORD = 'harpae';
 /**
  * Skeleton PoC bot: responds on DM, @mention, the bare word "harpae"
  * (case-insensitive, anywhere in the message), or a reply to one of its own
- * messages. No slash-command registration, no conversation memory — each
- * message is a fresh, stateless question passed to AgentService.
+ * messages.
+ *
+ * Conversation memory: a mention/keyword/DM trigger always starts a NEW
+ * session (fresh context, no prior turns). Replying to one of the bot's own
+ * messages continues *that message's* session instead — the whole
+ * question/answer history from that session is fed back to the LLM, and the
+ * new turn is appended to it. Replying to a message the store no longer
+ * recognizes (not a bot message, or a session lost to a restart) falls back
+ * to starting a fresh session rather than going silent.
  */
 export function registerMessageCreateEvent(
   client: Client,
   agentService: AgentService,
+  sessionStore: SessionStore,
 ): void {
   client.on(Events.MessageCreate, (message) => {
-    void handleMessage(client, agentService, message);
+    void handleMessage(client, agentService, sessionStore, message);
   });
 }
 
 async function handleMessage(
   client: Client,
   agentService: AgentService,
+  sessionStore: SessionStore,
   message: Message,
 ): Promise<void> {
   if (message.author.bot) return;
@@ -35,12 +45,22 @@ async function handleMessage(
   const containsKeyword = message.content
     .toLowerCase()
     .includes(TRIGGER_KEYWORD);
+  const startsNewSession = isDm || isMentioned || containsKeyword;
 
-  if (!isDm && !isMentioned && !containsKeyword) {
-    // Only worth the extra (possibly network-bound) check once the cheap
-    // conditions have all failed.
+  let session: Session;
+  if (startsNewSession) {
+    session = sessionStore.createSession();
+  } else {
     const isReplyToBot = await isReplyToBotMessage(client, message);
     if (!isReplyToBot) return;
+
+    const replyTargetId = message.reference?.messageId;
+    const existing = replyTargetId
+      ? sessionStore.getByReplyTarget(replyTargetId)
+      : undefined;
+    // Fallback: session not tracked (e.g. process restarted since) — still
+    // answer, just without prior context, instead of ignoring the message.
+    session = existing ?? sessionStore.createSession();
   }
 
   const question = message.content
@@ -54,7 +74,9 @@ async function handleMessage(
 
   let reply: string;
   try {
-    reply = await agentService.chat(question);
+    const result = await agentService.chat(session.messages, question);
+    reply = result.reply;
+    sessionStore.update(session, result.messages);
   } catch (error) {
     logger.error('AgentService.chat failed', error);
     reply =
@@ -62,7 +84,8 @@ async function handleMessage(
   }
 
   for (const chunk of splitMessage(reply)) {
-    await message.reply(chunk);
+    const sent = await message.reply(chunk);
+    sessionStore.linkReplyTarget(sent.id, session);
   }
 }
 

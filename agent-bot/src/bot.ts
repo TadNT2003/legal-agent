@@ -1,5 +1,6 @@
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import type { AgentService } from './agent/agentService.js';
+import { SessionStore } from './agent/sessionStore.js';
 import { config } from './config.js';
 import { registerMessageCreateEvent } from './events/messageCreate.js';
 import { registerReadyEvent } from './events/ready.js';
@@ -15,8 +16,11 @@ export function createBot(agentService: AgentService): Client {
     partials: [Partials.Channel],
   });
 
+  // One store per bot process — conversation memory doesn't outlive a restart.
+  const sessionStore = new SessionStore();
+
   registerReadyEvent(client);
-  registerMessageCreateEvent(client, agentService);
+  registerMessageCreateEvent(client, agentService, sessionStore);
 
   return client;
 }
