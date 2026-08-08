@@ -10,8 +10,8 @@ export const config = {
   server: {
     port: Number(process.env['PORT'] ?? 3100),
   },
-  lawApi: {
-    baseUrl: requireEnv('LAW_API_BASE_URL'),
+  mcp: {
+    serverUrl: requireEnv('MCP_SERVER_URL'),
   },
   llm: {
     baseUrl: requireEnv('OPENAI_BASE_URL'),

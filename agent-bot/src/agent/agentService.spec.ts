@@ -1,8 +1,8 @@
 import { describe, expect, it, jest } from '@jest/globals';
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type OpenAI from 'openai';
 import { AgentService } from './agentService.js';
-import type { LawApiClient } from '../lawApi/client.js';
-import type { LawDocument } from '../lawApi/types.js';
 
 interface MockToolCallMessage {
   role: string;
@@ -52,12 +52,12 @@ function asOpenAi(mock: MockOpenAi): OpenAI {
   return mock as unknown as OpenAI;
 }
 
-function mockGetById(
-  result: LawDocument,
-): jest.Mock<(documentId: string) => Promise<LawDocument>> {
-  const mock = jest.fn<(documentId: string) => Promise<LawDocument>>();
-  mock.mockResolvedValue(result);
-  return mock;
+function buildMockMcpClient(): Client {
+  return { callTool: jest.fn() } as unknown as Client;
+}
+
+function textResult(payload: unknown): CallToolResult {
+  return { content: [{ type: 'text', text: JSON.stringify(payload) }] };
 }
 
 function toolCallResponse(
@@ -89,11 +89,20 @@ function finalResponse(content: string): MockChatCompletion {
   };
 }
 
+const NO_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
+const SYSTEM_PROMPT = 'test system prompt';
+
 describe('AgentService', () => {
   it('returns the final message directly when the model makes no tool calls', async () => {
     const openai = buildMockOpenAi([finalResponse('Xin chào')]);
-    const lawApi = {} as LawApiClient;
-    const service = new AgentService(asOpenAi(openai), 'test-model', lawApi);
+    const mcpClient = buildMockMcpClient();
+    const service = new AgentService(
+      asOpenAi(openai),
+      'test-model',
+      mcpClient,
+      NO_TOOLS,
+      SYSTEM_PROMPT,
+    );
 
     const reply = await service.chat('hi');
 
@@ -101,22 +110,31 @@ describe('AgentService', () => {
     expect(openai.chat.completions.create).toHaveBeenCalledTimes(1);
   });
 
-  it('executes a tool call, feeds the result back, and returns the follow-up answer', async () => {
+  it('executes a tool call via MCP, feeds the result back, and returns the follow-up answer', async () => {
     const openai = buildMockOpenAi([
       toolCallResponse('get_document', { documentId: 'doc-1' }),
       finalResponse('Điều 5 nói về vốn điều lệ, theo 59/2020/QH14.'),
     ]);
-    const lawApi = {
-      getById: mockGetById({
-        id: 'doc-1',
-        citationId: '59/2020/QH14',
-      } as LawDocument),
-    } as unknown as LawApiClient;
-    const service = new AgentService(asOpenAi(openai), 'test-model', lawApi);
+    const mcpClient = buildMockMcpClient();
+    jest
+      .mocked(mcpClient.callTool)
+      .mockResolvedValue(
+        textResult({ id: 'doc-1', citationId: '59/2020/QH14' }),
+      );
+    const service = new AgentService(
+      asOpenAi(openai),
+      'test-model',
+      mcpClient,
+      NO_TOOLS,
+      SYSTEM_PROMPT,
+    );
 
     const reply = await service.chat('what does doc-1 say?');
 
-    expect(jest.mocked(lawApi.getById)).toHaveBeenCalledWith('doc-1');
+    expect(jest.mocked(mcpClient.callTool)).toHaveBeenCalledWith({
+      name: 'get_document',
+      arguments: { documentId: 'doc-1' },
+    });
     expect(reply).toBe('Điều 5 nói về vốn điều lệ, theo 59/2020/QH14.');
     expect(openai.chat.completions.create).toHaveBeenCalledTimes(2);
 
@@ -138,25 +156,39 @@ describe('AgentService', () => {
     const openai = buildMockOpenAi(
       Array.from({ length: 10 }, () => infiniteToolCall),
     );
-    const lawApi = {
-      getById: mockGetById({ id: 'doc-1' } as LawDocument),
-    } as unknown as LawApiClient;
-    const service = new AgentService(asOpenAi(openai), 'test-model', lawApi);
+    const mcpClient = buildMockMcpClient();
+    jest
+      .mocked(mcpClient.callTool)
+      .mockResolvedValue(textResult({ id: 'doc-1' }));
+    const service = new AgentService(
+      asOpenAi(openai),
+      'test-model',
+      mcpClient,
+      NO_TOOLS,
+      SYSTEM_PROMPT,
+    );
 
     const reply = await service.chat('loop forever');
 
     expect(reply).toContain('Xin lỗi');
   });
 
-  it('reports a tool error back to the model instead of throwing', async () => {
+  it('reports an MCP tool error back to the model instead of throwing', async () => {
     const openai = buildMockOpenAi([
       toolCallResponse('get_document', { documentId: 'missing' }),
       finalResponse('Không tìm thấy văn bản.'),
     ]);
-    const getById = jest.fn<(documentId: string) => Promise<LawDocument>>();
-    getById.mockRejectedValue(new Error('404 not found'));
-    const lawApi = { getById } as unknown as LawApiClient;
-    const service = new AgentService(asOpenAi(openai), 'test-model', lawApi);
+    const mcpClient = buildMockMcpClient();
+    jest
+      .mocked(mcpClient.callTool)
+      .mockRejectedValue(new Error('404 not found'));
+    const service = new AgentService(
+      asOpenAi(openai),
+      'test-model',
+      mcpClient,
+      NO_TOOLS,
+      SYSTEM_PROMPT,
+    );
 
     const reply = await service.chat('what does missing say?');
 
@@ -169,5 +201,36 @@ describe('AgentService', () => {
       error: string;
     };
     expect(parsed.error).toContain('404 not found');
+  });
+
+  it('reports an MCP-level tool error (isError) back to the model instead of throwing', async () => {
+    const openai = buildMockOpenAi([
+      toolCallResponse('get_document', { documentId: 'missing' }),
+      finalResponse('Không tìm thấy văn bản.'),
+    ]);
+    const mcpClient = buildMockMcpClient();
+    jest.mocked(mcpClient.callTool).mockResolvedValue({
+      content: [{ type: 'text', text: 'Document not found' }],
+      isError: true,
+    });
+    const service = new AgentService(
+      asOpenAi(openai),
+      'test-model',
+      mcpClient,
+      NO_TOOLS,
+      SYSTEM_PROMPT,
+    );
+
+    const reply = await service.chat('what does missing say?');
+
+    expect(reply).toBe('Không tìm thấy văn bản.');
+    const secondCallArgs = openai.chat.completions.create.mock.calls[1][0];
+    const toolMessage = secondCallArgs.messages.find(
+      (m) => m.role === 'tool',
+    );
+    const parsed = JSON.parse(toolMessage?.content ?? '{}') as {
+      error: string;
+    };
+    expect(parsed.error).toContain('Document not found');
   });
 });
