@@ -276,7 +276,23 @@ function resolveHeading(
 }
 
 export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
-  const lines = fullText
+  // §16 (docs/monitoring/law-index-flagged-documents.md): some documents'
+  // scraped fullText is Unicode NFD (combining marks decomposed, e.g. "ề" =
+  // U+0065 U+0302 U+0300) rather than NFC (precomposed, single codepoint).
+  // Every Vietnamese-diacritic literal in this file's patterns — "Điều",
+  // "Chương", "Nơi nhận", etc. — is NFC, so an NFD line silently fails every
+  // match despite being visually and semantically identical text: a whole
+  // Điều/Chương heading goes unrecognized and its content is absorbed into
+  // whatever node was previously open. Confirmed live on 368/2025/NĐ-CP
+  // ("Điều 6." heading, byte-inspected as NFD, never matched
+  // DIEU_KHOAN_PATTERN). Normalizing once here — rather than in
+  // vbpl-client.service.ts at scrape time — fixes both already-stored
+  // documents (re-parseable from document.raw_source.fullText with no
+  // re-scrape, same posture as §13's fix) and any future scrape, since this
+  // function is the sole entry point from raw text to the node tree either
+  // way.
+  const normalized = fullText.normalize('NFC');
+  const lines = normalized
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);

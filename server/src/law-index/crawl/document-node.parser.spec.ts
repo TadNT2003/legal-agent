@@ -548,6 +548,34 @@ describe('parseDocumentBody', () => {
     });
   });
 
+  it('§16 fix: normalizes Unicode-NFD scraped text to NFC before matching, so a decomposed "Điều 6." heading still opens its own node instead of being absorbed into the previous Điều, confirmed against real vbpl.vn output (368/2025/NĐ-CP)', () => {
+    const fullTextNfc = [
+      'Điều 5. Đồng tiền sử dụng trong giao dịch',
+      '1. Các giao dịch thực hiện qua tài khoản Tiền di động phải được thực hiện bằng Đồng Việt Nam.',
+      'Điều 6. Các hành vi bị cấm',
+      '1. Cung ứng hoặc sử dụng tài khoản Tiền di động để thực hiện các nghiệp vụ khác.',
+    ].join('\n');
+    // Simulates the real bug: vbpl.vn served this document's DOM text with
+    // combining diacritics decomposed (NFD) rather than precomposed (NFC).
+    // .normalize('NFD') reproduces that byte shape from an ordinary NFC
+    // source string, so this fixture doesn't need hand-typed decomposed
+    // Unicode literals.
+    const fullTextNfd = fullTextNfc.normalize('NFD');
+    expect(fullTextNfd).not.toBe(fullTextNfc); // sanity: the fixture is actually NFD
+
+    const roots = parseDocumentBody(fullTextNfd);
+
+    expect(roots).toHaveLength(2);
+    expect(roots[0]).toMatchObject({ nodeType: 'dieu', ordinal: '5' });
+    expect(roots[1]).toMatchObject({
+      nodeType: 'dieu',
+      ordinal: '6',
+      heading: 'Các hành vi bị cấm',
+    });
+    expect(roots[0].children).toHaveLength(1);
+    expect(roots[1].children).toHaveLength(1);
+  });
+
   it('§12c fix: does not suppress a citing sentence with no following quote (e.g. a bare "Bãi bỏ Điều N." with no replacement text)', () => {
     const fullText = [
       'Điều 5. Sửa đổi, bãi bỏ',
