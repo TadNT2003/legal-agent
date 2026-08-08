@@ -754,6 +754,34 @@ function extractScopeTitleAndFullText(): {
     ?.querySelectorAll('[parent-id]')
     .forEach((shadowCard) => shadowCard.remove());
 
+  // A second, unrelated vbpl.vn front-end bug on the same annotation cards:
+  // each card renders one badge <button> per non-empty classification
+  // attribute it carries (`type` = legacy taxonomy id, `new-types` = a
+  // newer, parallel taxonomy id) — a card with both attributes renders two
+  // buttons side by side. That's normal and correct when the two
+  // attributes resolve to different labels (confirmed live: a card showing
+  // both "Điều khoản được thay thế" and "Điều khoản được sửa đổi, bổ sung"
+  // side by side, genuinely two distinct facts about the same clause) — but
+  // on the rare card where both attributes happen to resolve to the SAME
+  // label text, the result is a visible, textual duplicate with no
+  // `parent-id`/`display:none` marker at all, so the removal above doesn't
+  // catch it. Confirmed live on Điều 23, Luật 47/2024/QH15 (innerText read
+  // "Điều khoản được sửa đổi, bổ sung" twice in a row, immediately before
+  // that Điều's heading). Deduping sibling buttons by their own rendered
+  // text, scoped to each individual card, fixes the true collision while
+  // leaving legitimate dual-different-label badges untouched.
+  pane?.querySelectorAll('p.rounded-md').forEach((card) => {
+    const seenLabels = new Set<string>();
+    card.querySelectorAll('button').forEach((btn) => {
+      const label = btn.textContent?.trim() ?? '';
+      if (seenLabels.has(label)) {
+        btn.remove();
+      } else {
+        seenLabels.add(label);
+      }
+    });
+  });
+
   return {
     scope,
     title,

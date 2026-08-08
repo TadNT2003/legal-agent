@@ -730,4 +730,101 @@ describe('parseDocumentBody', () => {
       'C. Uỷ ban nhân dân huyện gồm có 1 Chủ tịch, 2 Phó Chủ tịch như sau:',
     );
   });
+
+  it('§17 outer-grouping fix: also recognizes a roman-numeral (not just single-letter) category marker, confirmed against real vbpl.vn output (55-CP, 487-NQ/QHK4 — tax-rate schedules organized by industry)', () => {
+    const fullText = [
+      'Điều 1. Biểu thuế suất',
+      'I. Ngành công nghiệp',
+      '1. Sản xuất hàng dệt.',
+      '2. Sản xuất hàng cơ khí.',
+      'II. Ngành xây dựng',
+      '1. Có bao thầu nguyên vật liệu.',
+      'III. Ngành vận tải',
+      '1. Vận tải hàng hoá.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+
+    // Category I's own list stays real structure (2 real Khoản).
+    expect(dieu.children).toHaveLength(2);
+    expect(dieu.children[0]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '1',
+      textContent: 'Sản xuất hàng dệt.',
+    });
+    expect(dieu.children[1]).toMatchObject({ nodeType: 'khoan', ordinal: '2' });
+    expect(dieu.children[1].textContent).toContain('II. Ngành xây dựng');
+    expect(dieu.children[1].textContent).toContain('III. Ngành vận tải');
+    expect(dieu.children[1].textContent).toContain(
+      '1. Có bao thầu nguyên vật liệu.',
+    );
+  });
+
+  it('§17 outer-grouping fix: also recognizes a hyphen-separated (not just period) roman-numeral category marker, confirmed against real vbpl.vn output (487-NQ/QHK4 — "I- Đồ ăn uống, thuốc hút")', () => {
+    const fullText = [
+      'Điều 19',
+      'BIỂU THUẾ',
+      'I- Đồ ăn uống, thuốc hút',
+      '1. Dầu ăn 10',
+      '2. Miến 10',
+      'II- Vải sợi, hàng dệt',
+      '1. Vải bông 8',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+
+    expect(dieu.children).toHaveLength(2);
+    expect(dieu.children[0]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '1',
+      textContent: 'Dầu ăn 10',
+    });
+    expect(dieu.children[1]).toMatchObject({ nodeType: 'khoan', ordinal: '2' });
+    expect(dieu.children[1].textContent).toContain('II- Vải sợi, hàng dệt');
+    expect(dieu.children[1].textContent).toContain('1. Vải bông 8');
+  });
+
+  it("suppresses an amendment-annotated Khoản only when it would actually collide with an existing sibling, confirmed against real vbpl.vn output (47/2024/QH15, Điều 35 — Khoản 2/3 belonging to a different, earlier Điều linearized right after Điều 35's own real Khoản 1-4)", () => {
+    const fullText = [
+      'Điều 35. Quy hoạch chuyên ngành hạ tầng kỹ thuật',
+      '1. Nội dung khoản một thật.',
+      '2. Nội dung khoản hai thật.',
+      '3. Nội dung khoản ba thật.',
+      '4. Thời hạn của quy hoạch chuyên ngành hạ tầng kỹ thuật.',
+      'Điều khoản được sửa đổi, bổ sung',
+      '2. Các bản vẽ thể hiện nội dung của quy hoạch không gian ngầm.',
+      'Điều khoản được sửa đổi, bổ sung',
+      '3. Các bản vẽ thể hiện nội dung của quy hoạch chuyên ngành hạ tầng kỹ thuật.',
+      'Mục 6',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+
+    // Only the 4 real Khoản — the two annotated ones collide with Khoản
+    // 2/3 that already exist, so they fold into Khoản 4's text instead.
+    expect(dieu.children).toHaveLength(4);
+    expect(dieu.children.map((c) => c.ordinal)).toEqual(['1', '2', '3', '4']);
+    expect(dieu.children[3].textContent).toContain(
+      'Điều khoản được sửa đổi, bổ sung',
+    );
+    expect(dieu.children[3].textContent).toContain(
+      '2. Các bản vẽ thể hiện nội dung của quy hoạch không gian ngầm.',
+    );
+    expect(dieu.children[3].textContent).toContain(
+      '3. Các bản vẽ thể hiện nội dung của quy hoạch chuyên ngành hạ tầng kỹ thuật.',
+    );
+  });
+
+  it('does not suppress a correctly-placed annotated Khoản that does not collide with anything', () => {
+    const fullText = [
+      'Điều 5. Sửa đổi',
+      '1. Nội dung khoản một.',
+      'Điều khoản được sửa đổi, bổ sung',
+      '2. Nội dung khoản hai, đặt đúng chỗ, không trùng lặp.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+    expect(dieu.children).toHaveLength(2);
+    expect(dieu.children[1]).toMatchObject({ nodeType: 'khoan', ordinal: '2' });
+  });
 });

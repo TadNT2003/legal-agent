@@ -157,16 +157,25 @@ function isTableHeader(line: string): boolean {
 }
 
 // §17's "un-modeled outer list grouping" cause: some older administrative
-// decrees group Khoản-numbered content under an uppercase-letter category
-// heading ("A. Uỷ ban nhân dân thành phố... như sau:", "B. Uỷ ban nhân dân
-// các tỉnh... như sau:", ...) — a period-terminated shape distinct from
-// Điểm's own "a)" convention (DIEM_PATTERN), so the parser has no
-// representation for this level at all; every category's own "1./2./3."
-// list restarts and collides with the previous category's. Confirmed live
-// on 174-CP (UBND membership structure, categories A through G by
-// administrative-unit tier, skipping F per Vietnamese ordinal-lettering
-// convention — same reason DIEM_PATTERN's own suffix set has gaps).
-const GROUP_MARKER_PATTERN = /^[A-ZĐ]\.\s+\S/u;
+// and tax decrees group Khoản-numbered content under a category heading —
+// either a single uppercase letter ("A. Uỷ ban nhân dân thành phố... như
+// sau:", "B. Uỷ ban nhân dân các tỉnh... như sau:", confirmed on 174-CP,
+// categories A through G by administrative-unit tier, skipping F per
+// Vietnamese ordinal-lettering convention) or a roman-numeral industry/topic
+// heading ("I. NGUYÊN TẮC CHUNG", "II. LOẠI HÀNG CHỊU THUẾ...", confirmed on
+// two real tax schedules — 487-NQ/QHK4 (1974) and 55-CP (1993, still
+// `con_hieu_luc` — this is not just an old-document artifact) — both using
+// the identical I./II./III./IV. shape for different industry categories,
+// each with its own restarting "1./2./3." rate list). The separator after
+// the marker isn't always a period either — 487-NQ/QHK4's own attached tax
+// schedule (a *second*, separate table within the same document from the
+// one that motivated the roman-numeral case above) uses a hyphen instead
+// ("I- Đồ ăn uống, thuốc hút", "1. Dầu ăn 10", "2. Miến 10", ...), so both
+// are accepted. Either shape is distinct from Điểm's own "a)" convention
+// (DIEM_PATTERN), so the parser has no representation for this level at
+// all; every category's own numbered list restarts and collides with the
+// previous category's.
+const GROUP_MARKER_PATTERN = /^(?:[A-ZĐ]|[IVXLCDM]{2,6})[.-]\s+\S/u;
 
 // §12c (extends §7): a citing sentence — "<verb> ... như sau:" or, confirmed
 // broadened, without "như sau" at all ("Bổ sung Điều 17c:") — followed by a
@@ -188,6 +197,20 @@ function isCitingColon(line: string): boolean {
 function startsWithOpenQuote(line: string): boolean {
   return line.length > 0 && (line[0] === '"' || line[0] === '“');
 }
+
+// §15's own annotation ("this clause has been amended") sometimes precedes
+// amendment content whose target Khoản belongs to an EARLIER Điều but got
+// linearized into the scraped text right after a LATER Điều's real content
+// (a document-ordering artifact, not the shadow-DOM duplication §15 already
+// fixed at extraction — confirmed live on 47/2024/QH15: real Điều 35 runs
+// Khoản 1-4, then the annotation precedes a "2." and a "3." belonging to
+// Điều 34's underground-space-planning topic, colliding with Điều 35's own
+// real Khoản 2/3). Deliberately narrow: only suppresses a Khoản that would
+// actually collide with an existing sibling, and only when immediately
+// preceded by this exact annotation line — a correctly-placed annotated
+// Khoản (the overwhelming majority in any heavily-amended document) is
+// completely unaffected.
+const AMENDMENT_ANNOTATION_LINE = 'Điều khoản được sửa đổi, bổ sung';
 
 /** Updates quote-nesting depth from a line's quote characters. Curly open/close (“ ”, U+201C/U+201D) are unambiguous and support real nesting; a straight " (U+0022) toggles, since the same glyph serves both roles for this content. */
 function updateQuoteDepth(depth: number, line: string): number {
@@ -336,6 +359,11 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
   // quoteDepth.
   let seenGroupMarker = false;
   let inGroupSuppress = false;
+  // See AMENDMENT_ANNOTATION_LINE above — one-shot lookahead, same
+  // consume-then-set pattern as pendingQuoteCitation: read at the top of an
+  // iteration (reflecting the previous line), set at the bottom (for the
+  // next line).
+  let justSawAmendmentAnnotation = false;
 
   const openNode = (
     nodeType: Exclude<DocumentNodeType, 'phu_luc'>,
@@ -503,6 +531,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       pendingQuoteCitation = false;
       seenGroupMarker = false;
       inGroupSuppress = false;
+      justSawAmendmentAnnotation = false;
       stack.length = 0; // Phụ lục always sits at document root, sibling to top-level Chương/Điều.
       i += openPhuLucFromMatch(phuLucMatch, i);
       continue;
@@ -524,6 +553,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       pendingQuoteCitation = false;
       seenGroupMarker = false;
       inGroupSuppress = false;
+      justSawAmendmentAnnotation = false;
       continue;
     }
 
@@ -556,6 +586,12 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       // quoted-citation shape after all, fall through to normal parsing.
     }
 
+    // See AMENDMENT_ANNOTATION_LINE above — captured now (reflecting
+    // whether the line just processed last iteration was the annotation),
+    // consumed inside the Khoản-match block below; the new value for the
+    // NEXT line is set alongside pendingQuoteCitation further down.
+    const wasAfterAmendmentAnnotation = justSawAmendmentAnnotation;
+
     const dieuMatch = line.match(DIEU_KHOAN_PATTERN);
     if (dieuMatch) {
       inTable = false;
@@ -563,6 +599,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       pendingQuoteCitation = false;
       seenGroupMarker = false;
       inGroupSuppress = false;
+      justSawAmendmentAnnotation = false;
       const ordinal = `${dieuMatch[1]}${dieuMatch[2]}`;
       if (wouldRestartDocumentWide('dieu', ordinal)) {
         stack.length = 0;
@@ -584,6 +621,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       pendingQuoteCitation = false;
       seenGroupMarker = false;
       inGroupSuppress = false;
+      justSawAmendmentAnnotation = false;
       const keyword = phanChuongMatch[1];
       const nodeType: 'phan' | 'chuong' = /^phần$/i.test(keyword)
         ? 'phan'
@@ -609,6 +647,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       pendingQuoteCitation = false;
       seenGroupMarker = false;
       inGroupSuppress = false;
+      justSawAmendmentAnnotation = false;
       const ordinal = tieuMucMatch[2];
       if (wouldRestartAtRoot('tieu_muc', ordinal)) {
         stack.length = 0;
@@ -629,6 +668,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       pendingQuoteCitation = false;
       seenGroupMarker = false;
       inGroupSuppress = false;
+      justSawAmendmentAnnotation = false;
       const ordinal = mucMatch[2];
       if (wouldRestartAtRoot('muc', ordinal)) {
         stack.length = 0;
@@ -681,6 +721,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
     // the top of the next iteration) — recording the possibility here costs
     // nothing if it doesn't pan out.
     pendingQuoteCitation = isCitingColon(line);
+    justSawAmendmentAnnotation = line === AMENDMENT_ANNOTATION_LINE;
 
     const stackTopLevel = stack[stack.length - 1]?.level;
 
@@ -698,6 +739,25 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       const khoanMatch = line.match(KHOAN_PATTERN);
       if (khoanMatch) {
         const ordinal = `${khoanMatch[1]}${khoanMatch[2]}`;
+        // See AMENDMENT_ANNOTATION_LINE above — only suppress when this
+        // exact Khoản would actually collide with an existing sibling; a
+        // correctly-placed annotated Khoản (the common case) opens
+        // normally, same as if no annotation had preceded it.
+        if (wasAfterAmendmentAnnotation) {
+          const level = LEVEL.khoan;
+          let depth = stack.length;
+          while (depth > 0 && stack[depth - 1].level >= level) depth--;
+          const parent = depth > 0 ? stack[depth - 1].node : null;
+          const siblings = parent ? parent.children : roots;
+          const wouldCollide = siblings.some(
+            (s) => s.nodeType === 'khoan' && s.ordinal === ordinal,
+          );
+          if (wouldCollide) {
+            const current = stack[stack.length - 1]?.node;
+            if (current) appendText(current, line);
+            continue;
+          }
+        }
         const label = `Khoản ${ordinal}`;
         const node = newNode('khoan', ordinal, label, null);
         openNode('khoan', node);
