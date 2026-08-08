@@ -592,4 +592,77 @@ describe('parseDocumentBody', () => {
     });
     expect(dieu.children[1]).toMatchObject({ nodeType: 'khoan', ordinal: '2' });
   });
+
+  it('root-restart fix: folds a promulgating decree\'s attached "QUY ĐỊNH" (whose own Điều numbering restarts at 1) into a generic annex instead of colliding with the decree\'s own Điều, confirmed against real vbpl.vn output (12-CP)', () => {
+    const fullText = [
+      'Điều 1. Ban hành kèm theo Nghị định này bản Quy định về sắp xếp lại tổ chức.',
+      'Điều 2. Các bộ trưởng chịu trách nhiệm thi hành Nghị định này.',
+      'Điều 3. Nghị định này thi hành kể từ ngày ký.',
+      'QUY ĐỊNH',
+      'VỀ SẮP XẾP LẠI TỔ CHỨC',
+      '(Ban hành kèm theo Nghị định số 12-CP ngày 2-3-1993 của Chính phủ).',
+      'Điều 1. Doanh nghiệp nông nghiệp Nhà nước bao gồm các đơn vị quốc doanh.',
+      'Điều 2. Sắp xếp lại các doanh nghiệp theo hướng như sau:',
+    ].join('\n');
+
+    const roots = parseDocumentBody(fullText);
+
+    // 3 real Điều from the decree itself, plus 1 generic-annex node holding
+    // everything from the second "Điều 1" onward — not a 4th/5th colliding
+    // "Điều 1"/"Điều 2".
+    expect(roots).toHaveLength(4);
+    expect(roots[0]).toMatchObject({ nodeType: 'dieu', ordinal: '1' });
+    expect(roots[1]).toMatchObject({ nodeType: 'dieu', ordinal: '2' });
+    expect(roots[2]).toMatchObject({ nodeType: 'dieu', ordinal: '3' });
+    expect(roots[3].nodeType).toBe('phu_luc');
+    expect(roots[3].textContent).toContain(
+      'Điều 1. Doanh nghiệp nông nghiệp Nhà nước bao gồm các đơn vị quốc doanh.',
+    );
+    expect(roots[3].textContent).toContain(
+      'Điều 2. Sắp xếp lại các doanh nghiệp theo hướng như sau:',
+    );
+  });
+
+  it('root-restart fix: folds a verbatim-duplicated document (whole text repeated in place of a signature block) into a generic annex instead of re-opening a colliding Chương I, confirmed against real vbpl.vn output (364/2025/NĐ-CP)', () => {
+    const fullText = [
+      'Chương I',
+      'QUY ĐỊNH CHUNG',
+      'Điều 1. Phạm vi điều chỉnh và đối tượng áp dụng',
+      'Nghị định này quy định mức thu phí sử dụng đường bộ.',
+      'Điều 11. Tổ chức thực hiện',
+      '1. Bộ Xây dựng có trách nhiệm hướng dẫn thực hiện.',
+      'Chương I',
+      'QUY ĐỊNH CHUNG',
+      'Điều 1. Phạm vi điều chỉnh và đối tượng áp dụng',
+      'Nghị định này quy định mức thu phí sử dụng đường bộ.',
+    ].join('\n');
+
+    const roots = parseDocumentBody(fullText);
+
+    expect(roots).toHaveLength(2);
+    expect(roots[0]).toMatchObject({ nodeType: 'chuong', ordinal: '1' });
+    expect(roots[0].children.map((c) => c.ordinal)).toEqual(['1', '11']);
+    expect(roots[1].nodeType).toBe('phu_luc');
+    expect(roots[1].textContent).toContain('QUY ĐỊNH CHUNG');
+    expect(roots[1].textContent).toContain(
+      'Điều 1. Phạm vi điều chỉnh và đối tượng áp dụng',
+    );
+  });
+
+  it('root-restart fix: a genuinely different Điều ordinal under a new Chương is not mistaken for a restart', () => {
+    const fullText = [
+      'Chương I',
+      'Điều 1. Nội dung điều 1.',
+      'Điều 2. Nội dung điều 2.',
+      'Chương II',
+      'Điều 3. Nội dung điều 3.',
+    ].join('\n');
+
+    const roots = parseDocumentBody(fullText);
+    expect(roots).toHaveLength(2);
+    expect(roots[0]).toMatchObject({ nodeType: 'chuong', ordinal: '1' });
+    expect(roots[1]).toMatchObject({ nodeType: 'chuong', ordinal: '2' });
+    expect(roots[1].children).toHaveLength(1);
+    expect(roots[1].children[0]).toMatchObject({ ordinal: '3' });
+  });
 });

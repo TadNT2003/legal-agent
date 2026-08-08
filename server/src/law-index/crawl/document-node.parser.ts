@@ -333,6 +333,41 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
     stack.push({ node, level });
   };
 
+  /**
+   * A container-level node (dieu/phan/chuong/muc/tieu_muc — never
+   * khoan/diem, which restart every Điều by design) about to be opened at
+   * document ROOT (no currently-open Phần/Chương/Mục wrapping it) whose
+   * ordinal duplicates an EXISTING root sibling of the same type signals a
+   * duplicated/re-attached block, not a genuine second occurrence — Điều
+   * numbering in particular is never supposed to restart within one
+   * document (continuous across Chương, unlike Khoản). Confirmed live on
+   * two distinct real shapes with this exact signature: a short "ban hành"
+   * decree whose attached "QUY ĐỊNH"/"QUY CHẾ" restarts its own Điều
+   * numbering at 1 (12-CP: decree's own Điều 1-3, then a fully independent
+   * attached regulation's own Điều 1-6), and a document whose scraped text
+   * contains the entire document twice, verbatim, with no signature block
+   * in between (364/2025/NĐ-CP: a second "Chương I / QUY ĐỊNH CHUNG / Điều
+   * 1..." with identical body text follows the real Điều 11). Same
+   * "suppress, don't reconstruct" trade-off as 12b/12c: rather than
+   * building a second nested tree for content whose relationship to the
+   * first occurrence isn't reliably inferable from a line-based parser,
+   * this and everything after it folds into one flat generic-annex node
+   * (reusing the existing QCVN/Biểu số mechanism) — checked only at
+   * document root, not at every nesting level, to stay conservative against
+   * a real Chương legitimately reusing an ordinal deeper in the tree
+   * (not observed, but not ruled out either).
+   */
+  const wouldRestartAtRoot = (
+    nodeType: Exclude<DocumentNodeType, 'phu_luc' | 'khoan' | 'diem'>,
+    ordinal: string,
+  ): boolean => {
+    const wouldBeRoot = !stack.some((s) => s.level < LEVEL[nodeType]);
+    return (
+      wouldBeRoot &&
+      roots.some((r) => r.nodeType === nodeType && r.ordinal === ordinal)
+    );
+  };
+
   /** Opens a Phụ lục node from an explicit PHU_LUC_PATTERN match. Returns the number of extra lines resolveHeading consumed, for the caller to advance `i` by. */
   const openPhuLucFromMatch = (
     match: RegExpMatchArray,
@@ -479,6 +514,11 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       quoteDepth = 0;
       pendingQuoteCitation = false;
       const ordinal = `${dieuMatch[1]}${dieuMatch[2]}`;
+      if (wouldRestartAtRoot('dieu', ordinal)) {
+        stack.length = 0;
+        openGenericAnnex(line);
+        continue;
+      }
       const label = `Điều ${ordinal}`;
       const [heading, skip] = resolveHeading(dieuMatch[3], lines, i);
       i += skip;
@@ -496,6 +536,11 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
         ? 'phan'
         : 'chuong';
       const ordinal = romanToArabic(phanChuongMatch[2]);
+      if (wouldRestartAtRoot(nodeType, ordinal)) {
+        stack.length = 0;
+        openGenericAnnex(line);
+        continue;
+      }
       const label = `${keyword} ${phanChuongMatch[2]}`;
       const [heading, skip] = resolveHeading(phanChuongMatch[3], lines, i);
       i += skip;
@@ -509,6 +554,11 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       quoteDepth = 0;
       pendingQuoteCitation = false;
       const ordinal = tieuMucMatch[2];
+      if (wouldRestartAtRoot('tieu_muc', ordinal)) {
+        stack.length = 0;
+        openGenericAnnex(line);
+        continue;
+      }
       const label = `${tieuMucMatch[1]} ${ordinal}`;
       const [heading, skip] = resolveHeading(tieuMucMatch[3], lines, i);
       i += skip;
@@ -522,6 +572,11 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       quoteDepth = 0;
       pendingQuoteCitation = false;
       const ordinal = mucMatch[2];
+      if (wouldRestartAtRoot('muc', ordinal)) {
+        stack.length = 0;
+        openGenericAnnex(line);
+        continue;
+      }
       const label = `${mucMatch[1]} ${ordinal}`;
       const [heading, skip] = resolveHeading(mucMatch[3], lines, i);
       i += skip;
