@@ -419,9 +419,44 @@ it everywhere else.
 
 ### `.doc` / `.rtf`: still unsolved, still a separate work item
 
-None of the tools handle these — this recommendation doesn't change that. A LibreOffice-headless
-(`--convert-to docx`) pre-conversion step upstream of the pipeline above is still the prerequisite, and
-it doesn't exist on this machine yet. Not blocking on the OCR/routing decision; just not solved by it.
+None of the tools handle these — this recommendation doesn't change that. A pre-conversion step to
+`.docx`/`.pdf`, run upstream of the whole pipeline above, is still the prerequisite. **Not yet installed
+or tested on this machine — this subsection is a recommendation to validate, not a result to trust
+blindly, unlike the rest of this report.**
+
+**Recommended: LibreOffice headless conversion**
+(`soffice --headless --convert-to docx file.doc`, or `--convert-to pdf`). It natively reads both legacy
+binary `.doc` and `.rtf`, is free, and is one of the most battle-tested open-source implementations of
+legacy MS Office format compatibility available. Two things to get right, not just "install it and call
+it done":
+
+- **Don't spawn a fresh `soffice` process per file.** Naive per-file CLI invocation pays real startup
+  overhead (~2–5s) and concurrent invocations can hit user-profile lock conflicts — this doesn't scale
+  cleanly to a corpus this size. Run it as a persistent listener instead: either `unoconv` (a wrapper
+  that talks to a long-running LibreOffice instance over its UNO API) or LibreOffice's own `--accept`
+  socket mode.
+- **Verify it correctly decodes this corpus's legacy Vietnamese encoding before trusting it.** The
+  `.rtf` sample in this evaluation used `.VnTime`/`.VnTimeH` fonts — TCVN3/VNI 8-bit encoding, not
+  Unicode. "LibreOffice supports RTF" doesn't automatically mean it correctly remaps that specific
+  legacy 8-bit font scheme to proper Unicode diacritics on output. This is a real, testable,
+  project-specific risk, not something to assume from LibreOffice's general format support — exactly
+  the kind of claim this evaluation otherwise verified directly rather than took on faith.
+
+**Alternatives, with honest tradeoffs, if LibreOffice doesn't pan out:**
+
+- **Aspose.Words** (commercial .NET/Java/Python library) — generally the highest-fidelity legacy-format
+  converter available, no LibreOffice/Word dependency, but it costs money, unlike everything else
+  evaluated in this report.
+- **MS Word via COM automation** (`pywin32`) — native fidelity since it's the format's own owner, but
+  requires an actual licensed Word install on the machine and is fragile for unattended server
+  automation.
+- **Pandoc** — handles `.rtf` reasonably, but support for the old *binary* `.doc` format as input is
+  uncertain and unverified here; don't assume it without testing, the same way LibreOffice's RTF fidelity
+  above needs testing.
+
+Concrete next step, not yet done: install LibreOffice, run it against this project's real `.doc`/`.rtf`
+samples, and specifically check whether the TCVN3/VNI-encoded `.rtf` sample decodes to correct Unicode
+Vietnamese — before this becomes a trusted part of the pipeline.
 
 ### What this fixes for the parser rewrite
 

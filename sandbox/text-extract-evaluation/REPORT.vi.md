@@ -437,9 +437,43 @@ của nó trên PDF scan và RTF khiến nó bị loại ở mọi trường h�
 ### `.doc` / `.rtf`: vẫn chưa giải quyết được, vẫn là một hạng mục công việc riêng
 
 Không công cụ nào xử lý được các định dạng này — khuyến nghị này không thay đổi điều đó. Một bước
-chuyển đổi trước bằng LibreOffice-headless (`--convert-to docx`) đặt trước pipeline nêu trên vẫn là điều
-kiện tiên quyết, và bước đó chưa tồn tại trên máy này. Không phụ thuộc vào quyết định OCR/định tuyến ở
-trên; chỉ đơn giản là chưa được giải quyết bởi quyết định đó.
+chuyển đổi trước sang `.docx`/`.pdf`, đặt trước toàn bộ pipeline nêu trên, vẫn là điều kiện tiên quyết.
+**Chưa được cài đặt hay kiểm thử trên máy này — phần này là một khuyến nghị cần xác minh, không phải một
+kết quả để tin tưởng mù quáng, khác với phần còn lại của báo cáo này.**
+
+**Được khuyến nghị: chuyển đổi bằng LibreOffice ở chế độ headless**
+(`soffice --headless --convert-to docx file.doc`, hoặc `--convert-to pdf`). Nó đọc trực tiếp được cả
+`.doc` nhị phân cũ lẫn `.rtf`, miễn phí, và là một trong những triển khai mã nguồn mở được kiểm chứng
+kỹ lưỡng nhất cho khả năng tương thích với các định dạng MS Office cũ. Có hai điều cần làm đúng, không
+chỉ đơn giản là "cài vào rồi xong":
+
+- **Đừng khởi tạo một tiến trình `soffice` mới cho mỗi file.** Gọi CLI riêng cho từng file phải trả chi
+  phí khởi động thật sự (~2–5s), và các lệnh gọi đồng thời có thể gặp xung đột khóa profile người dùng —
+  cách này không mở rộng tốt cho một kho dữ liệu cỡ này. Thay vào đó, nên chạy nó như một listener
+  thường trực: hoặc dùng `unoconv` (một wrapper giao tiếp với một instance LibreOffice chạy dài hạn qua
+  API UNO của nó), hoặc dùng chế độ socket `--accept` sẵn có của chính LibreOffice.
+- **Xác minh nó giải mã đúng cách mã hóa tiếng Việt cũ của kho dữ liệu này trước khi tin tưởng.** Mẫu
+  `.rtf` trong đợt đánh giá này dùng font `.VnTime`/`.VnTimeH` — mã hóa TCVN3/VNI 8-bit, không phải
+  Unicode. Việc "LibreOffice hỗ trợ RTF" không tự động đồng nghĩa với việc nó ánh xạ đúng bộ font 8-bit
+  cũ đó sang dấu tiếng Việt Unicode chuẩn khi xuất ra. Đây là một rủi ro thật, có thể kiểm chứng, đặc thù
+  của dự án này, không phải điều nên mặc định đúng chỉ vì LibreOffice hỗ trợ định dạng nói chung — đúng
+  kiểu khẳng định mà đợt đánh giá này, ở mọi chỗ khác, đã xác minh trực tiếp thay vì tin theo lời đồn.
+
+**Các phương án thay thế, kèm đánh đổi thẳng thắn, nếu LibreOffice không hiệu quả:**
+
+- **Aspose.Words** (thư viện thương mại .NET/Java/Python) — nhìn chung là công cụ chuyển đổi định dạng
+  cũ có độ trung thực cao nhất hiện có, không phụ thuộc LibreOffice/Word, nhưng tốn phí, khác với mọi
+  công cụ khác đã đánh giá trong báo cáo này.
+- **MS Word qua COM automation** (`pywin32`) — độ trung thực gốc vì chính là chủ sở hữu định dạng, nhưng
+  cần một bản cài Word có bản quyền thật trên máy và khá mong manh khi tự động hóa trên server không có
+  người giám sát.
+- **Pandoc** — xử lý `.rtf` tương đối ổn, nhưng khả năng hỗ trợ định dạng `.doc` *nhị phân* cũ làm input
+  là điều chưa chắc chắn và chưa được kiểm chứng ở đây; đừng mặc định nó hoạt động mà chưa kiểm thử,
+  giống như độ trung thực RTF của LibreOffice ở trên cũng cần kiểm thử.
+
+Bước tiếp theo cụ thể, chưa thực hiện: cài LibreOffice, chạy nó trên các mẫu `.doc`/`.rtf` thật của dự
+án này, và kiểm tra riêng xem mẫu `.rtf` mã hóa TCVN3/VNI có được giải mã đúng sang tiếng Việt Unicode
+hay không — trước khi biến nó thành một phần được tin tưởng của pipeline.
 
 ### Điều này giải quyết gì cho việc viết lại parser
 
