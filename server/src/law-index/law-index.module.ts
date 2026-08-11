@@ -7,6 +7,7 @@ import { DocumentNodeRepository } from './persistence/document-node.repository';
 import { JobQueueModule } from './job-queue/job-queue.module';
 import { LawIndexController } from './law-index.controller';
 import { LawIndexService } from './law-index.service';
+import { OpenSearchModule } from './opensearch/opensearch.module';
 import { RetrieveModule } from './retrieve/retrieve.module';
 import { SyncModule } from './sync/sync.module';
 
@@ -24,6 +25,7 @@ import { SyncModule } from './sync/sync.module';
     DbModule,
     RetrieveModule,
     SyncModule,
+    OpenSearchModule,
     forwardRef(() => JobQueueModule),
   ],
   controllers: [LawIndexController],

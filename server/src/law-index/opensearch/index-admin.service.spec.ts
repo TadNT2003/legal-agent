@@ -8,7 +8,7 @@ import {
 } from './legal-provisions.mapping';
 
 const config = {
-  indexBaseName: 'legal_provisions',
+  indexBaseName: 'legal-provisions',
   indexVersion: 1,
   readAlias: 'legal-provisions-read',
   writeAlias: 'legal-provisions-write',
@@ -55,9 +55,9 @@ describe('IndexAdminService', () => {
 
       const result = await service.ensureIndex();
 
-      expect(result).toEqual({ created: true, index: 'legal_provisions_v1' });
+      expect(result).toEqual({ created: true, index: 'legal-provisions-v1' });
       expect(client.indices.create).toHaveBeenCalledWith({
-        index: 'legal_provisions_v1',
+        index: 'legal-provisions-v1',
         body: {
           settings: {
             index: {
@@ -85,35 +85,103 @@ describe('IndexAdminService', () => {
 
       expect(result).toEqual({
         created: false,
-        index: 'legal_provisions_v1',
+        index: 'legal-provisions-v1',
       });
       expect(client.indices.create).not.toHaveBeenCalled();
     });
   });
 
   describe('promoteAliases', () => {
-    it('atomically removes both aliases everywhere and adds them to the target version', async () => {
+    it('removes both aliases from their currently-resolved index and adds them to the target version', async () => {
+      client.indices.getAlias.mockResolvedValue({
+        body: { 'legal-provisions-v1': { aliases: {} } },
+      });
+
       const result = await service.promoteAliases(2);
 
       expect(result).toEqual({
-        index: 'legal_provisions_v2',
+        index: 'legal-provisions-v2',
         readAlias: 'legal-provisions-read',
         writeAlias: 'legal-provisions-write',
       });
       expect(client.indices.updateAliases).toHaveBeenCalledWith({
         body: {
           actions: [
-            { remove: { index: '*', alias: 'legal-provisions-read' } },
-            { remove: { index: '*', alias: 'legal-provisions-write' } },
+            {
+              remove: {
+                index: 'legal-provisions-v1',
+                alias: 'legal-provisions-read',
+              },
+            },
+            {
+              remove: {
+                index: 'legal-provisions-v1',
+                alias: 'legal-provisions-write',
+              },
+            },
             {
               add: {
-                index: 'legal_provisions_v2',
+                index: 'legal-provisions-v2',
                 alias: 'legal-provisions-read',
               },
             },
             {
               add: {
-                index: 'legal_provisions_v2',
+                index: 'legal-provisions-v2',
+                alias: 'legal-provisions-write',
+                is_write_index: true,
+              },
+            },
+          ],
+        },
+      });
+    });
+
+    it('skips remove actions on a first-ever promotion (aliases do not resolve yet)', async () => {
+      client.indices.getAlias.mockRejectedValue(new NotFoundError('missing'));
+
+      await service.promoteAliases(1);
+
+      expect(client.indices.updateAliases).toHaveBeenCalledWith({
+        body: {
+          actions: [
+            {
+              add: {
+                index: 'legal-provisions-v1',
+                alias: 'legal-provisions-read',
+              },
+            },
+            {
+              add: {
+                index: 'legal-provisions-v1',
+                alias: 'legal-provisions-write',
+                is_write_index: true,
+              },
+            },
+          ],
+        },
+      });
+    });
+
+    it('does not re-remove an alias already pointing at the target version (idempotent re-promotion)', async () => {
+      client.indices.getAlias.mockResolvedValue({
+        body: { 'legal-provisions-v2': { aliases: {} } },
+      });
+
+      await service.promoteAliases(2);
+
+      expect(client.indices.updateAliases).toHaveBeenCalledWith({
+        body: {
+          actions: [
+            {
+              add: {
+                index: 'legal-provisions-v2',
+                alias: 'legal-provisions-read',
+              },
+            },
+            {
+              add: {
+                index: 'legal-provisions-v2',
                 alias: 'legal-provisions-write',
                 is_write_index: true,
               },
@@ -142,7 +210,7 @@ describe('IndexAdminService', () => {
 
     it('resolves the alias and reports health/doc count', async () => {
       client.indices.getAlias.mockResolvedValue({
-        body: { legal_provisions_v1: { aliases: {} } },
+        body: { 'legal-provisions-v1': { aliases: {} } },
       });
       client.cluster.health.mockResolvedValue({ body: { status: 'green' } });
       client.count.mockResolvedValue({ body: { count: 70497 } });
@@ -152,15 +220,15 @@ describe('IndexAdminService', () => {
       expect(status).toEqual({
         readAlias: 'legal-provisions-read',
         writeAlias: 'legal-provisions-write',
-        resolvedIndex: 'legal_provisions_v1',
+        resolvedIndex: 'legal-provisions-v1',
         health: 'green',
         docsCount: 70497,
       });
       expect(client.cluster.health).toHaveBeenCalledWith({
-        index: 'legal_provisions_v1',
+        index: 'legal-provisions-v1',
       });
       expect(client.count).toHaveBeenCalledWith({
-        index: 'legal_provisions_v1',
+        index: 'legal-provisions-v1',
       });
     });
   });
@@ -169,13 +237,13 @@ describe('IndexAdminService', () => {
     it('refuses to drop an index still attached to an alias', async () => {
       client.indices.getAlias.mockResolvedValue({
         body: {
-          legal_provisions_v1: {
+          'legal-provisions-v1': {
             aliases: { 'legal-provisions-read': {} },
           },
         },
       });
 
-      await expect(service.dropIndex('legal_provisions_v1')).rejects.toThrow(
+      await expect(service.dropIndex('legal-provisions-v1')).rejects.toThrow(
         BadRequestException,
       );
       expect(client.indices.delete).not.toHaveBeenCalled();
@@ -183,23 +251,37 @@ describe('IndexAdminService', () => {
 
     it('deletes an index with no aliases attached', async () => {
       client.indices.getAlias.mockResolvedValue({
-        body: { legal_provisions_v0: { aliases: {} } },
+        body: { 'legal-provisions-v0': { aliases: {} } },
       });
 
-      await service.dropIndex('legal_provisions_v0');
+      await service.dropIndex('legal-provisions-v0');
 
       expect(client.indices.delete).toHaveBeenCalledWith({
-        index: 'legal_provisions_v0',
+        index: 'legal-provisions-v0',
       });
     });
 
     it('deletes an index that has no aliases at all (getAlias 404s)', async () => {
       client.indices.getAlias.mockRejectedValue(new NotFoundError('missing'));
 
-      await service.dropIndex('legal_provisions_v0');
+      await service.dropIndex('legal-provisions-v0');
 
       expect(client.indices.delete).toHaveBeenCalledWith({
-        index: 'legal_provisions_v0',
+        index: 'legal-provisions-v0',
+      });
+    });
+  });
+
+  describe('dropIndexVersion', () => {
+    it('resolves the version number to a concrete index name before dropping', async () => {
+      client.indices.getAlias.mockResolvedValue({
+        body: { 'legal-provisions-v0': { aliases: {} } },
+      });
+
+      await service.dropIndexVersion(0);
+
+      expect(client.indices.delete).toHaveBeenCalledWith({
+        index: 'legal-provisions-v0',
       });
     });
   });

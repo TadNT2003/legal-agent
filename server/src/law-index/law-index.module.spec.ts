@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
 import { LawIndexModule } from './law-index.module';
 import { LawIndexService } from './law-index.service';
 import { LawIndexController } from './law-index.controller';
@@ -19,6 +20,10 @@ import {
 import { lawIndexConfig } from './law-index.config';
 import { JobQueueService } from './job-queue/job-queue.service';
 import { JobWorkerService } from './job-queue/job-worker';
+import { opensearchProjectorConfig } from './opensearch/opensearch.config';
+import { OPENSEARCH_CLIENT } from './opensearch/opensearch-client.module';
+import { IndexAdminService } from './opensearch/index-admin.service';
+import { OpenSearchService } from './opensearch/opensearch.service';
 
 describe('LawIndexModule', () => {
   let moduleRef: TestingModule;
@@ -28,7 +33,19 @@ describe('LawIndexModule', () => {
     createTables();
 
     moduleRef = await Test.createTestingModule({
-      imports: [LawIndexModule],
+      imports: [
+        // opensearchProjectorConfig is injected directly by
+        // IndexAdminService/OpenSearchService's constructors (not behind a
+        // factory provider we can override the way DRIZZLE/OPENSEARCH_CLIENT
+        // are below) — a real ConfigModule import resolves it correctly.
+        // Every field defaults from `??`, so no env vars are needed here.
+        ConfigModule.forRoot({
+          isGlobal: true,
+          ignoreEnvFile: true,
+          load: [opensearchProjectorConfig],
+        }),
+        LawIndexModule,
+      ],
     })
       .overrideProvider(postgresConfig.KEY)
       .useValue({
@@ -47,6 +64,8 @@ describe('LawIndexModule', () => {
         requestDelayMs: 0,
         headless: true,
       })
+      .overrideProvider(OPENSEARCH_CLIENT)
+      .useValue({})
       .overrideProvider(VbplClientService)
       .useValue({
         fetchDocument: jest.fn().mockResolvedValue({}),
@@ -124,5 +143,15 @@ describe('LawIndexModule', () => {
     const retrieveService = moduleRef.get(RetrieveService);
     expect(retrieveService).toBeDefined();
     expect(retrieveService).toBeInstanceOf(RetrieveService);
+  });
+
+  it('imports OpenSearchModule and provides IndexAdminService/OpenSearchService', () => {
+    const indexAdminService = moduleRef.get(IndexAdminService);
+    expect(indexAdminService).toBeDefined();
+    expect(indexAdminService).toBeInstanceOf(IndexAdminService);
+
+    const openSearchService = moduleRef.get(OpenSearchService);
+    expect(openSearchService).toBeDefined();
+    expect(openSearchService).toBeInstanceOf(OpenSearchService);
   });
 });

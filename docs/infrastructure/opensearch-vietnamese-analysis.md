@@ -56,7 +56,7 @@ quy phạm pháp luật, quy_phạm_pháp_luật
 ### Analyzer settings
 
 ```json
-PUT /legal_provisions_v2
+PUT /legal-provisions-v2
 {
   "settings": {
     "index": {
