@@ -15,6 +15,8 @@ function createMockDb(): {
   db: jest.Mocked<NodePgDatabase<typeof schema>>;
   selectResult: Array<{ id: string; messages: unknown; updatedAt: Date }>;
   rtResult: Array<{ discordMessageId: string; sessionId: string }>;
+  getByIdResult: Array<{ id: string; messages: unknown }>;
+  getByIdError: { current: Error | null };
 } {
   const selectResult: Array<{
     id: string;
@@ -22,6 +24,8 @@ function createMockDb(): {
     updatedAt: Date;
   }> = [];
   const rtResult: Array<{ discordMessageId: string; sessionId: string }> = [];
+  const getByIdResult: Array<{ id: string; messages: unknown }> = [];
+  const getByIdError: { current: Error | null } = { current: null };
 
   const insertPromise = makePromiseLike();
   const updatePromise = makePromiseLike();
@@ -35,6 +39,11 @@ function createMockDb(): {
               void Promise.resolve(selectResult).then(onFulfilled);
             },
           }),
+          limit: jest.fn().mockImplementation(() =>
+            getByIdError.current
+              ? Promise.reject(getByIdError.current)
+              : Promise.resolve(getByIdResult),
+          ),
         }),
         orderBy: jest.fn().mockReturnValue({
           then: (onFulfilled: (val: unknown) => void) => {
@@ -69,7 +78,7 @@ function createMockDb(): {
     }),
   } as unknown as jest.Mocked<NodePgDatabase<typeof schema>>;
 
-  return { db, selectResult, rtResult };
+  return { db, selectResult, rtResult, getByIdResult, getByIdError };
 }
 
 describe('PgSessionStore', () => {
@@ -181,5 +190,48 @@ describe('PgSessionStore', () => {
 
     expect(session.id).toBeDefined();
     expect(store.getByReplyTarget('msg-99')).toBe(session);
+  });
+
+  describe('getById', () => {
+    it('resolves a cached session without querying the DB', async () => {
+      const session = store.createSession();
+
+      const resolved = await store.getById(session.id);
+
+      expect(resolved).toBe(session);
+      expect(mockDb.db.select).not.toHaveBeenCalled();
+    });
+
+    it('falls through to Postgres on a cache miss and caches the result', async () => {
+      mockDb.getByIdResult.push({
+        id: 'db-only-session',
+        messages: [{ role: 'user', content: 'from db' }],
+      });
+
+      const resolved = await store.getById('db-only-session');
+
+      expect(resolved).toEqual({
+        id: 'db-only-session',
+        messages: [{ role: 'user', content: 'from db' }],
+      });
+      // Second call must hit the now-warmed cache, not the DB again.
+      mockDb.db.select.mockClear();
+      const cached = await store.getById('db-only-session');
+      expect(cached).toBe(resolved);
+      expect(mockDb.db.select).not.toHaveBeenCalled();
+    });
+
+    it('resolves undefined for a session that exists in neither cache nor DB', async () => {
+      const resolved = await store.getById('nowhere-to-be-found');
+      expect(resolved).toBeUndefined();
+    });
+
+    it('resolves undefined (not a thrown error) when the DB lookup fails, e.g. a malformed id', async () => {
+      mockDb.getByIdError.current = new Error(
+        'invalid input syntax for type uuid',
+      );
+
+      await expect(store.getById('not-a-uuid')).resolves.toBeUndefined();
+    });
   });
 });
