@@ -6,3 +6,6 @@ laws/
 # Local files
 .playwright-mcp/
 .vscode/
+
+# Logs
+*.log
