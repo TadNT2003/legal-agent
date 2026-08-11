@@ -1,7 +1,8 @@
-import type { Client, Message } from 'discord.js';
+import type { Client, DMChannel, Message } from 'discord.js';
 import { ChannelType, Events } from 'discord.js';
 import type { AgentService } from '../agent/agentService.js';
-import type { Session, SessionStore } from '../agent/sessionStore.js';
+import type { Session } from '../agent/sessionStore.js';
+import type { PgSessionStore } from '../agent/pgSessionStore.js';
 import { createLogger } from '../tools/logging.js';
 
 const logger = createLogger('discord-message');
@@ -24,17 +25,28 @@ const TRIGGER_KEYWORD = 'harpae';
 export function registerMessageCreateEvent(
   client: Client,
   agentService: AgentService,
-  sessionStore: SessionStore,
+  sessionStore: PgSessionStore,
 ): void {
   client.on(Events.MessageCreate, (message) => {
     void handleMessage(client, agentService, sessionStore, message);
   });
 }
 
+function resolveUserId(message: Message): string | undefined {
+  if (message.channel.type === ChannelType.DM) {
+    return (message.channel as DMChannel).recipientId;
+  }
+  return message.author.id;
+}
+
+function resolveChannelId(message: Message): string | undefined {
+  return message.channelId;
+}
+
 async function handleMessage(
   client: Client,
   agentService: AgentService,
-  sessionStore: SessionStore,
+  sessionStore: PgSessionStore,
   message: Message,
 ): Promise<void> {
   if (message.author.bot) return;
@@ -47,9 +59,12 @@ async function handleMessage(
     .includes(TRIGGER_KEYWORD);
   const startsNewSession = isDm || isMentioned || containsKeyword;
 
+  const userId = resolveUserId(message);
+  const channelId = resolveChannelId(message);
+
   let session: Session;
   if (startsNewSession) {
-    session = sessionStore.createSession();
+    session = sessionStore.createSession(userId, channelId);
   } else {
     const isReplyToBot = await isReplyToBotMessage(client, message);
     if (!isReplyToBot) return;
@@ -60,7 +75,7 @@ async function handleMessage(
       : undefined;
     // Fallback: session not tracked (e.g. process restarted since) — still
     // answer, just without prior context, instead of ignoring the message.
-    session = existing ?? sessionStore.createSession();
+    session = existing ?? sessionStore.createSession(userId, channelId);
   }
 
   const question = message.content
@@ -76,7 +91,7 @@ async function handleMessage(
   try {
     const result = await agentService.chat(session.messages, question);
     reply = result.reply;
-    sessionStore.update(session, result.messages);
+    await sessionStore.update(session, result.messages);
   } catch (error) {
     logger.error('AgentService.chat failed', error);
     reply =

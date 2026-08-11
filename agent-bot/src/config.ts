@@ -21,4 +21,11 @@ export const config = {
   discord: {
     token: requireEnv('DISCORD_BOT_TOKEN'),
   },
+  db: {
+    host: process.env.POSTGRES_HOST ?? 'localhost',
+    port: parseInt(process.env.POSTGRES_PORT ?? '5432', 10),
+    user: process.env.POSTGRES_USER ?? 'legal_agent',
+    password: process.env.POSTGRES_PASSWORD ?? '',
+    database: process.env.POSTGRES_DB ?? 'legal_agent',
+  },
 } as const;

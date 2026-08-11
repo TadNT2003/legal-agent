@@ -1,7 +1,9 @@
 import 'dotenv/config';
 import { AgentService } from './agent/agentService.js';
 import { createLlmClient } from './agent/llmClient.js';
+import { PgSessionStore } from './agent/pgSessionStore.js';
 import { startBot } from './bot.js';
+import { closeDb, createDb } from './db/connection.js';
 import { config } from './config.js';
 import { createMcpClient } from './mcp/client.js';
 import { fetchPromptText, listOpenAiTools } from './mcp/tools.js';
@@ -21,6 +23,16 @@ async function main(): Promise<void> {
   const guidance = await fetchPromptText(mcpClient, 'legal_lookup_guidance');
   const systemPrompt = `${SYSTEM_PROMPT_INTRO}\n\n${guidance}`;
 
+  // Set up DB-backed session store
+  const { db, pool } = createDb(config.db);
+  const sessionStore = new PgSessionStore(db);
+
+  try {
+    await sessionStore.loadActiveSessions();
+  } catch (error) {
+    logger.error('Failed to load active sessions from DB — starting fresh', error);
+  }
+
   const agentService = new AgentService(
     createLlmClient(),
     config.llm.model,
@@ -29,18 +41,30 @@ async function main(): Promise<void> {
     systemPrompt,
   );
 
-  startServer(agentService);
+  startServer(agentService, sessionStore);
 
   // Non-fatal: a bad/expired Discord token shouldn't take down POST
   // /agent/chat, which is meant to work standalone as a manual test path.
   try {
-    await startBot(agentService);
+    await startBot(agentService, sessionStore, config.discord.token);
   } catch (error) {
     logger.error(
       'Discord login failed — bot will not respond, but the HTTP server still runs',
       error,
     );
   }
+
+  // Graceful shutdown: close DB pool
+  process.on('SIGTERM', () => {
+    logger.log('SIGTERM received — shutting down');
+    void closeDb(pool);
+    process.exit(0);
+  });
+  process.on('SIGINT', () => {
+    logger.log('SIGINT received — shutting down');
+    void closeDb(pool);
+    process.exit(0);
+  });
 }
 
 main().catch((error: unknown) => {
