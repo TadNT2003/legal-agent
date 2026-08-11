@@ -981,4 +981,115 @@ describe('parseDocumentBody', () => {
       textContent: 'Bãi bỏ.',
     });
   });
+
+  it('§18 fix: relabels a second "d)" as "đ)" when đ never appears elsewhere in the list, confirmed against real vbpl.vn output (113/2025/NĐ-CP: "d) Riêng biệt với DC." / "d) Kết nối kỹ thuật để đồng bộ dữ liệu với DC." / "e) Đủ năng lực...")', () => {
+    const fullText = [
+      'Điều 1. Nội dung',
+      '1. Trung tâm dữ liệu dự phòng',
+      'c) Cho phép thiết lập cơ chế nhân bản dữ liệu.',
+      'd) Riêng biệt với DC.',
+      'd) Kết nối kỹ thuật để đồng bộ dữ liệu với DC.',
+      'e) Đủ năng lực công nghệ và năng lực lưu trữ.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+    const diem = dieu.children[0].children;
+    expect(diem.map((d) => d.ordinal)).toEqual(['c', 'd', 'đ', 'e']);
+    expect(diem[2]).toMatchObject({
+      label: 'Điểm đ',
+      textContent: 'Kết nối kỹ thuật để đồng bộ dữ liệu với DC.',
+    });
+  });
+
+  it('§18 fix: relabels a doubled "đ)" as "d)" + "đ)" when d never appears elsewhere in the list — the mirror shape, confirmed against real vbpl.vn output (103/2016/NĐ-CP: "c) Riêng biệt..." / "đ) Phòng xét nghiệm phải kín..." / "đ) Cửa sổ và cửa ra vào..." / "e) Hệ thống...")', () => {
+    const fullText = [
+      'Điều 1. Nội dung',
+      '1. Điều kiện về cơ sở vật chất',
+      'c) Riêng biệt với các phòng xét nghiệm khác.',
+      'đ) Phòng xét nghiệm phải kín để bảo đảm tiệt trùng.',
+      'đ) Cửa sổ và cửa ra vào phải sử dụng vật liệu chống cháy.',
+      'e) Hệ thống cửa ra vào bảo đảm điều kiện bình thường.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+    const diem = dieu.children[0].children;
+    expect(diem.map((d) => d.ordinal)).toEqual(['c', 'd', 'đ', 'e']);
+    expect(diem[1]).toMatchObject({
+      label: 'Điểm d',
+      textContent: 'Phòng xét nghiệm phải kín để bảo đảm tiệt trùng.',
+    });
+    expect(diem[2]).toMatchObject({
+      label: 'Điểm đ',
+      textContent: 'Cửa sổ và cửa ra vào phải sử dụng vật liệu chống cháy.',
+    });
+  });
+
+  it('§18 fix: does not relabel a "d)" collision when đ is already used elsewhere in the same list — a different, unrelated duplicate', () => {
+    const fullText = [
+      'Điều 1. Nội dung',
+      '1. Điều kiện',
+      'c) Điều kiện c.',
+      'd) Điều kiện d thật.',
+      'đ) Điều kiện đ thật.',
+      'd) Một điều kiện khác trùng lặp không rõ nguyên nhân.',
+      'e) Điều kiện e.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+    const diem = dieu.children[0].children;
+    expect(diem.map((d) => d.ordinal)).toEqual(['c', 'd', 'đ', 'd_2', 'e']);
+  });
+
+  it('§19 fix: recognizes a hyphen-separated Khoản header ("N- ..."), confirmed against real vbpl.vn output (73-CP, a pre-1990s document: "2- Những người nước ngoài..." / "3- Những đối tượng...")', () => {
+    const fullText = [
+      'Điều 13. -',
+      '1. Bộ Ngoại giao làm thủ tục cấp phép đăng ký cư trú.',
+      'a) Viên chức, nhân viên của các cơ quan Đại diện ngoại giao.',
+      '2- Những người nước ngoài sau đây được miễn thủ tục đăng ký lưu trú.',
+      'a) Thành viên của các Đoàn đại biểu cấp cao nước ngoài.',
+      '3- Những đối tượng nói tại khoản 2 Điều này nếu cần kéo dài thời gian.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+    expect(dieu.children.map((c) => c.ordinal)).toEqual(['1', '2', '3']);
+    expect(dieu.children[1].textContent).toBe(
+      'Những người nước ngoài sau đây được miễn thủ tục đăng ký lưu trú.',
+    );
+    // Each Khoản's own "a)" Điểm is real structure, not a collision.
+    expect(dieu.children[0].children.map((d) => d.ordinal)).toEqual(['a']);
+    expect(dieu.children[1].children.map((d) => d.ordinal)).toEqual(['a']);
+  });
+
+  it('§19 fix: does not misread an inline number range ("3-4 người") as a Khoản header', () => {
+    const fullText = [
+      'Điều 1. Nội dung',
+      '1. Nhu cầu nhân sự.',
+      '3-4 người tham gia mỗi ca trực theo quy định.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+    expect(dieu.children).toHaveLength(1);
+    expect(dieu.children[0].textContent).toContain(
+      '3-4 người tham gia mỗi ca trực theo quy định.',
+    );
+  });
+
+  it('suppresses an amendment-annotated Điểm after a "Điều khoản được bãi bỏ" (repealed) annotation, the same way as "được sửa đổi, bổ sung", confirmed against real vbpl.vn output (133/2016/NĐ-CP — a repealed "a) Trường cao đẳng" linearized after Điều 7\'s real Khoản 3 collides with its real Điểm a)', () => {
+    const fullText = [
+      'Điều 7. Cơ sở giáo dục đại học',
+      '3. Cơ sở giáo dục đại học có vốn đầu tư nước ngoài gồm:',
+      'a) Cơ sở giáo dục đại học có 100% vốn của nhà đầu tư nước ngoài;',
+      'b) Cơ sở giáo dục đại học liên doanh giữa nhà đầu tư nước ngoài và nhà đầu tư trong nước.',
+      'Điều khoản được bãi bỏ',
+      'a) Trường cao đẳng;',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+    const khoan3 = dieu.children[0];
+    expect(khoan3.children).toHaveLength(2);
+    expect(khoan3.children[1].textContent).toMatch(
+      /^Cơ sở giáo dục đại học liên doanh/,
+    );
+    expect(khoan3.children[1].textContent).toContain('Trường cao đẳng');
+  });
 });

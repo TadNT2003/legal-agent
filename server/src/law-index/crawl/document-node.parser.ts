@@ -93,7 +93,17 @@ export function romanToArabic(raw: string): string {
 // disambiguate it from a real heading. Accepted for now — same best-effort/
 // recalibrate-against-real-data posture as the rest of this parser.
 const DIEU_KHOAN_PATTERN = /^Điều\s+(\d+)([a-zđ]?)\s*[.:]?\s*(.*)$/iu;
-const KHOAN_PATTERN = /^(\d+)([a-zđ]?)\s*\.\s*(.*)$/u;
+// §19 (docs/monitoring/law-index-flagged-documents.md): a period is the
+// default Khoản separator, but some older documents (pre-1990s citation
+// style, confirmed on 73-CP: "2- Những người nước ngoài...", "3- Những đối
+// tượng...") use a hyphen instead — unrecognized, the whole Khoản heading
+// silently fails to match and its content (including its own "a)"/"b)"
+// Điểm list) gets absorbed into the still-open previous Khoản, colliding
+// with that Khoản's real Điểm ordinals. The hyphen alternative requires at
+// least one trailing space (unlike the period, which allows zero) to avoid
+// misreading an inline number range like "3-4 người" — never seen with a
+// following space in real prose — as a fake Khoản header.
+const KHOAN_PATTERN = /^(\d+)([a-zđ]?)\s*(?:\.\s*|-\s+)(.*)$/u;
 const DIEM_PATTERN = /^([a-zđ])\)\s*(.*)$/iu;
 
 // §12b, generalized beyond header-vocabulary detection (TABLE_HEADER_PATTERN
@@ -229,8 +239,15 @@ function startsWithOpenQuote(line: string): boolean {
 // actually collide with an existing sibling, and only when immediately
 // preceded by this exact annotation line — a correctly-placed annotated
 // Khoản (the overwhelming majority in any heavily-amended document) is
-// completely unaffected.
-const AMENDMENT_ANNOTATION_LINE = 'Điều khoản được sửa đổi, bổ sung';
+// completely unaffected. Also recognizes vbpl.vn's sibling annotation for a
+// REPEALED clause ("Điều khoản được bãi bỏ") — confirmed live on
+// 133/2016/NĐ-CP: a repealed Điểm a ("Trường cao đẳng") gets linearized
+// after a later Khoản's own real Điểm list, colliding with that Khoản's
+// real Điểm a the same way a misplaced amendment does.
+const AMENDMENT_ANNOTATION_LINES = new Set([
+  'Điều khoản được sửa đổi, bổ sung',
+  'Điều khoản được bãi bỏ',
+]);
 
 /** Updates quote-nesting depth from a line's quote characters. Curly open/close (“ ”, U+201C/U+201D) are unambiguous and support real nesting; a straight " (U+0022) toggles, since the same glyph serves both roles for this content. */
 function updateQuoteDepth(depth: number, line: string): number {
@@ -280,6 +297,48 @@ function dedupeOrdinal(
   let suffix = 2;
   while (taken.has(`${ordinal}_${suffix}`)) suffix++;
   return `${ordinal}_${suffix}`;
+}
+
+/**
+ * §18 (docs/monitoring/law-index-flagged-documents.md): vbpl.vn's own
+ * digitized text sometimes garbles the "d)"/"đ)" ordinal pair specifically —
+ * confirmed live across 23+ documents (113/2025/NĐ-CP alone has 5 separate
+ * occurrences), always one of two mirror-image shapes: a second "d)" where
+ * "đ)" belongs (đ never appears anywhere in that Điểm list — confirmed on
+ * 113/2025/NĐ-CP: "...d) Riêng biệt với DC. / d) Kết nối kỹ thuật để đồng bộ
+ * dữ liệu với DC. / e) Đủ năng lực..."), or a second "đ)" where "d)" belongs
+ * (d never appears — confirmed on 103/2016/NĐ-CP: "...c) Riêng biệt... / đ)
+ * Phòng xét nghiệm phải kín... / đ) Cửa sổ và cửa ra vào... / e) Hệ
+ * thống..."). Vietnamese Điểm lists are alphabetically ordered with đ
+ * immediately following d (a, b, c, d, đ, e, ..., per
+ * docs/vn-legal-document-structure.md), so a collision on one member of the
+ * pair with the OTHER member absent from the entire list is deterministic,
+ * not a guess: the content is genuinely present, just mislabeled by the
+ * source, unlike a heading truly missing from the digitized text (a
+ * different, unfixable shape — see the "Điều 14" gap noted in
+ * law-index-flagged-documents.md §12). Needs the complete sibling list to
+ * confirm the other letter never appears, so this runs once over the fully
+ * built tree rather than inline during parsing (dedupeOrdinal's suffix has
+ * already been assigned by the time this walks the tree).
+ */
+function reclaimDDiacriticCollisions(siblings: ParsedDocumentNode[]): void {
+  const diem = siblings.filter((s) => s.nodeType === 'diem');
+  const dIndex = diem.findIndex((s) => s.ordinal === 'd');
+  const dDupIndex = diem.findIndex((s) => s.ordinal === 'd_2');
+  const ddIndex = diem.findIndex((s) => s.ordinal === 'đ');
+  const ddDupIndex = diem.findIndex((s) => s.ordinal === 'đ_2');
+
+  if (dIndex !== -1 && dDupIndex === dIndex + 1 && ddIndex === -1) {
+    diem[dDupIndex].ordinal = 'đ';
+    diem[dDupIndex].label = 'Điểm đ';
+  } else if (ddIndex !== -1 && ddDupIndex === ddIndex + 1 && dIndex === -1) {
+    diem[ddIndex].ordinal = 'd';
+    diem[ddIndex].label = 'Điểm d';
+    diem[ddDupIndex].ordinal = 'đ';
+    diem[ddDupIndex].label = 'Điểm đ';
+  }
+
+  for (const node of siblings) reclaimDDiacriticCollisions(node.children);
 }
 
 function newNode(
@@ -405,7 +464,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
   // quoteDepth.
   let seenGroupMarker = false;
   let inGroupSuppress = false;
-  // See AMENDMENT_ANNOTATION_LINE above — one-shot lookahead, same
+  // See AMENDMENT_ANNOTATION_LINES above — one-shot lookahead, same
   // consume-then-set pattern as pendingQuoteCitation: read at the top of an
   // iteration (reflecting the previous line), set at the bottom (for the
   // next line).
@@ -490,7 +549,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
    * True when a khoan/diem about to be opened would collide with an
    * existing sibling under whatever parent it would actually land under
    * (mirrors the pop-then-parent logic openNode itself uses, without
-   * mutating `stack`). Used by the AMENDMENT_ANNOTATION_LINE check for both
+   * mutating `stack`). Used by the AMENDMENT_ANNOTATION_LINES check for both
    * levels — confirmed live that the misplaced-amendment-content shape
    * happens at Điểm level too (117/2020/NĐ-CP, 115/2018/NĐ-CP,
    * 168/2024/NĐ-CP: a "b)"/"đ)"/"c)" collides the same way a Khoản does),
@@ -668,7 +727,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       continue;
     }
 
-    // See AMENDMENT_ANNOTATION_LINE above — captured now (reflecting
+    // See AMENDMENT_ANNOTATION_LINES above — captured now (reflecting
     // whether the line just processed last iteration was the annotation),
     // consumed inside the Khoản-match block below; the new value for the
     // NEXT line is set alongside pendingQuoteCitation further down.
@@ -807,7 +866,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
     // the top of the next iteration) — recording the possibility here costs
     // nothing if it doesn't pan out.
     pendingQuoteCitation = isCitingColon(line);
-    justSawAmendmentAnnotation = line === AMENDMENT_ANNOTATION_LINE;
+    justSawAmendmentAnnotation = AMENDMENT_ANNOTATION_LINES.has(line);
 
     const stackTopLevel = stack[stack.length - 1]?.level;
 
@@ -830,7 +889,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       }
       if (khoanMatch) {
         const ordinal = `${khoanMatch[1]}${khoanMatch[2]}`;
-        // See AMENDMENT_ANNOTATION_LINE above — only suppress when this
+        // See AMENDMENT_ANNOTATION_LINES above — only suppress when this
         // exact Khoản would actually collide with an existing sibling; a
         // correctly-placed annotated Khoản (the common case) opens
         // normally, same as if no annotation had preceded it.
@@ -860,7 +919,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       const diemMatch = line.match(DIEM_PATTERN);
       if (diemMatch) {
         const ordinal = diemMatch[1];
-        // See AMENDMENT_ANNOTATION_LINE above and the same check on Khoản —
+        // See AMENDMENT_ANNOTATION_LINES above and the same check on Khoản —
         // confirmed live this same misplaced-amendment-content shape also
         // happens at Điểm level (117/2020/NĐ-CP, 115/2018/NĐ-CP,
         // 168/2024/NĐ-CP), not just Khoản (47/2024/QH15).
@@ -887,5 +946,6 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
     // to attach and are dropped.
   }
 
+  reclaimDDiacriticCollisions(roots);
   return roots;
 }
