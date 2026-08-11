@@ -73,6 +73,98 @@ Visual Studio Build Tools installed.
 | 05 | Hiến pháp 1980                 | .rtf        | Uses`.VnTime`/`.VnTimeH` — legacy TCVN3/VNI 8-bit Vietnamese font encoding, not Unicode                                                                     |
 | 06 | 248/2025/QH15                    | .docx       | Modern Office XML baseline                                                                                                                                       |
 
+## Sample documents: consolidated overview (round 1 + round 2)
+
+**56 documents total, no overlap between rounds** (round 2 explicitly excluded the 2 PDFs already used
+in round 1 when sampling from `laws/manifest.json`).
+
+| | Count |
+|---|---|
+| Round 1 (hand-picked, format diversity) | 6 — 2 PDF, 2 legacy `.doc`, 1 `.rtf`, 1 `.docx` |
+| Round 2 (stratified, PDF-only) | 50 |
+| **Combined** | **56** |
+| Distinct citations represented | 56 (each sample is a different document) |
+| Tiers represented | `01-hien-phap`, `02-luat-nghi-quyet-quoc-hoi`, `03-phap-lenh-nghi-quyet-ubtvqh` |
+| Year range (round 2) | 2005–2026 |
+| Size range (round 2) | 33KB – 21.5MB |
+| Used in the docling/MinerU deep-dive OCR subset (rounds 2–4) | 11 of the 50 round-2 samples, plus round 1's sample 02 (the one reused again in rounds 3–4 for the EasyOCR tests) |
+
+### Round 1 (6 documents) — picked for format diversity, not representativeness
+
+Repeated here from Setup for a single point of reference; see that section for the full "why picked"
+rationale.
+
+| # | Document | Format | Scan status | Notes |
+|---|---|---|---|---|
+| 01 | 48/2024/QH15 (Luật Thuế GTGT) | PDF, 20p | Clean digital text (confirmed via `pypdfium2`) | |
+| 02 | 109/2025/QH15 (Luật Thuế TNCN) | PDF, 15p | Fully scanned (confirmed via `pypdfium2`) | Reused in rounds 3–4 for every EasyOCR/page-by-page test — the most heavily-analyzed single document in this whole evaluation |
+| 03 | 57/2010/QH12 (Luật Thuế BVMT) | legacy `.doc` | N/A | |
+| 04 | 01/2002/QH11 (Luật Ngân sách) | legacy `.doc` | N/A | |
+| 05 | Hiến pháp 1980 | `.rtf` | N/A | Legacy TCVN3/VNI font encoding |
+| 06 | 248/2025/QH15 | `.docx` | N/A | |
+
+### Round 2 (50 documents) — stratified by tier/year/size, PDF-only
+
+Sourced from `laws/manifest.json`, excluding round 1's 2 PDFs. **Scan status** is pdf-inspector's
+classification (see Round 2 findings for the full 92.2%-scanned analysis); **OCR subset** marks the 11
+documents carried forward into the docling/MinerU deep-dive in rounds 2–4.
+
+| # | Citation | Tier | Year | Size | Scan status | OCR subset? |
+|---|---|---|---|---|---|---|
+| 01 | `.` (Hiến pháp 2013) | 01-hien-phap | 2013 | 2.0MB | Fully scanned | |
+| 02 | 02/2026/QH16 | 02 | 2026 | 578KB | Fully scanned | |
+| 03 | 10/2009/PL-UBTVQH12 | 03-phap-lenh | 2009 | 1.2MB | Fully scanned | |
+| 04 | 2013 (Hiến pháp 2013) | 01-hien-phap | 2013 | 2.0MB | Fully scanned | ✅ |
+| 05 | 38/2013/QH13 | 02 | 2013 | 1.3MB | Fully scanned | |
+| 06 | 50/2014/QH13 | 02 | 2014 | 6.3MB | Fully scanned | |
+| 07 | 74/2018/QH14 | 02 | 2018 | 561KB | Fully scanned | ✅ |
+| 08 | 68/2025/QH15 | 02 | 2025 | 1.4MB | Fully scanned | ✅ |
+| 09 | 179/2025/QH15 | 02 | 2025 | 132KB | Fully scanned | ✅ |
+| 10 | 36/2021/QH15 | 02 | 2021 | 247KB | Fully scanned | |
+| 11 | 35/2017/QH14 | 02 | 2017 | 224KB | Fully scanned | |
+| 12 | 99/2019/QH14 | 02 | 2019 | 372KB | Fully scanned | |
+| 13 | 103/2025/QH15 | 02 | 2025 | 949KB | Fully scanned | |
+| 14 | 153/2024/QH15 | 02 | 2024 | 138KB | Fully scanned | |
+| 15 | 03/2026/QH16 | 02 | 2026 | 600KB | Fully scanned | |
+| 16 | 125/2025/QH15 | 02 | 2025 | 7.8MB | Fully scanned | |
+| 17 | 33/2021/QH15 | 02 | 2021 | 188KB | Fully scanned | |
+| 18 | 127/2016/QH13 | 02 | 2016 | 140KB | Fully scanned | |
+| 19 | 43/2022/QH15 | 02 | 2022 | 710KB | Fully scanned | |
+| 20 | 126/2025/QH15 | 02 | 2025 | 7.1MB | Fully scanned | |
+| 21 | 51/2022/QH15 | 02 | 2022 | 230KB | Fully scanned | |
+| 22 | 06/2022/QH15 | 02 | 2022 | 666KB | Mixed — 1/65 pages scanned | ✅ |
+| 23 | 128/2025/QH15 | 02 | 2025 | 21.0MB | Fully scanned | |
+| 24 | 108/2025/QH15 | 02 | 2025 | 2.9MB | Fully scanned | |
+| 25 | 39/2024/QH15 | 02 | 2024 | 820KB | Clean — 0/46 pages scanned | ✅ |
+| 26 | 41/2017/QH14 | 02 | 2017 | 392KB | Fully scanned | ✅ |
+| 27 | 11/2026/QH16 | 02 | 2026 | 661KB | Fully scanned | |
+| 28 | 59/2024/QH15 | 02 | 2024 | 315KB | Clean — 0/12 pages scanned | ✅ |
+| 29 | 131/2025/QH15 | 02 | 2025 | 10.7MB | Fully scanned | |
+| 30 | 149/2025/QH15 | 02 | 2025 | 151KB | Fully scanned | |
+| 31 | 198/2025/QH15 | 02 | 2025 | 4.1MB | Fully scanned | |
+| 32 | 137/2025/QH15 | 02 | 2025 | 4.5MB | Fully scanned | |
+| 33 | 114/2016/QH13 | 02 | 2016 | 175KB | Fully scanned | |
+| 34 | 117/2020/QH14 | 02 | 2020 | 211KB | Fully scanned | |
+| 35 | 246/2025/QH15 | 02 | 2025 | 6.6MB | Fully scanned | ✅ |
+| 36 | 14/2026/QH16 | 02 | 2026 | 773KB | Fully scanned | |
+| 37 | 97/2025/QH15 | 02 | 2025 | 352KB | Fully scanned | |
+| 38 | 148/2025/QH15 | 02 | 2025 | 1.2MB | Fully scanned | |
+| 39 | 59/2018/QHH14 | 02 | 2018 | 210KB | Fully scanned | |
+| 40 | 213/2025/QH15 | 02 | 2025 | 135KB | Fully scanned | |
+| 41 | 88/2019/QH14 | 02 | 2019 | 494KB | Fully scanned | |
+| 42 | 74/2022/QH15 | 02 | 2022 | 5.1MB | Fully scanned (but has a corrupted baked-in text layer — see Round 2 findings) | |
+| 43 | 81/2025/QH15 | 02 | 2025 | 1.1MB | Fully scanned | |
+| 44 | 43/2005/QH11 | 02 | 2005 | 33KB | **Error — not actually a PDF** (mislabeled RTF, see Round 2 findings) | |
+| 45 | 44/2013/QH13 | 02 | 2013 | 2.5MB | Fully scanned | ✅ |
+| 46 | 94/2019/QH14 | 02 | 2019 | 446KB | Fully scanned | |
+| 47 | 85/2015/QH13 | 02 | 2015 | 2.3MB | Fully scanned | ✅ |
+| 48 | 192/2025/QH15 | 02 | 2025 | 420KB | Fully scanned | |
+| 49 | 134/2020/QH14 | 02 | 2020 | 719KB | Fully scanned | |
+| 50 | 106/2016/QH13 | 02 | 2016 | 460KB | Fully scanned | |
+
+Tier codes: `01` = `01-hien-phap`, `02` = `02-luat-nghi-quyet-quoc-hoi`, `03` = `03-phap-lenh-nghi-quyet-ubtvqh`.
+Full citation/title/source-path detail for every round-2 sample is in `samples2/_manifest.json`.
+
 ## Headline finding: neither ML tool can OCR Vietnamese out of the box
 
 This is the finding that matters most, since OCR-ing chinhphu.vn's scanned PDFs is the actual
@@ -574,6 +666,84 @@ looking exactly as reliable as each individual round suggested (pdf-inspector: f
 failure; MinerU: slow but complete). The one genuine upgrade in confidence is markitdown's RTF bug —
 independently reproduced on unrelated files across both rounds, so it should be treated as a known,
 permanent limitation of the tool rather than something worth re-testing or hoping was file-specific.
+
+## Recommendation
+
+The evidence above supports a definite integration architecture, not just a tool ranking — laid out
+here as the closing answer to "what do we actually build."
+
+### The core call: docling + EasyOCR(`lang='vi'`), run page-by-page, for anything that needs OCR
+
+This is the only tested configuration that clears both hard requirements at once — correct Vietnamese
+text and reliable completion:
+
+- Plain docling or MinerU (default OCR): reliable-ish, but the diacritics are wrong. Not a minor
+  quality issue — Vietnamese diacritics are semantically load-bearing (`ma`/`má`/`mà`/`mã`/`mạ` are
+  five different words), so stripped-diacritic text is close to unusable as legal content no matter how
+  clean the structure looks.
+- MinerU + EasyOCR: not available. Confirmed by reading MinerU's source — its OCR engine is hardcoded,
+  not swappable, so it can't take this fix at all (see Round 3).
+- docling + EasyOCR, whole-document: correct diacritics, but crashes (`std::bad_alloc`) past ~14 pages,
+  silently, on exactly the class of document that makes up 94% of this corpus.
+- **docling + EasyOCR, page-by-page: correct diacritics, 15/15 pages complete, zero crashes** (Round 4).
+  The only configuration solving both problems simultaneously.
+
+One known defect remains open, and it's a content-correctness bug, not something the parser rewrite can
+absorb: words get displaced to the end of a line when a sentence wraps mid-line (Round 3/4). Two cheap
+things to try before writing anything custom: (1) swap `TesseractOcrOptions` in for `EasyOcrOptions` —
+docling supports it natively, and Tesseract's layout analysis differs enough from EasyOCR's that it
+might not inherit the bug; (2) if not, the fix is likely a targeted re-sort of docling's text elements
+by bounding-box position (top-to-bottom, left-to-right) before `export_to_markdown()` — `result.document`
+already carries the bbox data, and the bug looks like it's in how the markdown export orders things, not
+in the OCR pass itself.
+
+### pdf-inspector as primary for anything that *doesn't* need OCR
+
+pdf-inspector wins on every metric that matters for the common case — cost, speed, and accuracy on
+text that's actually there — so it should own routing, not just be one candidate among four:
+
+1. **Classify first, always.** `<100ms`, correctly identified scanned-vs-digital across all 52 PDFs
+   attempted in this evaluation (see Round 5). Only pay for docling+EasyOCR on documents/pages it
+   actually flags as needing OCR.
+2. **Trust its markdown output directly when `pages_needing_ocr == 0` and `is_complex_layout == false`.**
+   Checked all 4 clean/mostly-clean documents across both rounds specifically for this: the table
+   false-positive found on sample 01 (Round 1) and sample 22 (Round 5) both had `is_complex_layout:
+   true`; samples 25 and 28, with `is_complex_layout: false`, had zero table garbling. 4-for-4 —
+   small n, but clean, and it's a signal pdf-inspector already computes for free.
+3. **When `is_complex_layout == true`, don't trust the table output blindly.** Route the table-bearing
+   sections through docling for a cross-check, or flag for the same kind of spot-review pattern this
+   project already uses in `docs/monitoring/law-index-flagged-documents.md`. This doesn't disqualify
+   pdf-inspector as primary — none of the four tools were fully hands-off anywhere in this evaluation —
+   it just means the primary path needs one guardrail, not zero.
+
+### markitdown: narrow but real — `.docx` only
+
+pdf-inspector doesn't touch `.docx` at all, and there's no reason to run a second tool on a PDF
+pdf-inspector already owns cleanly. markitdown's role narrows to exactly the gap: primary for `.docx`
+(accurate and fast there in every test across both rounds), nothing else. Its scanned-PDF and RTF
+failure modes (Round 1, Round 5) are disqualifying everywhere else.
+
+### `.doc` / `.rtf`: still unsolved, still a separate work item
+
+None of the four tools handle these — this recommendation doesn't change that. A LibreOffice-headless
+(`--convert-to docx`) pre-conversion step upstream of the pipeline above is still the prerequisite, and
+it doesn't exist on this machine yet. Not blocking on the OCR/routing decision; just not solved by it.
+
+### What this fixes for the parser rewrite
+
+Given the parser is being rewritten to consume Markdown rather than vbpl.vn's flat scraped text anyway,
+this architecture fixes the concrete shape it needs to handle:
+
+- Strip leading `#+\s*` before matching `Điều`/`Chương`/etc. — every tool tested prefixes headings this
+  way, not a docling-specific quirk (Metric: parser compatibility, above).
+- Parse native Markdown pipe-tables (`| ... |`) as structured cells — this is specifically docling's
+  table shape. (MinerU's is raw inline HTML `<table>` instead — a different branch entirely; not needed
+  for this recommendation, but worth keeping the table-ingestion layer's design aware of that shape if
+  MinerU is ever revisited.)
+- Don't assume line order is reading order for OCR-sourced content until the word-order bug above is
+  actually closed — worth a validation pass (e.g. spot-checking reconstructed sentences against a
+  known-good phrase list) before trusting page-by-page docling+EasyOCR output at face value in
+  production.
 
 ## Files
 
