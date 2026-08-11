@@ -1,10 +1,10 @@
 {
-  "name": "agent-bot",
+  "name": "legal-mcp",
   "version": "0.0.1",
   "type": "module",
   "main": "dist/index.js",
   "private": true,
-  "description": "PoC tool-calling legal agent + Discord bot. Talks to the scraper server (../server) only over its existing HTTP retrieve API — no direct DB access.",
+  "description": "MCP server exposing this repo's Vietnamese-legal-document retrieval as reusable tools for any agent/model — talks to the scraper server (../server) only over its existing HTTP retrieve API, no direct DB access. See docs/plan/legal-mcp-plan.md.",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
@@ -14,29 +14,22 @@
     "check:types": "tsc --noEmit",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "npm test -- --watch",
-    "test:cov": "npm test -- --coverage",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx scripts/migrate.ts"
+    "test:cov": "npm test -- --coverage"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.19.1",
-    "discord.js": "^14.16.3",
     "dotenv": "^17.4.2",
-    "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
-    "openai": "^4.104.0",
-    "pg": "^8.22.0"
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
     "@jest/globals": "^30.0.0",
     "@types/express": "^5.0.6",
     "@types/node": "^24.0.0",
-    "@types/pg": "^8.20.0",
     "eslint": "^9.18.0",
     "jest": "^30.0.0",
     "ts-jest": "^29.2.5",
-    "drizzle-kit": "^0.31.10",
     "tsx": "^4.21.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"

@@ -1,10 +1,11 @@
 // Legal Agent — Database Schema (Postgres, source of truth)
-// Last revised: 31/07/2026
+// Last revised: 11/08/2026
 //
 // Notes:
-//   - Status: `issuing_body`, `document`, `document_node`, and `document_reference`
-//     are IMPLEMENTED — migrations exist under
-//     server/src/law-index/persistence/migrations/. `document_sync_state` (and
+//   - Status: `issuing_body`, `document`, `document_node`, `document_reference`,
+//     `agent_sessions`, and `agent_reply_targets` are IMPLEMENTED — migrations
+//     exist under server/src/law-index/persistence/migrations/ (law index) and
+//     agent-bot/src/db/migrations/ (agent bot). `document_sync_state` (and
 //     the CDC pipeline that would populate it) remains PROPOSAL ONLY — see
 //     README.md#cdc-pipeline-proposed.
 //   - This file mirrors server/src/law-index/persistence/schema/*.schema.ts,
@@ -271,6 +272,35 @@ Table document_reference {
   created_at timestamp [not null, note: 'not in the original proposal']
 
   Note: 'Explicit citation/relationship, one row per reference. Citations and amendments are extractable deterministically — Điều 8.3 mandates the amending document name the target explicitly. LLM extraction is reserved for implicit relationships. Designed to map close to 1:1 onto the Neo4j relationship taxonomy — see docs/database-design.md §2. Deliberately no DB-level unique index for dedup: a partial unique index (source/target/type/change_type WHERE target IS NULL, and its mirror) hit a real Postgres footgun on a live re-scrape — standard unique indexes never treat two NULLs as equal, so rows with a null change_type (the common case, since only `amends` ever sets one) never actually conflicted, and duplicates piled up on every re-sync. The proper fix needs `NULLS NOT DISTINCT`, which the installed drizzle-orm version can\'t express for a partial index — deduping is done at the application layer instead (document.repository.ts\'s insertReferenceIfNotExists).'
+}
+
+// ============================================================
+// Agent Bot — Session State
+// ============================================================
+// Lives in the same `legal_agent` database as the server tables. Schema
+// defined in agent-bot/src/schema/session.schema.ts; migration under
+// agent-bot/src/db/migrations/. The agent-bot uses an in-memory LRU cache
+// (max 500 entries, 7-day staleness threshold) pre-warmed from this table on
+// startup; the DB is the authoritative source of truth across process restarts.
+
+Table agent_sessions {
+  id               uuid       [pk, not null, note: 'auto-generated UUID for the session']
+  discord_user_id  varchar    [note: 'nullable — set when the session originates from a Discord DM or guild channel']
+  discord_channel_id varchar  [note: 'nullable — set for guild-channel sessions; null for DMs and HTTP-only sessions']
+  messages         jsonb      [not null, default: '[]', note: 'chat completion message history — array of { role, content, ... } objects']
+  created_at       timestamp  [not null, note: 'session creation time']
+  updated_at       timestamp  [not null, note: 'last message added; drives 7-day staleness filter on startup']
+
+  Note: 'One row per conversation session. Created lazily on first message. Persisted to DB on every turn. The in-memory cache in PgSessionStore is warm-only; DB is the source of truth.'
+}
+
+Table agent_reply_targets {
+  id                uuid    [pk, not null, note: 'auto-generated UUID']
+  session_id        uuid    [not null, ref: > agent_sessions.id, note: 'cascade delete — a reply target is meaningless without its session']
+  discord_message_id varchar [not null, unique, note: 'the Discord message ID that started or continued this session; unique index prevents duplicate links']
+  created_at        timestamp [not null, note: 'when the reply target was linked']
+
+  Note: 'Maps a Discord message ID to its agent session, enabling the bot to continue a conversation in the correct context when a user replies to a specific bot message. Populated by PgSessionStore.linkReplyTarget() with onConflictDoNothing.'
 }
 
 // ============================================================

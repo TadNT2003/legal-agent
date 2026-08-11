@@ -1,0 +1,13 @@
+# node_modules and dist directories
+node_modules
+dist
+
+# Tests
+coverage
+
+# Env
+.env
+.env.*.local
+
+# Logs
+*.log

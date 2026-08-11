@@ -1,12 +1,12 @@
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type OpenAI from 'openai';
 import type {
   ChatCompletionCreateParamsNonStreaming,
   ChatCompletionMessageParam,
   ChatCompletionToolMessageParam,
 } from 'openai/resources/chat/completions';
-import type { LawApiClient } from '../lawApi/client.js';
+import { callMcpTool } from '../mcp/tools.js';
 import { createLogger } from '../tools/logging.js';
-import { AGENT_TOOLS, dispatchToolCall } from './tools.js';
 
 const MAX_TOOL_ROUNDS = 5;
 const logger = createLogger('agent-service');
@@ -21,44 +21,51 @@ const logger = createLogger('agent-service');
  * models spend disproportionate time+tokens on hidden reasoning with
  * degraded results, so this is worth keeping even if the model changes —
  * just re-verify empirically per-provider, since the disable mechanism is
- * provider-specific.
+ * provider-specific. Model-specific tuning like this stays here in the
+ * consuming agent, not in the legal-mcp harness — see
+ * docs/plan/legal-mcp-plan.md's Context section for why.
  */
 const REASONING_EFFORT_NONE = 'none' as unknown as NonNullable<
   ChatCompletionCreateParamsNonStreaming['reasoning_effort']
 >;
 
-const SYSTEM_PROMPT = `Bạn là trợ lý tra cứu văn bản pháp luật Việt Nam.
-
-Quy trình bắt buộc, theo đúng thứ tự:
-1. Gọi search_documents để tìm văn bản ứng viên. Công cụ này CHỈ trả về metadata (tiêu đề, số hiệu, ngày), KHÔNG có nội dung điều luật.
-2. Ngay khi có một documentId phù hợp, PHẢI gọi get_document_nodes với documentId đó để lấy nội dung thật (dùng nodeType="dieu" + number nếu người dùng hỏi về một Điều cụ thể). KHÔNG được lặp lại search_documents nhiều lần với các từ khóa khác nhau khi đã có ứng viên hợp lý — hãy thử lấy nội dung của ứng viên tốt nhất trước.
-3. Chỉ trả lời sau khi đã đọc được nội dung thật từ get_document_nodes.
-
-Quy tắc bắt buộc:
-- Chỉ trả lời dựa trên kết quả từ các công cụ (tools) được cung cấp. Không tự bịa nội dung điều luật.
-- Luôn trích dẫn số hiệu văn bản (citationId) và Điều/Khoản/Điểm cụ thể khi trả lời.
-- Ưu tiên văn bản "Còn hiệu lực" trừ khi người dùng hỏi rõ về văn bản lịch sử/đã hết hiệu lực.
-- Nếu không tìm thấy thông tin phù hợp qua các công cụ, nói rõ là không tìm thấy thay vì đoán.
-- Đây không phải là tư vấn pháp lý chính thức — nhắc người dùng tham khảo luật sư cho các quyết định quan trọng.`;
+export interface ChatResult {
+  reply: string;
+  /** Full accumulated history, including this turn — pass back into the next chat() call to continue the conversation. */
+  messages: ChatCompletionMessageParam[];
+}
 
 export class AgentService {
   constructor(
     private readonly openai: OpenAI,
     private readonly model: string,
-    private readonly lawApi: LawApiClient,
+    private readonly mcpClient: Client,
+    private readonly tools: OpenAI.Chat.Completions.ChatCompletionTool[],
+    private readonly systemPrompt: string,
   ) {}
 
-  async chat(userMessage: string): Promise<string> {
-    const messages: ChatCompletionMessageParam[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: userMessage },
-    ];
+  /**
+   * `history` is the prior conversation's accumulated messages (empty for a
+   * fresh session) — the system prompt is seeded only when history is empty,
+   * since it's already present at the start of any non-empty history.
+   */
+  async chat(
+    history: ChatCompletionMessageParam[],
+    userMessage: string,
+  ): Promise<ChatResult> {
+    const messages: ChatCompletionMessageParam[] =
+      history.length > 0
+        ? [...history, { role: 'user', content: userMessage }]
+        : [
+            { role: 'system', content: this.systemPrompt },
+            { role: 'user', content: userMessage },
+          ];
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const response = await this.openai.chat.completions.create({
         model: this.model,
         messages,
-        tools: AGENT_TOOLS,
+        tools: this.tools,
         reasoning_effort: REASONING_EFFORT_NONE,
       });
 
@@ -70,7 +77,7 @@ export class AgentService {
         logger.log(
           `Round ${round}: final answer (${(message.content ?? '').length} chars)`,
         );
-        return message.content ?? '';
+        return { reply: message.content ?? '', messages };
       }
 
       logger.log(
@@ -97,7 +104,11 @@ export class AgentService {
     logger.log(
       `Tool-calling loop hit MAX_TOOL_ROUNDS (${MAX_TOOL_ROUNDS}) without a final answer`,
     );
-    return 'Xin lỗi, tôi chưa thể hoàn thành câu trả lời sau nhiều bước tra cứu. Vui lòng thử hỏi cụ thể hơn.';
+    return {
+      reply:
+        'Xin lỗi, tôi chưa thể hoàn thành câu trả lời sau nhiều bước tra cứu. Vui lòng thử hỏi cụ thể hơn.',
+      messages,
+    };
   }
 
   private async runTool(
@@ -105,11 +116,11 @@ export class AgentService {
   ): Promise<ChatCompletionToolMessageParam> {
     const { name, arguments: rawArgs } = toolCall.function;
     try {
-      const result = await dispatchToolCall(this.lawApi, name, rawArgs);
+      const content = await callMcpTool(this.mcpClient, name, rawArgs);
       return {
         role: 'tool',
         tool_call_id: toolCall.id,
-        content: JSON.stringify(result),
+        content,
       };
     } catch (error) {
       logger.error(`Tool call failed: ${name}`, error);

@@ -79,6 +79,29 @@ describe('LawApiClient', () => {
     expect(calledUrl).toBe('http://localhost:3000/laws/index/retrieve/doc-1');
   });
 
+  it('getReferences() hits /laws/index/retrieve/references with documentId and optional filters', async () => {
+    const fetchMock = mockFetchOnce({
+      citationId: '59/2020/QH14',
+      title: 'Luật Doanh nghiệp',
+      total: 0,
+      references: [],
+    });
+    const client = buildClient();
+
+    await client.getReferences({
+      documentId: 'doc-1',
+      direction: 'incoming',
+      referenceType: 'amends',
+    });
+
+    const calledUrl = fetchMock.mock.calls[0][0];
+    const parsed = new URL(calledUrl);
+    expect(parsed.pathname).toBe('/laws/index/retrieve/references');
+    expect(parsed.searchParams.get('documentId')).toBe('doc-1');
+    expect(parsed.searchParams.get('direction')).toBe('incoming');
+    expect(parsed.searchParams.get('referenceType')).toBe('amends');
+  });
+
   it('throws with status and body on a non-OK response', async () => {
     mockFetchOnce({ message: 'not found' }, false, 404);
     const client = buildClient();

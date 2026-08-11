@@ -80,3 +80,33 @@ export interface LawNodeResult {
   title: string;
   nodes: LawNode[];
 }
+
+/** Mirrors the scraper server's `RetrieveReferencesDto`. */
+export interface LawReferencesParams {
+  documentId: string;
+  direction?: 'outgoing' | 'incoming' | 'all';
+  referenceType?: string;
+}
+
+/** Mirrors the scraper server's `ReferenceItemDto`. */
+export interface LawReferenceItem {
+  id: string;
+  sourceDocumentId: string | null;
+  sourceCitationId: string | null;
+  sourceTitle: string | null;
+  targetDocumentId: string | null;
+  targetCitationId: string | null;
+  targetTitle: string | null;
+  referenceType: string;
+  changeType: string | null;
+  rawCitationText: string;
+  createdAt: string;
+}
+
+/** Mirrors the scraper server's `RetrieveReferencesResponseDto`. */
+export interface LawReferencesResult {
+  citationId: string;
+  title: string;
+  total: number;
+  references: LawReferenceItem[];
+}

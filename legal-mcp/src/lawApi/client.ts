@@ -2,6 +2,8 @@ import type {
   LawDocument,
   LawNodeParams,
   LawNodeResult,
+  LawReferencesParams,
+  LawReferencesResult,
   LawSearchParams,
   LawSearchResult,
 } from './types.js';
@@ -10,6 +12,10 @@ import type {
  * Thin HTTP client over the scraper server's (../server) existing
  * /laws/index/retrieve/* endpoints. This app never talks to Postgres
  * directly — retrieval only ever goes through here.
+ *
+ * Deliberately a faithful, low-level proxy with no business-rule defaults
+ * of its own (e.g. no validity-status default) — that belongs in the tool
+ * layer's contract (see tools/searchDocuments.ts), not this client.
  *
  * Vietnamese filter values must be NFC-normalized before being sent: the
  * scraper's document_type/issuing_body columns store NFC text, and an NFD
@@ -56,6 +62,21 @@ export class LawApiClient {
     if (params.nodeId) query.set('nodeId', params.nodeId);
 
     return this.get<LawNodeResult>(`/laws/index/retrieve/nodes?${query}`);
+  }
+
+  async getReferences(
+    params: LawReferencesParams,
+  ): Promise<LawReferencesResult> {
+    const query = new URLSearchParams();
+    query.set('documentId', params.documentId);
+    if (params.direction) query.set('direction', params.direction);
+    if (params.referenceType) {
+      query.set('referenceType', params.referenceType);
+    }
+
+    return this.get<LawReferencesResult>(
+      `/laws/index/retrieve/references?${query}`,
+    );
   }
 
   private async get<T>(path: string): Promise<T> {
