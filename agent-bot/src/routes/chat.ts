@@ -36,11 +36,11 @@ async function handleChat(
 
   let session;
   if (typeof sessionId === 'string' && sessionId.length > 0) {
-    // Try to find existing session; fall back to creating a new one with
-    // the provided ID-like string as a user identifier (not the actual DB ID).
-    // The sessionId here is a client-provided correlation ID, not the internal
-    // UUID — we use discordUserId/discordChannelId equivalent.
-    session = sessionStore.createSession(sessionId, 'http');
+    // Try to find existing session by ID; fall back to creating a new one.
+    session = sessionStore.getById(sessionId);
+    if (!session) {
+      session = sessionStore.createSession(sessionId, 'http');
+    }
   } else {
     // Stateless mode — each call starts a fresh conversation.
     session = sessionStore.createSession();

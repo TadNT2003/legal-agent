@@ -111,6 +111,10 @@ export class PgSessionStore {
     return session;
   }
 
+  getById(id: string): Session | undefined {
+    return this.sessions.get(id);
+  }
+
   getByReplyTarget(discordMessageId: string): Session | undefined {
     const cachedSessionId = this.sessionIdByReplyTarget.get(discordMessageId);
     if (cachedSessionId) {
