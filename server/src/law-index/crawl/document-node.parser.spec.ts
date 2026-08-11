@@ -576,6 +576,71 @@ describe('parseDocumentBody', () => {
     expect(roots[1].children).toHaveLength(1);
   });
 
+  it("corrects a source-data quirk — a quoted §12c block closed with '' (doubled apostrophe) instead of any recognized quote character — to a matching straight \", so quote-depth tracking closes correctly instead of swallowing the rest of the document, confirmed against real vbpl.vn output (02/2002/QH11)", () => {
+    const fullText = [
+      'Điều 1. Sửa đổi, bổ sung',
+      '2. Điều 3 được sửa đổi, bổ sung như sau:',
+      '"Điều 3. Tham gia góp ý kiến xây dựng văn bản',
+      '1. Mặt trận Tổ quốc Việt Nam có quyền tham gia góp ý kiến.',
+      "2. Ý kiến tham gia phải được nghiên cứu để tiếp thu.''",
+      '3. Điều 9 được sửa đổi, bổ sung như sau:',
+      'Nội dung khoản ba thật.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+
+    // Only the 2 real Khoản (2, 3) — the quoted target Điều 3's own "1."/"2."
+    // never opens as real siblings, and structural parsing resumes cleanly
+    // for Khoản 3 right after the '' (now ") closes the quote.
+    expect(dieu.children).toHaveLength(2);
+    expect(dieu.children[0]).toMatchObject({ nodeType: 'khoan', ordinal: '2' });
+    expect(dieu.children[0].textContent).toContain(
+      '"Điều 3. Tham gia góp ý kiến xây dựng văn bản',
+    );
+    expect(dieu.children[0].textContent).toContain(
+      '2. Ý kiến tham gia phải được nghiên cứu để tiếp thu."',
+    );
+    expect(dieu.children[1]).toMatchObject({ nodeType: 'khoan', ordinal: '3' });
+    expect(dieu.children[1].textContent).toContain('Nội dung khoản ba thật.');
+  });
+
+  it('§12c fix: a multi-target citing sentence ("...thành các điều X, Xa và Xb như sau:") quoting several target Điều back-to-back stays suppressed across all of them, even though only the first quote-open follows a fresh citing colon, confirmed against real vbpl.vn output (02/2002/QH11 — Điều 45 revised into Điều 45/45a/45b)', () => {
+    const fullText = [
+      'Điều 1. Sửa đổi, bổ sung',
+      '12. Điều 45 được sửa đổi, bổ sung thành các điều 45, 45a và 45b như sau:',
+      '"Điều 45. Xem xét, thông qua dự án luật',
+      "Quốc hội có thể xem xét, thông qua dự án luật tại một hoặc hai kỳ họp.''",
+      '"Điều 45a. Trình tự xem xét tại một kỳ họp',
+      '1. Đại diện cơ quan trình dự án thuyết trình về dự án;',
+      "2. Đại diện cơ quan thẩm tra trình bày báo cáo thẩm tra.''",
+      '"Điều 45b. Trình tự xem xét tại hai kỳ họp',
+      "1. Tại kỳ họp thứ nhất.''",
+      '13. Điều 46 được sửa đổi, bổ sung như sau:',
+      'Nội dung điều 46 thật.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+
+    // Only the 2 real Khoản (12, 13) — none of the quoted target Điều
+    // 45/45a/45b, nor their own internal "1./2." lists, ever open as real
+    // siblings despite each new quote reopening with no fresh citing colon.
+    expect(dieu.children).toHaveLength(2);
+    expect(dieu.children[0]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '12',
+    });
+    expect(dieu.children[0].textContent).toContain('"Điều 45a.');
+    expect(dieu.children[0].textContent).toContain('"Điều 45b.');
+    expect(dieu.children[0].textContent).toContain(
+      '2. Đại diện cơ quan thẩm tra trình bày báo cáo thẩm tra."',
+    );
+    expect(dieu.children[1]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '13',
+    });
+    expect(dieu.children[1].textContent).toContain('Nội dung điều 46 thật.');
+  });
+
   it('§12c fix: does not suppress a citing sentence with no following quote (e.g. a bare "Bãi bỏ Điều N." with no replacement text)', () => {
     const fullText = [
       'Điều 5. Sửa đổi, bãi bỏ',
@@ -826,5 +891,94 @@ describe('parseDocumentBody', () => {
     const [dieu] = parseDocumentBody(fullText);
     expect(dieu.children).toHaveLength(2);
     expect(dieu.children[1]).toMatchObject({ nodeType: 'khoan', ordinal: '2' });
+  });
+
+  it('suppresses an amendment-annotated Điểm that would collide, the same way as Khoản, confirmed against real vbpl.vn output (117/2020/NĐ-CP — a "b)" belonging to misplaced amendment content colliding with the real Điểm b)', () => {
+    const fullText = [
+      'Điều 8. Hình thức xử phạt',
+      '1. Các hình thức xử phạt:',
+      'a) Cảnh cáo;',
+      'b) Phạt tiền.',
+      'Điều khoản được sửa đổi, bổ sung',
+      'b) Tịch thu tang vật, phương tiện vi phạm hành chính có giá trị không vượt quá mức phạt tiền.',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+    const khoan1 = dieu.children[0];
+    expect(khoan1.children).toHaveLength(2);
+    expect(khoan1.children[1]).toMatchObject({
+      nodeType: 'diem',
+      ordinal: 'b',
+    });
+    expect(khoan1.children[1].textContent).toMatch(/^Phạt tiền\./);
+    expect(khoan1.children[1].textContent).toContain(
+      'Tịch thu tang vật, phương tiện vi phạm hành chính',
+    );
+  });
+
+  it('§12b fix: suppresses a table row with no recoverable header — a bare thousands-separated number fragment on its own line, confirmed against real vbpl.vn output (17/2006/NQ-CP)', () => {
+    const fullText = [
+      'Điều 1. Phê duyệt điều chỉnh quy hoạch',
+      '1. Diện tích các loại đất:',
+      '1.2.2',
+      'Đất có rừng phòng hộ',
+      '3.401',
+      '3.451',
+      '3.491',
+      'Điều 2. Tổ chức thực hiện',
+      'Nội dung điều 2.',
+    ].join('\n');
+
+    const roots = parseDocumentBody(fullText);
+
+    expect(roots).toHaveLength(2);
+    const [dieu1, dieu2] = roots;
+    expect(dieu1.children).toHaveLength(1);
+    expect(dieu1.children[0]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '1',
+    });
+    expect(dieu1.children[0].textContent).toContain('1.2.2');
+    expect(dieu1.children[0].textContent).toContain('3.451');
+    expect(dieu2).toMatchObject({
+      nodeType: 'dieu',
+      ordinal: '2',
+      textContent: 'Nội dung điều 2.',
+    });
+  });
+
+  it('§12b fix: suppresses a flattened multi-column table row (tab-separated) even though it starts with real text, confirmed against real vbpl.vn output (20/2006/NQ-CP)', () => {
+    const fullText = [
+      'Điều 1. Phê duyệt điều chỉnh quy hoạch',
+      '1. Diện tích các loại đất:',
+      '1.1.1\tĐất trồng cây hàng năm\t58.745,60\t62,71\t56.699,83',
+      '2\tĐất lâm nghiệp\t165.106,51\t62,21\t179.883,78',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+
+    expect(dieu.children).toHaveLength(1);
+    expect(dieu.children[0]).toMatchObject({ nodeType: 'khoan', ordinal: '1' });
+    expect(dieu.children[0].textContent).toContain('Đất trồng cây hàng năm');
+    expect(dieu.children[0].textContent).toContain('Đất lâm nghiệp');
+  });
+
+  it('§12b fix: a genuine short Khoản is not mistaken for a table fragment', () => {
+    const fullText = ['Điều 1. Nội dung', '1. Có hiệu lực.', '2. Bãi bỏ.'].join(
+      '\n',
+    );
+
+    const [dieu] = parseDocumentBody(fullText);
+    expect(dieu.children).toHaveLength(2);
+    expect(dieu.children[0]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '1',
+      textContent: 'Có hiệu lực.',
+    });
+    expect(dieu.children[1]).toMatchObject({
+      nodeType: 'khoan',
+      ordinal: '2',
+      textContent: 'Bãi bỏ.',
+    });
   });
 });

@@ -95,6 +95,26 @@ export function romanToArabic(raw: string): string {
 const DIEU_KHOAN_PATTERN = /^Điều\s+(\d+)([a-zđ]?)\s*[.:]?\s*(.*)$/iu;
 const KHOAN_PATTERN = /^(\d+)([a-zđ]?)\s*\.\s*(.*)$/u;
 const DIEM_PATTERN = /^([a-zđ])\)\s*(.*)$/iu;
+
+// §12b, generalized beyond header-vocabulary detection (TABLE_HEADER_PATTERN
+// above still catches tables that DO have a recognizable header line; this
+// catches the ones that don't). A KHOAN_PATTERN "match" whose own captured
+// remainder is nothing but digits/periods/commas is never real Khoản
+// prose — it's the tail of a Vietnamese thousands-separated number
+// ("3.451" → ordinal "3", remainder "451") or a decimal classification code
+// ("1.2.2" → ordinal "1", remainder "2.2"), confirmed on 17/2006/NQ-CP (each
+// table cell scraped onto its own line). Separately, a candidate line
+// containing a raw tab character is a flattened multi-column table row —
+// real Vietnamese legal prose from this scrape is never tab-separated —
+// confirmed on 20/2006/NQ-CP ("1.1.1\tĐất trồng cây hàng năm\t58.745,60\t...",
+// a full row crammed onto one line). Either signature means this is a table
+// fragment, not a Khoản, regardless of what (if any) header line precedes
+// it — same "suppress, don't reconstruct" trade-off as everywhere else in
+// this file: the whole line becomes inert body text on whatever node is
+// currently open instead of opening (and colliding as) a fake Khoản.
+function looksLikeTableFragment(line: string, khoanRemainder: string): boolean {
+  return line.includes('\t') || /^[\d.,]+$/.test(khoanRemainder.trim());
+}
 const PHAN_CHUONG_PATTERN =
   /^(Phần|Chương)\s+([IVXLCDM]+|\d+)\b[.:]?\s*(.*)$/iu;
 const MUC_PATTERN = /^(Mục)\s+(\d+)\b[.:]?\s*(.*)$/iu;
@@ -326,7 +346,20 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
   // re-scrape, same posture as §13's fix) and any future scrape, since this
   // function is the sole entry point from raw text to the node tree either
   // way.
-  const normalized = fullText.normalize('NFC');
+  // A source-data quirk, not a parser one: some documents close a §12c
+  // quoted block with a doubled straight apostrophe ('') instead of any
+  // recognized quote character — confirmed on 02/2002/QH11 (opens with a
+  // normal straight " at "được sửa đổi, bổ sung như sau:", but the closing
+  // mark at the end of the quoted passage is '' throughout, 27 times, 0
+  // curly quotes anywhere in the document). `updateQuoteDepth` below only
+  // tracks "/"/" — teaching it a 4th, source-typo-specific closing glyph
+  // would make quote-tracking's own logic responsible for a fact about this
+  // one site's data entry rather than about quoting conventions in general.
+  // Correcting it in the text once here (matching the opening style already
+  // used in the same document — straight " open, straight " close) fixes it
+  // the same cheap way as NFC normalization above, no re-scrape needed.
+  const withCorrectedQuotes = fullText.replace(/''/g, '"');
+  const normalized = withCorrectedQuotes.normalize('NFC');
   const lines = normalized
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -351,6 +384,19 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
   let inTable = false;
   let quoteDepth = 0;
   let pendingQuoteCitation = false;
+  // §12c, multi-target citing sentences: "Điều X được sửa đổi, bổ sung
+  // thành các điều X, Xa và Xb như sau:" quotes THREE separate target Điều
+  // back-to-back — each new quote reopens immediately where the previous
+  // one closed, with no fresh citing colon in between to re-arm
+  // `pendingQuoteCitation`. Confirmed live on 02/2002/QH11 (Điều 45 revised
+  // into Điều 45/45a/45b, three consecutive `"..."`/`''` quoted blocks).
+  // `citingQuoteActive` stays true across the whole sequence (set once the
+  // first quote opens, not cleared when that quote closes) so a line
+  // starting with a fresh quote character is still recognized as another
+  // target's quote — bounded by resetting on the next REAL (non-suppressed)
+  // Khoản/Điểm/container, so it can't leak into unrelated later content
+  // that happens to open with an unrelated quote for some other reason.
+  let citingQuoteActive = false;
   // §17 outer-grouping suppression — see GROUP_MARKER_PATTERN above. The
   // FIRST marker seen (per container scope) is left alone so its own
   // "1./2./3." list stays real structure; only the SECOND and later markers
@@ -437,6 +483,30 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
     return (
       wouldBeRoot &&
       roots.some((r) => r.nodeType === nodeType && r.ordinal === ordinal)
+    );
+  };
+
+  /**
+   * True when a khoan/diem about to be opened would collide with an
+   * existing sibling under whatever parent it would actually land under
+   * (mirrors the pop-then-parent logic openNode itself uses, without
+   * mutating `stack`). Used by the AMENDMENT_ANNOTATION_LINE check for both
+   * levels — confirmed live that the misplaced-amendment-content shape
+   * happens at Điểm level too (117/2020/NĐ-CP, 115/2018/NĐ-CP,
+   * 168/2024/NĐ-CP: a "b)"/"đ)"/"c)" collides the same way a Khoản does),
+   * not just Khoản (47/2024/QH15).
+   */
+  const wouldCollideWithSibling = (
+    nodeType: 'khoan' | 'diem',
+    ordinal: string,
+  ): boolean => {
+    const level = LEVEL[nodeType];
+    let depth = stack.length;
+    while (depth > 0 && stack[depth - 1].level >= level) depth--;
+    const parent = depth > 0 ? stack[depth - 1].node : null;
+    const siblings = parent ? parent.children : roots;
+    return siblings.some(
+      (s) => s.nodeType === nodeType && s.ordinal === ordinal,
     );
   };
 
@@ -532,6 +602,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       seenGroupMarker = false;
       inGroupSuppress = false;
       justSawAmendmentAnnotation = false;
+      citingQuoteActive = false;
       stack.length = 0; // Phụ lục always sits at document root, sibling to top-level Chương/Điều.
       i += openPhuLucFromMatch(phuLucMatch, i);
       continue;
@@ -554,6 +625,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       seenGroupMarker = false;
       inGroupSuppress = false;
       justSawAmendmentAnnotation = false;
+      citingQuoteActive = false;
       continue;
     }
 
@@ -578,12 +650,22 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       pendingQuoteCitation = false;
       if (startsWithOpenQuote(line)) {
         quoteDepth = updateQuoteDepth(0, line);
+        citingQuoteActive = true;
         const current = stack[stack.length - 1]?.node;
         if (current) appendText(current, line);
         continue;
       }
       // Expected quote didn't materialize on the very next line — not a
       // quoted-citation shape after all, fall through to normal parsing.
+    }
+    // See citingQuoteActive above — a fresh quote character reopening
+    // immediately where a prior quote (from the SAME multi-target citing
+    // sentence) just closed, with no new citing colon in between.
+    if (citingQuoteActive && startsWithOpenQuote(line)) {
+      quoteDepth = updateQuoteDepth(0, line);
+      const current = stack[stack.length - 1]?.node;
+      if (current) appendText(current, line);
+      continue;
     }
 
     // See AMENDMENT_ANNOTATION_LINE above — captured now (reflecting
@@ -600,6 +682,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       seenGroupMarker = false;
       inGroupSuppress = false;
       justSawAmendmentAnnotation = false;
+      citingQuoteActive = false;
       const ordinal = `${dieuMatch[1]}${dieuMatch[2]}`;
       if (wouldRestartDocumentWide('dieu', ordinal)) {
         stack.length = 0;
@@ -622,6 +705,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       seenGroupMarker = false;
       inGroupSuppress = false;
       justSawAmendmentAnnotation = false;
+      citingQuoteActive = false;
       const keyword = phanChuongMatch[1];
       const nodeType: 'phan' | 'chuong' = /^phần$/i.test(keyword)
         ? 'phan'
@@ -648,6 +732,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       seenGroupMarker = false;
       inGroupSuppress = false;
       justSawAmendmentAnnotation = false;
+      citingQuoteActive = false;
       const ordinal = tieuMucMatch[2];
       if (wouldRestartAtRoot('tieu_muc', ordinal)) {
         stack.length = 0;
@@ -669,6 +754,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       seenGroupMarker = false;
       inGroupSuppress = false;
       justSawAmendmentAnnotation = false;
+      citingQuoteActive = false;
       const ordinal = mucMatch[2];
       if (wouldRestartAtRoot('muc', ordinal)) {
         stack.length = 0;
@@ -737,27 +823,31 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       stackTopLevel === LEVEL.diem
     ) {
       const khoanMatch = line.match(KHOAN_PATTERN);
+      if (khoanMatch && looksLikeTableFragment(line, khoanMatch[3])) {
+        const current = stack[stack.length - 1]?.node;
+        if (current) appendText(current, line);
+        continue;
+      }
       if (khoanMatch) {
         const ordinal = `${khoanMatch[1]}${khoanMatch[2]}`;
         // See AMENDMENT_ANNOTATION_LINE above — only suppress when this
         // exact Khoản would actually collide with an existing sibling; a
         // correctly-placed annotated Khoản (the common case) opens
         // normally, same as if no annotation had preceded it.
-        if (wasAfterAmendmentAnnotation) {
-          const level = LEVEL.khoan;
-          let depth = stack.length;
-          while (depth > 0 && stack[depth - 1].level >= level) depth--;
-          const parent = depth > 0 ? stack[depth - 1].node : null;
-          const siblings = parent ? parent.children : roots;
-          const wouldCollide = siblings.some(
-            (s) => s.nodeType === 'khoan' && s.ordinal === ordinal,
-          );
-          if (wouldCollide) {
-            const current = stack[stack.length - 1]?.node;
-            if (current) appendText(current, line);
-            continue;
-          }
+        if (
+          wasAfterAmendmentAnnotation &&
+          wouldCollideWithSibling('khoan', ordinal)
+        ) {
+          const current = stack[stack.length - 1]?.node;
+          if (current) appendText(current, line);
+          continue;
         }
+        // A real (non-suppressed) Khoản successfully opening means we've
+        // moved past any citing sentence's replacement zone into genuinely
+        // new content — bounds citingQuoteActive's stickiness so it can't
+        // leak into later, unrelated content that happens to open with an
+        // unrelated quote character.
+        citingQuoteActive = false;
         const label = `Khoản ${ordinal}`;
         const node = newNode('khoan', ordinal, label, null);
         openNode('khoan', node);
@@ -770,6 +860,18 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       const diemMatch = line.match(DIEM_PATTERN);
       if (diemMatch) {
         const ordinal = diemMatch[1];
+        // See AMENDMENT_ANNOTATION_LINE above and the same check on Khoản —
+        // confirmed live this same misplaced-amendment-content shape also
+        // happens at Điểm level (117/2020/NĐ-CP, 115/2018/NĐ-CP,
+        // 168/2024/NĐ-CP), not just Khoản (47/2024/QH15).
+        if (
+          wasAfterAmendmentAnnotation &&
+          wouldCollideWithSibling('diem', ordinal)
+        ) {
+          const current = stack[stack.length - 1]?.node;
+          if (current) appendText(current, line);
+          continue;
+        }
         const label = `Điểm ${ordinal}`;
         const node = newNode('diem', ordinal, label, null);
         openNode('diem', node);
