@@ -21,14 +21,15 @@ Vietnamese PDFs (94% of the PDF corpus per round 2). pdf-inspector and markitdow
 building blocks for the parts of the pipeline they're actually suited to (routing, and clean-text
 extraction). Between the two OCR-capable candidates, MinerU is the safer default *today* despite being
 much slower — a wrong-looking result that silently drops two-thirds of a document is worse than a slow
-correct one. Round 3 (below) tried the obvious fix — swap in a Vietnamese-capable OCR engine — on
-docling (MinerU can't take it at all, architecturally): it genuinely fixes character-level diacritics,
-but trades that for a new word-reordering bug and makes docling's `bad_alloc` reliability problem worse,
-not better. **So the OCR-language gap isn't a simple missing-config-flag fix** — closing it well enough
-to matter is its own open problem, not a one-line change either tool was one setting away from. Also
-unconditional on tool choice: ~37% of the existing `laws/` corpus (.doc + .rtf) is untouched by all four
-tools, and `document-node.parser.ts` needs a preprocessing adapter (strip Markdown heading syntax) before
-it can consume any of their output.
+correct one. Rounds 3–4 (below) tried the obvious fixes on docling (MinerU can't take an OCR-engine swap
+at all, architecturally): swapping to EasyOCR(vi) genuinely fixes character-level diacritics but
+introduces a new word-reordering bug and made the `bad_alloc` crash *worse*; page-by-page chunking then
+fixed the crash (0 → 15/15 pages complete) but left the word-order bug untouched. **Across all four
+docling configurations tested (default, default+round-2-scale, +EasyOCR whole-doc, +EasyOCR
+page-by-page), none is simultaneously fast, reliable, and character-accurate — every fix traded one
+failure mode for another.** Also unconditional on tool choice: ~37% of the existing `laws/` corpus
+(.doc + .rtf) is untouched by all four tools, and `document-node.parser.ts` needs a preprocessing adapter
+(strip Markdown heading syntax) before it can consume any of their output.
 
 ## Setup
 
@@ -422,6 +423,157 @@ supports `TesseractOcrOptions`, and Tesseract's `vie` model + layout analysis is
 more robust combination), (b) process documents page-by-page rather than whole-document to sidestep the
 cumulative memory issue directly, (c) a reading-order post-process pass specifically for EasyOCR's output.
 None of that was in scope for this round.
+
+## Round 4: page-by-page chunking, and docling's three configurations consolidated
+
+Requested follow-up to round 3's proposed fix #2 ("process page-by-page to sidestep the cumulative
+memory issue"): tested directly, and it works — for reliability. It does not touch the word-order bug.
+This section also consolidates round 1's 6 docs and round 2's 11-doc subset into one aggregate view of
+plain docling, since between them docling has now been run in three genuinely different configurations.
+
+### The page-by-page test
+
+Same 15-page scanned document as round 3 (`109/2025/QH15`), same `EasyOcrOptions(lang=['vi'])`, but
+instead of one `converter.convert(path)` call for the whole document, one `DocumentConverter` instance
+reused across 15 sequential calls, each with `page_range=(i, i)`, outputs concatenated afterward — the
+realistic shape of "chunk by page inside a long-running service," not "spawn a fresh process per page."
+
+**Result: 15/15 pages completed. Zero crashes, zero `bad_alloc`.** 29,504 total characters, 340.42s
+total (rougly 22.7s/page, consistent whether early or late in the run — no sign of the progressive
+slowdown/degradation pattern that round 2/3 showed when processing many pages in one `.convert()` call).
+This directly confirms round 3's hypothesis: the memory pressure accumulates *within* a single
+`.convert()` call processing many pages, not across repeated calls to a reused converter — chunking by
+page genuinely sidesteps it.
+
+**Diacritics remain correct** (same per-page EasyOCR behavior verified in round 3): `"Luật số:"`,
+`"Điều 1. Phạm vi điều chỉnh"`, etc.
+
+**The word-order scrambling bug is still there, unchanged, page-local** — chunking neither fixes nor
+worsens it, confirming it's a within-page reading-order issue, orthogonal to the memory problem:
+`"...trợ quốc công; nghề công yếu trợ ngoài trợ nghề trợ năng trợ hàng trợ trợ trợ công"` (page 2's
+paragraph on phụ cấp/trợ cấp categories) — same displaced-trailing-word pattern as round 3, sometimes
+worse on long, heavily-wrapped paragraphs. So page-by-page is a real fix for exactly one of the two
+problems round 3 found.
+
+### docling: three configurations, one document, directly compared
+
+| Config | Result on `109/2025/QH15` (15p, scanned) | Diacritics | Word order | Completes? |
+|---|---|---|---|---|
+| **1. Pure docling** (RapidOCR, default, whole-doc) | 97.0s, 26,648 chars | Badly garbled (`"Lut s:"`) | Correct | Yes |
+| **2. docling + EasyOCR(vi)**, whole-doc | Crashed at page 15/15, **0 chars, no output file** | N/A — never finished | N/A | **No** |
+| **3. docling + EasyOCR(vi)**, page-by-page | 340.4s (3.5× slower than config 1), 29,504 chars | Correct | **Scrambled at line-wraps** | Yes, 15/15 |
+
+No configuration is simply "the winner" — each fails a different axis. Config 1 is fastest and reliable
+but produces text a human/downstream parser can't trust character-by-character. Config 2 is a dead end as
+tested. Config 3 is the only one that's both reliable *and* character-accurate, at the cost of being the
+slowest by a wide margin and still not fully correct (word order) — the least-bad of the three, not a
+solved problem.
+
+### Pure docling, consolidated: round 1 (6 docs) + round 2 (11-doc subset) = 17 documents
+
+| | Value |
+|---|---|
+| Documents attempted (PDF/docx only — 3 more were .doc/.rtf, rejected before any processing) | 14 |
+| Reported `status: ok` | **14/14 (100%)** |
+| Of those, confirmed or strongly suspected content-loss/anomaly | 5/14 (36%) — samples 08, 22, 35, 45, 47 |
+| Of those, *severe* truncation (>50% of expected content missing) | 3/14 (21%) — samples 08 (~55%), 45 (~59%), 47 (~73%) |
+| Total processing time across the 14 | 1,715s (~28.6 min) |
+| Total characters captured across the 14 | 653,412 — a meaningful share of which is corrupted (diacritics) or truncated (missing pages) |
+
+The number that matters most here: **`status: ok` was reported 14/14 times, including on every document
+that silently lost more than half its content.** Nothing in docling's own return value distinguishes a
+clean run from a badly truncated one — that has to be checked externally (e.g. by comparing output length
+against page count, which is what caught this in the first place).
+
+### Where this leaves the recommendation
+
+Round 3 asked "does fixing the OCR language fix the tool?" — no. Round 4 asked "does the fix for the
+*other* problem (page-by-page chunking) get docling all the way to usable?" — closer, but still no: it
+trades speed for reliability and still leaves the word-order bug unaddressed. Combining everything so
+far: getting docling to something actually trustworthy for this corpus would require *both* page-by-page
+chunking (round 4, fixes reliability) *and* a reading-order fix or a different OCR backend entirely
+(Tesseract untested, still the next thing worth trying) — no single change tested across rounds 1–4 gets
+there alone. Against that, MinerU's round-2 profile (slower, but zero crashes and no word-order issue
+observed) still looks like the lower-effort path to something usable, if its own Vietnamese-diacritic
+problem can be solved — which, per round 3, isn't possible through EasyOCR (architecturally blocked) and
+remains untested via any other route.
+
+## Round 5: consolidating pdf-inspector, markitdown, and MinerU across rounds 1–2
+
+Round 4 gave docling this treatment because it had three genuinely different configurations to merge.
+The other three tools only ever ran one configuration each, so "consolidating" here just means combining
+round 1's 6 docs with round 2's samples into one accurate dataset per tool — worth doing properly rather
+than leaving the two rounds' numbers scattered, since a couple of the combined totals turn out to matter
+(pdf-inspector's corpus-wide scan ratio, markitdown's RTF bug going from "found once" to "confirmed twice,
+independently").
+
+### pdf-inspector: 52 attempts, 51 valid classifications
+
+| | Round 1 | Round 2 | Combined |
+|---|---|---|---|
+| PDFs classified | 2 | 50 | 52 |
+| Valid (not malformed input) | 2 | 49 | 51 |
+| Fully scanned | 1 | 46 | **47 (92.2% of valid)** |
+| Clean digital text | 1 | 2 | 3 (5.9%) |
+| Partial/mixed | 0 | 1 | 1 (2.0%) |
+| Errored (genuinely malformed input) | 0 | 1 (the mislabeled-RTF-as-.pdf file) | 1 |
+
+Non-PDF formats (.doc/.rtf/.docx, round 1 only) were correctly reported as `unsupported_format` rather
+than attempted — 4 more entries, not counted as failures since that's pdf-inspector's documented scope,
+not a bug. Every timing was sub-100ms except the handful of documents where it also generated real
+Markdown output (clean-text docs, up to ~0.23s) — still negligible next to docling/MinerU's per-document
+cost. The one error is worth noting again in this context: it's the *correct* behavior on a genuinely
+malformed input (RTF content saved as `.pdf`) — pdf-inspector is the only one of the four tools that
+neither silently mis-processed that file nor crashed on it, it just said "this isn't a real PDF."
+(Its own guess at *what* it actually was — "JSON" — was wrong, but refusing to fake a result wasn't.)
+No reliability issues, no crashes, across all 52 attempts.
+
+### markitdown: 56 attempts, one bug now confirmed twice independently
+
+| | Round 1 | Round 2 | Combined |
+|---|---|---|---|
+| Documents attempted | 6 (all formats) | 50 (PDF only) | 56 |
+| `status: ok` | 4 | 50 | 54 |
+| Clean `UnsupportedFormatException` (.doc) | 2 | 0 (no .doc in round 2) | 2/2 — 100% correctly rejected |
+| Silent empty (`ok`, 0 chars) on a scanned PDF | 1 | 45 | 46 |
+| Silent RTF-source-dump (`ok`, real char count, garbage content) | 1 (the actual `.rtf` sample) | 1 (the mislabeled `.pdf`-that's-really-RTF file) | **2/2 — now confirmed on two independent files, not a one-off** |
+| Real, accurate extraction (clean PDF/docx, or the one corrupted-text-layer case) | 2 | 5 | 7 |
+| Total processing time | 6.19s | 42.23s | 48.42s |
+
+The RTF finding is the one that changes shape from "found once" to "confirmed as a systematic bug":
+round 1 found it on a genuine `.rtf` file; round 2, independently, found the *identical* failure mode
+(raw `{\rtf1\ansi...` control-code source dumped as "successful" text) on a completely different file
+that only happens to be RTF content mislabeled with a `.pdf` extension. Two different files, two
+different rounds, same exact bug — this isn't an edge case, markitdown's RTF path is simply broken
+whenever it's invoked, regardless of how the input got there. The 46/56 (82%) silent-empty rate on
+scanned content is dominated by round 2's corpus composition (94% scanned, per round 2's classification)
+more than it says something new about markitdown itself — consistent with round 1's single scanned
+sample also coming back empty. Zero crashes across all 56 attempts, same as round 1 alone.
+
+### MinerU: 14 attempts, 14 successes, zero crashes across both rounds
+
+| | Round 1 | Round 2 (11-doc subset) | Combined |
+|---|---|---|---|
+| Documents attempted (PDF/docx only) | 3 | 11 | 14 |
+| Completed successfully | 3 | 11 | **14/14 (100%)** |
+| Crashes / silent truncation | 0 | 0 | **0** |
+| Total processing time | 412.5s (~6.9 min) | 2,818.8s (~47.0 min) | 3,231.3s (~53.9 min) |
+| Total characters captured | 84,217 | 737,644 | 821,861 |
+
+No new information here beyond what rounds 1–2 already established individually — the combined view
+just confirms the "zero crashes" result holds at n=14, not n=11, and that the reliability finding wasn't
+a fluke of the round-2 subset specifically. `.doc`/`.rtf` were never attempted in either round (correctly
+excluded per MinerU's own documented supported-format list — pdf/image/docx/pptx/xlsx only), so those
+don't count against it the way they do against docling (which claims `.doc` support and then fails on
+it) or markitdown (whose RTF path actively lies about succeeding).
+
+### What this changes about the overall picture
+
+Mostly confirms rather than overturns: pdf-inspector and MinerU both come out of the combined view
+looking exactly as reliable as each individual round suggested (pdf-inspector: fast and honest about
+failure; MinerU: slow but complete). The one genuine upgrade in confidence is markitdown's RTF bug —
+independently reproduced on unrelated files across both rounds, so it should be treated as a known,
+permanent limitation of the tool rather than something worth re-testing or hoping was file-specific.
 
 ## Files
 
