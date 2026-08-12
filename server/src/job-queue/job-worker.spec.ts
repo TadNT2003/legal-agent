@@ -9,13 +9,13 @@ jest.mock('bullmq', () => ({
   }),
 }));
 
-// JobWorkerService imports the real LawIndexService class only for its
+// JobWorkerService imports the real CrawlService class only for its
 // constructor's type — mocking the whole module here avoids ever loading
 // the real module.repository.ts -> db.module.ts -> schema chain, which is
 // broken in this dev environment for reasons unrelated to this file (see
-// docs/monitoring — same root cause blocks law-index.service.spec.ts).
-jest.mock('../law-index/law-index.service', () => ({
-  LawIndexService: jest.fn(),
+// docs/monitoring — same root cause blocks crawl.service.spec.ts).
+jest.mock('../crawl/crawl.service', () => ({
+  CrawlService: jest.fn(),
 }));
 
 import { JobWorkerService } from './job-worker';
@@ -34,7 +34,7 @@ function makeJobMock(data: unknown) {
 }
 
 describe('JobWorkerService', () => {
-  let mockLawIndexService: {
+  let mockCrawlService: {
     syncAll: jest.Mock;
     syncDocumentsBatch: jest.Mock;
     updateDocumentsBatch: jest.Mock;
@@ -45,13 +45,13 @@ describe('JobWorkerService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     capturedProcessor = null;
-    mockLawIndexService = {
+    mockCrawlService = {
       syncAll: jest.fn(),
       syncDocumentsBatch: jest.fn(),
       updateDocumentsBatch: jest.fn(),
       searchAndSyncDocuments: jest.fn(),
     };
-    worker = new JobWorkerService(MOCK_CONFIG, mockLawIndexService as any);
+    worker = new JobWorkerService(MOCK_CONFIG, mockCrawlService as any);
     worker.onModuleInit();
   });
 
@@ -68,33 +68,33 @@ describe('JobWorkerService', () => {
     );
   });
 
-  it('dispatches a crawlAll job to LawIndexService.syncAll with limit and onProgress', async () => {
-    mockLawIndexService.syncAll.mockResolvedValue({ totalUrls: 1 });
+  it('dispatches a crawlAll job to CrawlService.syncAll with limit and onProgress', async () => {
+    mockCrawlService.syncAll.mockResolvedValue({ totalUrls: 1 });
     const job = makeJobMock({ type: 'crawlAll', limit: 10 });
 
     const result = await capturedProcessor!(job);
 
-    expect(mockLawIndexService.syncAll).toHaveBeenCalledWith(
+    expect(mockCrawlService.syncAll).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 10, onProgress: expect.any(Function) }),
     );
     expect(result).toEqual({ totalUrls: 1 });
   });
 
-  it('dispatches a crawlBatch job to LawIndexService.syncDocumentsBatch', async () => {
-    mockLawIndexService.syncDocumentsBatch.mockResolvedValue({ synced: 2 });
+  it('dispatches a crawlBatch job to CrawlService.syncDocumentsBatch', async () => {
+    mockCrawlService.syncDocumentsBatch.mockResolvedValue({ synced: 2 });
     const job = makeJobMock({ type: 'crawlBatch', urls: ['a', 'b'] });
 
     const result = await capturedProcessor!(job);
 
-    expect(mockLawIndexService.syncDocumentsBatch).toHaveBeenCalledWith(
+    expect(mockCrawlService.syncDocumentsBatch).toHaveBeenCalledWith(
       ['a', 'b'],
       expect.objectContaining({ onProgress: expect.any(Function) }),
     );
     expect(result).toEqual({ synced: 2 });
   });
 
-  it('dispatches a crawlUpdateBatch job to LawIndexService.updateDocumentsBatch with force', async () => {
-    mockLawIndexService.updateDocumentsBatch.mockResolvedValue({ updated: 1 });
+  it('dispatches a crawlUpdateBatch job to CrawlService.updateDocumentsBatch with force', async () => {
+    mockCrawlService.updateDocumentsBatch.mockResolvedValue({ updated: 1 });
     const job = makeJobMock({
       type: 'crawlUpdateBatch',
       urls: ['a'],
@@ -103,7 +103,7 @@ describe('JobWorkerService', () => {
 
     const result = await capturedProcessor!(job);
 
-    expect(mockLawIndexService.updateDocumentsBatch).toHaveBeenCalledWith(
+    expect(mockCrawlService.updateDocumentsBatch).toHaveBeenCalledWith(
       ['a'],
       true,
       expect.objectContaining({ onProgress: expect.any(Function) }),
@@ -111,14 +111,14 @@ describe('JobWorkerService', () => {
     expect(result).toEqual({ updated: 1 });
   });
 
-  it('dispatches a searchAndSync job to LawIndexService.searchAndSyncDocuments', async () => {
-    mockLawIndexService.searchAndSyncDocuments.mockResolvedValue({ synced: 3 });
+  it('dispatches a searchAndSync job to CrawlService.searchAndSyncDocuments', async () => {
+    mockCrawlService.searchAndSyncDocuments.mockResolvedValue({ synced: 3 });
     const filters = { keyword: 'test' };
     const job = makeJobMock({ type: 'searchAndSync', filters });
 
     const result = await capturedProcessor!(job);
 
-    expect(mockLawIndexService.searchAndSyncDocuments).toHaveBeenCalledWith(
+    expect(mockCrawlService.searchAndSyncDocuments).toHaveBeenCalledWith(
       filters,
       expect.objectContaining({ onProgress: expect.any(Function) }),
     );
@@ -126,7 +126,7 @@ describe('JobWorkerService', () => {
   });
 
   it("maps onProgress(processed, null) to a 'discovering' phase update", async () => {
-    mockLawIndexService.syncAll.mockImplementation(
+    mockCrawlService.syncAll.mockImplementation(
       (options: { onProgress?: (p: number, t: number | null) => void }) => {
         options.onProgress?.(5, null);
         return Promise.resolve({ totalUrls: 5 });
@@ -144,7 +144,7 @@ describe('JobWorkerService', () => {
   });
 
   it("maps onProgress(processed, total) to a 'syncing' phase update", async () => {
-    mockLawIndexService.syncDocumentsBatch.mockImplementation(
+    mockCrawlService.syncDocumentsBatch.mockImplementation(
       (
         _urls: string[],
         options: { onProgress?: (p: number, t: number | null) => void },

@@ -1,22 +1,22 @@
 import {
-  LawIndexService,
+  CrawlService,
   SyncDocumentResult,
   SyncSummary,
-} from './law-index.service';
+} from './crawl.service';
 import type {
   RawVbplPage,
   VbplSearchFilters,
   VbplSearchResult,
   VbplScope,
-} from '../crawl/vbpl-document.interface';
-import type { ParsedVbplDocument } from '../crawl/vbpl-document.interface';
+} from './vbpl-document.interface';
+import type { ParsedVbplDocument } from './vbpl-document.interface';
 
-jest.mock('../crawl/vbpl.parser', () => ({
+jest.mock('./vbpl.parser', () => ({
   parseVbplPage: jest.fn(),
   parseVbplSearchPage: jest.fn(),
 }));
 
-import { parseVbplPage, parseVbplSearchPage } from '../crawl/vbpl.parser';
+import { parseVbplPage, parseVbplSearchPage } from './vbpl.parser';
 
 const mockParseVbplPage = parseVbplPage as jest.MockedFunction<
   typeof parseVbplPage
@@ -52,8 +52,8 @@ const makeParsedDoc = (
   },
 });
 
-describe('LawIndexService', () => {
-  let service: LawIndexService;
+describe('CrawlService', () => {
+  let service: CrawlService;
   let mockSitemap: jest.Mocked<any>;
   let mockClient: jest.Mocked<any>;
   let mockRepo: jest.Mocked<any>;
@@ -80,7 +80,7 @@ describe('LawIndexService', () => {
       syncNodes: jest.fn(),
     };
 
-    service = new LawIndexService(
+    service = new CrawlService(
       mockSitemap,
       mockClient,
       mockRepo,

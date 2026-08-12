@@ -37,7 +37,7 @@ export class UpdateDocumentByUrlErrorDto {
   @ApiProperty({
     description: 'Human-readable error message.',
     example:
-      'No document found in the index matching vbpl.vn URL. The page resolved to citation "99/9999/QH99" which does not exist in the local database. Sync it first via POST /laws/index/crawl/url.',
+      'No document found in the index matching vbpl.vn URL. The page resolved to citation "99/9999/QH99" which does not exist in the local database. Sync it first via POST /crawl/url.',
   })
   message: string;
 

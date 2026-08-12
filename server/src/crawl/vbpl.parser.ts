@@ -516,7 +516,7 @@ export function parseVbplSearchResponse(
 
 /** Combines extractRscJsonPayload + parseVbplSearchResponse — the one entry
  * point vbpl-client.service.ts's raw response body is turned into by
- * law-index.service.ts. */
+ * crawl.service.ts. */
 export function parseVbplSearchPage(body: string): VbplSearchResult {
   const payload = extractRscJsonPayload(body) as RawVbplSearchResponse;
   return parseVbplSearchResponse(payload);

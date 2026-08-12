@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import type { Client } from '@opensearch-project/opensearch';
-import type { FlatNodeRow } from '../../persistence/document-node.repository';
+import type { FlatNodeRow } from '../persistence/document-node.repository';
 import { OpenSearchService } from './opensearch.service';
 
 const config = {

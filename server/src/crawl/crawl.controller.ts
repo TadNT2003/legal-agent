@@ -18,30 +18,30 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { BatchSyncDocumentDto } from '../crawl/dto/batch-sync-document.dto';
-import { ForceUpdateDto } from '../crawl/dto/force-update.dto';
-import { SearchDocumentsDto } from '../crawl/dto/search-documents.dto';
+import { BatchSyncDocumentDto } from './dto/batch-sync-document.dto';
+import { ForceUpdateDto } from './dto/force-update.dto';
+import { SearchDocumentsDto } from './dto/search-documents.dto';
 import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
-import { SearchSyncDocumentsDto } from '../crawl/dto/search-sync-documents.dto';
-import { SearchSyncDocumentsResponseDto } from '../crawl/dto/search-sync-documents-response.dto';
-import { SyncAllDto } from '../crawl/dto/sync-all.dto';
-import { SyncDocumentDto } from '../crawl/dto/sync-document.dto';
-import { SyncDocumentResponseDto } from '../crawl/dto/sync-document-response.dto';
+import { SearchSyncDocumentsDto } from './dto/search-sync-documents.dto';
+import { SearchSyncDocumentsResponseDto } from './dto/search-sync-documents-response.dto';
+import { SyncAllDto } from './dto/sync-all.dto';
+import { SyncDocumentDto } from './dto/sync-document.dto';
+import { SyncDocumentResponseDto } from './dto/sync-document-response.dto';
 import {
   UpdateDocumentByUrlResultDto,
   UpdateDocumentByUrlErrorDto,
-} from '../crawl/dto/update-document-by-url-response.dto';
+} from './dto/update-document-by-url-response.dto';
 import { CancelJobResponseDto } from '../job-queue/dto/cancel-job-response.dto';
 import { JobStatusResponseDto } from '../job-queue/dto/job-status-response.dto';
 import { JobSubmittedResponseDto } from '../job-queue/dto/job-submitted-response.dto';
 import { JobQueueService } from '../job-queue/job-queue.service';
-import { LawIndexService } from './law-index.service';
+import { CrawlService } from './crawl.service';
 
-@ApiTags('law-index')
-@Controller('laws/index')
-export class LawIndexController {
+@ApiTags('crawl')
+@Controller()
+export class CrawlController {
   constructor(
-    private readonly service: LawIndexService,
+    private readonly service: CrawlService,
     private readonly jobQueue: JobQueueService,
   ) {}
 
@@ -103,11 +103,11 @@ export class LawIndexController {
   @ApiOperation({
     summary: 'Update a batch of existing documents from vbpl.vn URLs (async)',
     description:
-      'Same as PUT /laws/index/crawl/url, for up to 100 vbpl.vn document ' +
+      'Same as PUT /crawl/url, for up to 100 vbpl.vn document ' +
       'detail page URLs at once — submitted as a background job rather than run ' +
       'inline (see docs/plan/scraper-resilience-plan.md), since a full batch can ' +
       'take much longer than a single request should stay open. Poll ' +
-      'GET /laws/index/jobs/:jobId for status/progress/result. Only updates ' +
+      'GET /jobs/:jobId for status/progress/result. Only updates ' +
       'documents that already exist in the local index by citationId — does NOT ' +
       'create new documents. Per-URL failures and not-found citations are ' +
       'collected in the eventual result rather than failing the job. After ' +
@@ -130,17 +130,17 @@ export class LawIndexController {
     return {
       jobId,
       status: 'pending',
-      message: 'Job submitted. Poll GET /laws/index/jobs/:jobId for status.',
+      message: 'Job submitted. Poll GET /jobs/:jobId for status.',
     };
   }
 
   @ApiOperation({
     summary: 'Crawl and sync a batch of documents from vbpl.vn URLs (async)',
     description:
-      'Same as POST /laws/index/crawl/url, for up to 100 vbpl.vn document ' +
+      'Same as POST /crawl/url, for up to 100 vbpl.vn document ' +
       'detail page URLs at once — submitted as a background job rather than run ' +
       'inline (see docs/plan/scraper-resilience-plan.md). Poll ' +
-      'GET /laws/index/jobs/:jobId for status/progress/result. Per-URL failures ' +
+      'GET /jobs/:jobId for status/progress/result. Per-URL failures ' +
       "are collected into the eventual result's `errors` rather than failing " +
       'the job. After processing all URLs, a cleanup pass heals any dangling ' +
       'document_reference rows.',
@@ -157,7 +157,7 @@ export class LawIndexController {
     return {
       jobId,
       status: 'pending',
-      message: 'Job submitted. Poll GET /laws/index/jobs/:jobId for status.',
+      message: 'Job submitted. Poll GET /jobs/:jobId for status.',
     };
   }
 
@@ -168,7 +168,7 @@ export class LawIndexController {
       'Discovers document URLs from vbpl.vn/sitemap.xml — the block between the "Trung ương" and "Địa ' +
       'phương" XML comment markers only — and calls the single-document sync for each one, then re-resolves ' +
       'any document_reference rows left dangling from earlier calls. Submitted as a background job rather ' +
-      'than run inline (see docs/plan/scraper-resilience-plan.md) — poll GET /laws/index/jobs/:jobId for ' +
+      'than run inline (see docs/plan/scraper-resilience-plan.md) — poll GET /jobs/:jobId for ' +
       "status/progress/result. Per-URL failures are collected into the eventual result's `errors` rather " +
       'than failing the job. Pass a small `limit` for a smoke test; without one, progress reports ' +
       '`total: null` for the whole run since the true total is not known until the crawl itself is done ' +
@@ -184,7 +184,7 @@ export class LawIndexController {
     return {
       jobId,
       status: 'pending',
-      message: 'Job submitted. Poll GET /laws/index/jobs/:jobId for status.',
+      message: 'Job submitted. Poll GET /jobs/:jobId for status.',
     };
   }
 
@@ -214,11 +214,11 @@ export class LawIndexController {
       'Search vbpl.vn and sync matched documents into Postgres (async unless dryRun)',
     description:
       'Combines the vbpl.vn filter search with automatic sync. Searches vbpl.vn/van-ban/trung-uong ' +
-      'using the same filters as GET /laws/index/crawl/search, then syncs each matched document ' +
+      'using the same filters as GET /crawl/search, then syncs each matched document ' +
       'into Postgres (document upsert, vbpl.vn relations, text-based reference extraction, node tree ' +
       'sync, and dangling reference healing). With `dryRun=true` (the search-only case), this stays ' +
       "synchronous and returns results directly, since no scraping happens. Otherwise it's submitted as " +
-      'a background job (see docs/plan/scraper-resilience-plan.md) — poll GET /laws/index/jobs/:jobId ' +
+      'a background job (see docs/plan/scraper-resilience-plan.md) — poll GET /jobs/:jobId ' +
       "for status/progress/result. Per-document failures are collected into the eventual result's " +
       '`errors` rather than failing the job. Use `maxResults` to cap how many documents to sync.',
   })
@@ -246,7 +246,7 @@ export class LawIndexController {
     return {
       jobId,
       status: 'pending',
-      message: 'Job submitted. Poll GET /laws/index/jobs/:jobId for status.',
+      message: 'Job submitted. Poll GET /jobs/:jobId for status.',
     };
   }
 

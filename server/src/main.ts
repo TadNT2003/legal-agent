@@ -16,7 +16,7 @@ async function bootstrap() {
 
   // Allow very long requests for sync single-doc law-index operations (4
   // page loads against vbpl.vn, throttled). Async job endpoints
-  // (POST /laws/index/crawl/all|batch|search) return immediately once
+  // (POST /crawl/all|batch|search) return immediately once
   // submitted, so this timeout only ever applies to the synchronous
   // single-doc sync/update endpoints — it exists to stop the OS/proxy from
   // killing those requests early, not to bound them tightly.
@@ -48,8 +48,12 @@ async function bootstrap() {
     .addTag('retrieve', 'Read/search/delete already-synced documents in Postgres')
     .addTag('sync', 'Heal dangling document_reference rows in Postgres')
     .addTag(
-      'law-index',
+      'crawl',
       'Scrape vbpl.vn (Trung ương only) and index documents into Postgres',
+    )
+    .addTag(
+      'opensearch',
+      'Manage the OpenSearch legal-provisions index (create, backfill, reproject, search)',
     )
     .build();
   const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);

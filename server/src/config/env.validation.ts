@@ -18,7 +18,7 @@ export const envValidationSchema = Joi.object({
   OPENSEARCH_REJECT_UNAUTHORIZED: Joi.boolean().default(true),
   OPENSEARCH_REQUEST_TIMEOUT_MS: Joi.number().default(30000),
 
-  // --- OpenSearch projector (server/src/law-index/opensearch/) ---
+  // --- OpenSearch projector (server/src/opensearch/) ---
   OPENSEARCH_PROJECTOR_INDEX_BASE_NAME:
     Joi.string().default('legal-provisions'),
   OPENSEARCH_PROJECTOR_INDEX_VERSION: Joi.number().default(1),

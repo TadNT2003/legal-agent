@@ -1,7 +1,7 @@
 import { BadGatewayException, Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import * as cheerio from 'cheerio';
-import { lawIndexConfig } from '../law-index/law-index.config';
+import { crawlConfig } from './crawl.config';
 import { REQUEST_USER_AGENT } from './constants';
 
 function sleep(ms: number): Promise<void> {
@@ -15,7 +15,7 @@ const DIA_PHUONG_MARKER = '<!-- Địa phương -->';
  * Discovers document URLs from vbpl.vn's sitemap.xml — a plain, stable,
  * plain-HTTP-crawlable index, so document discovery never needs the SPA's
  * search/filter UI at all. Split into "Trung ương" and "Địa phương" blocks;
- * this module only ever follows the Trung ương ones (see lawIndexConfig's
+ * this module only ever follows the Trung ương ones (see crawlConfig's
  * maxTier / the project's nationwide-applicability scope decision).
  *
  * The split is read positionally from the raw XML comment marker rather than
@@ -27,8 +27,8 @@ export class VbplSitemapService {
   private lastRequestAt = 0;
 
   constructor(
-    @Inject(lawIndexConfig.KEY)
-    private readonly config: ConfigType<typeof lawIndexConfig>,
+    @Inject(crawlConfig.KEY)
+    private readonly config: ConfigType<typeof crawlConfig>,
   ) {}
 
   /**

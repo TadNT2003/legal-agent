@@ -1,15 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { VbplClientService } from '../crawl/vbpl-client.service';
-import { VbplSitemapService } from '../crawl/vbpl-sitemap.service';
-import { parseVbplPage, parseVbplSearchPage } from '../crawl/vbpl.parser';
+import { VbplClientService } from './vbpl-client.service';
+import { VbplSitemapService } from './vbpl-sitemap.service';
+import { parseVbplPage, parseVbplSearchPage } from './vbpl.parser';
 import type {
   VbplSearchFilters,
   VbplSearchResult,
   VbplSearchResultItem,
-} from '../crawl/vbpl-document.interface';
+} from './vbpl-document.interface';
 import { DocumentRepository } from '../persistence/document.repository';
 import { DocumentNodeRepository } from '../persistence/document-node.repository';
-import type { SearchSyncDocumentsDto } from '../crawl/dto/search-sync-documents.dto';
+import type { SearchSyncDocumentsDto } from './dto/search-sync-documents.dto';
 
 export interface SyncDocumentResult {
   documentId: string | null;
@@ -85,8 +85,8 @@ export interface ProgressOptions {
 }
 
 @Injectable()
-export class LawIndexService {
-  private readonly logger = new Logger(LawIndexService.name);
+export class CrawlService {
+  private readonly logger = new Logger(CrawlService.name);
 
   constructor(
     private readonly sitemap: VbplSitemapService,
@@ -191,7 +191,7 @@ export class LawIndexService {
         `Update failed: no document found for citation "${result.citationId}" (URL: ${url})`,
       );
       return {
-        message: `No document found in the index matching citation "${result.citationId}". Sync it first via POST /laws/index/crawl/url.`,
+        message: `No document found in the index matching citation "${result.citationId}". Sync it first via POST /crawl/url.`,
         citationId: result.citationId,
         url,
       };

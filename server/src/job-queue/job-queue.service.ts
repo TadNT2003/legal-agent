@@ -24,7 +24,7 @@ export type CancelJobResult = 'not-found' | 'cancelled' | 'already-running';
 /**
  * Thin wrapper around a single BullMQ Queue: submit jobs, poll their
  * status/progress/result, cancel a pending one. The actual job execution
- * (dispatching to LawIndexService) lives in job-worker.ts, not here — this
+ * (dispatching to CrawlService) lives in job-worker.ts, not here — this
  * service only ever talks to Redis via the Queue, never runs job logic
  * itself.
  */

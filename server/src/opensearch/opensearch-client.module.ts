@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Client } from '@opensearch-project/opensearch';
-import { opensearchConfig } from '../../config/configuration';
+import { opensearchConfig } from '../config/configuration';
 
 export const OPENSEARCH_CLIENT = Symbol('OPENSEARCH_CLIENT');
 

@@ -5,7 +5,7 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
-import { SearchDocumentsResponseDto } from '../law-index/dto/search-documents-response.dto';
+import { SearchDocumentsResponseDto } from '../crawl/dto/search-documents-response.dto';
 import {
   DeleteDocumentResultDto,
   DeleteDocumentsBySearchResponseDto,
@@ -31,7 +31,7 @@ export class RetrieveController {
     summary: 'Search locally synced documents',
     description:
       'Read-only search against the local Postgres database. Only returns documents ' +
-      'previously synced via `POST /laws/index/crawl/url` or `POST /laws/index/crawl/all`. ' +
+      'previously synced via `POST /crawl/url` or `POST /crawl/all`. ' +
       'All provided filters are combined with AND logic. ' +
       '\n\n' +
       '**Text search** — `keyword` is matched against fields determined by `searchScope`: ' +
@@ -48,7 +48,7 @@ export class RetrieveController {
       '`effectiveFrom`/`effectiveTo` filter `effectiveDate`. Either bound can stand alone. ' +
       '\n\n' +
       '**Note**: `documentGroups` and `expiredFrom`/`expiredTo` are not accepted by this endpoint ' +
-      '(use `GET /laws/index/crawl/search` for vbpl.vn live search which supports them).',
+      '(use `GET /crawl/search` for vbpl.vn live search which supports them).',
   })
   @ApiOkResponse({ type: SearchDocumentsResponseDto })
   @Get()

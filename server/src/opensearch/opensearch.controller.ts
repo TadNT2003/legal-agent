@@ -20,8 +20,8 @@ import { SearchProvisionsResponseDto } from './dto/search-provisions-response.dt
 import { IndexAdminService } from './index-admin.service';
 import { OpenSearchService } from './opensearch.service';
 
-@ApiTags('law-index')
-@Controller('laws/index/opensearch')
+@ApiTags('opensearch')
+@Controller('opensearch')
 export class OpenSearchController {
   constructor(
     private readonly indexAdminService: IndexAdminService,

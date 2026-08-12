@@ -3,7 +3,7 @@ import type {
   BatchUpdateSummary,
   SearchAndSyncSummary,
   SyncSummary,
-} from '../law-index/law-index.service';
+} from '../crawl/crawl.service';
 
 /**
  * Four distinct job types rather than a `force` flag distinguishing two of
@@ -48,12 +48,12 @@ export type JobRunResult =
 
 /**
  * Reported via BullMQ's job.updateProgress() as each document finishes (see
- * job-worker.ts) and read back by GET /laws/index/jobs/:jobId (see
+ * job-worker.ts) and read back by GET /jobs/:jobId (see
  * job-queue.service.ts). `total` is null while it isn't known yet — an
  * unbounded `crawlAll` job (no `limit`) discovers document URLs
  * incrementally while it syncs them, so there's no true total until the run
  * itself is already finished, not just during some initial "discovery"
- * phase (see LawIndexService.syncAll's doc comment). `phase` is derived
+ * phase (see CrawlService.syncAll's doc comment). `phase` is derived
  * from whether `total` is known, not tracked independently.
  */
 export interface JobProgress {

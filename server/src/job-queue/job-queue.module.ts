@@ -1,5 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { LawIndexModule } from '../law-index/law-index.module';
+import { CrawlModule } from '../crawl/crawl.module';
 import { JobQueueService } from './job-queue.service';
 import { JobWorkerService } from './job-worker';
 
@@ -9,13 +9,14 @@ import { JobWorkerService } from './job-worker';
  * docs/plan/scraper-resilience-plan.md. jobQueueConfig is registered
  * globally in app.module.ts (same pattern as every other config namespace
  * here), so no local ConfigModule.forFeature() is needed. Imports
- * LawIndexModule (for JobWorkerService to call LawIndexService) via
- * forwardRef since LawIndexModule also imports this module (for
- * LawIndexController to submit jobs via JobQueueService) — a genuine
- * two-way dependency, not an accident.
+ * CrawlModule (for JobWorkerService to call CrawlService) via forwardRef
+ * since CrawlModule also imports this module (for CrawlController to
+ * submit jobs via JobQueueService) — a genuine two-way dependency, not an
+ * accident. (Formerly LawIndexModule, before the law-index umbrella was
+ * dismantled and CrawlController/CrawlService merged into crawl/.)
  */
 @Module({
-  imports: [forwardRef(() => LawIndexModule)],
+  imports: [forwardRef(() => CrawlModule)],
   providers: [JobQueueService, JobWorkerService],
   exports: [JobQueueService],
 })

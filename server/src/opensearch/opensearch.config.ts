@@ -4,7 +4,7 @@ import { registerAs } from '@nestjs/config';
  * Index/alias naming and write-batching knobs for the OpenSearch projector —
  * separate from the `opensearch` namespace in src/config/configuration.ts,
  * which only holds cluster connection info. Colocated here rather than in
- * that shared file, same pattern as law-index.config.ts.
+ * that shared file, same pattern as crawl.config.ts.
  */
 export const opensearchProjectorConfig = registerAs(
   'opensearchProjector',

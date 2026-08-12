@@ -15,10 +15,11 @@ import { LawDownloadModule } from './download/law-download.module';
 import { LawCatalogModule } from './catalog/law-catalog.module';
 import { RetrieveModule } from './retrieve/retrieve.module';
 import { SyncModule } from './sync/sync.module';
-import { LawIndexModule } from './law-index/law-index.module';
-import { lawIndexConfig } from './law-index/law-index.config';
+import { CrawlModule } from './crawl/crawl.module';
+import { crawlConfig } from './crawl/crawl.config';
 import { jobQueueConfig } from './job-queue/job-queue.config';
-import { opensearchProjectorConfig } from './law-index/opensearch/opensearch.config';
+import { OpenSearchModule } from './opensearch/opensearch.module';
+import { opensearchProjectorConfig } from './opensearch/opensearch.config';
 
 @Module({
   imports: [
@@ -32,7 +33,7 @@ import { opensearchProjectorConfig } from './law-index/opensearch/opensearch.con
         neo4jConfig,
         chromadbConfig,
         lawDownloadConfig,
-        lawIndexConfig,
+        crawlConfig,
         jobQueueConfig,
         opensearchProjectorConfig,
       ],
@@ -45,7 +46,8 @@ import { opensearchProjectorConfig } from './law-index/opensearch/opensearch.con
     LawCatalogModule,
     RetrieveModule,
     SyncModule,
-    LawIndexModule,
+    OpenSearchModule,
+    CrawlModule,
   ],
   controllers: [AppController],
   providers: [AppService],

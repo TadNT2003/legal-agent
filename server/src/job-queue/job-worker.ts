@@ -9,12 +9,12 @@ import {
 import type { ConfigType } from '@nestjs/config';
 import { Job, Worker } from 'bullmq';
 import { jobQueueConfig } from './job-queue.config';
-import { LawIndexService } from '../law-index/law-index.service';
+import { CrawlService } from '../crawl/crawl.service';
 import type { JobPayload, JobProgress, JobRunResult } from './job-types';
 
 /**
  * Owns the single BullMQ Worker for this process and dispatches each job to
- * the matching LawIndexService batch method. Concurrency is fixed at 1 —
+ * the matching CrawlService batch method. Concurrency is fixed at 1 —
  * VbplClientService's shared browser/page can only serve one caller at a
  * time (see vbpl-client.service.ts's acquireLock) — so running more than one
  * job concurrently here would just serialize on that lock anyway, worse,
@@ -33,8 +33,8 @@ export class JobWorkerService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(jobQueueConfig.KEY)
     private readonly config: ConfigType<typeof jobQueueConfig>,
-    @Inject(forwardRef(() => LawIndexService))
-    private readonly lawIndexService: LawIndexService,
+    @Inject(forwardRef(() => CrawlService))
+    private readonly crawlService: CrawlService,
   ) {}
 
   onModuleInit(): void {
@@ -80,22 +80,22 @@ export class JobWorkerService implements OnModuleInit, OnModuleDestroy {
 
     switch (payload.type) {
       case 'crawlAll':
-        return this.lawIndexService.syncAll({
+        return this.crawlService.syncAll({
           limit: payload.limit,
           onProgress,
         });
       case 'crawlBatch':
-        return this.lawIndexService.syncDocumentsBatch(payload.urls, {
+        return this.crawlService.syncDocumentsBatch(payload.urls, {
           onProgress,
         });
       case 'crawlUpdateBatch':
-        return this.lawIndexService.updateDocumentsBatch(
+        return this.crawlService.updateDocumentsBatch(
           payload.urls,
           payload.force,
           { onProgress },
         );
       case 'searchAndSync':
-        return this.lawIndexService.searchAndSyncDocuments(payload.filters, {
+        return this.crawlService.searchAndSyncDocuments(payload.filters, {
           onProgress,
         });
       default: {

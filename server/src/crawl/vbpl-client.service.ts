@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Browser, BrowserContext, chromium, Page, Response } from 'playwright';
-import { lawIndexConfig } from '../law-index/law-index.config';
+import { crawlConfig } from './crawl.config';
 import {
   DISALLOWED_PATH_PREFIXES,
   REQUEST_USER_AGENT,
@@ -59,8 +59,8 @@ export class VbplClientService implements OnModuleDestroy {
   private isProcessing = false;
 
   constructor(
-    @Inject(lawIndexConfig.KEY)
-    private readonly config: ConfigType<typeof lawIndexConfig>,
+    @Inject(crawlConfig.KEY)
+    private readonly config: ConfigType<typeof crawlConfig>,
   ) {}
 
   async onModuleDestroy(): Promise<void> {
