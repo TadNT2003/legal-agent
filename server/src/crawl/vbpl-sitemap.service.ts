@@ -1,7 +1,7 @@
 import { BadGatewayException, Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import * as cheerio from 'cheerio';
-import { lawIndexConfig } from '../law-index.config';
+import { lawIndexConfig } from '../law-index/law-index.config';
 import { REQUEST_USER_AGENT } from './constants';
 
 function sleep(ms: number): Promise<void> {

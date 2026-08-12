@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Browser, BrowserContext, chromium, Page, Response } from 'playwright';
-import { lawIndexConfig } from '../law-index.config';
+import { lawIndexConfig } from '../law-index/law-index.config';
 import {
   DISALLOWED_PATH_PREFIXES,
   REQUEST_USER_AGENT,

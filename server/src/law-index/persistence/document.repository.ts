@@ -19,12 +19,12 @@ import type {
   VbplReferenceType,
   VbplSearchFilters,
   VbplSearchResult,
-} from '../crawl/vbpl-document.interface';
+} from '../../crawl/vbpl-document.interface';
 import {
   extractCitationFromTitle,
   extractVbplInternalId,
   parseVbplDate,
-} from '../crawl/vbpl.parser';
+} from '../../crawl/vbpl.parser';
 import { DRIZZLE, type DrizzleDb } from './db.module';
 import { document, issuingBody, documentReference } from './schema';
 import { documentNode } from './schema/document-node.schema';

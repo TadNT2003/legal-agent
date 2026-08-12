@@ -4,8 +4,8 @@ import { and, eq } from 'drizzle-orm';
 import {
   parseDocumentBody,
   type ParsedDocumentNode,
-} from '../crawl/document-node.parser';
-import type { ParsedVbplDocument } from '../crawl/vbpl-document.interface';
+} from '../../crawl/document-node.parser';
+import type { ParsedVbplDocument } from '../../crawl/vbpl-document.interface';
 import { DRIZZLE, type DrizzleDb } from './db.module';
 import { document, documentNode } from './schema';
 

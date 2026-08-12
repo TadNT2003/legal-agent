@@ -18,19 +18,19 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { BatchSyncDocumentDto } from './crawl/dto/batch-sync-document.dto';
-import { ForceUpdateDto } from './crawl/dto/force-update.dto';
-import { SearchDocumentsDto } from './crawl/dto/search-documents.dto';
+import { BatchSyncDocumentDto } from '../crawl/dto/batch-sync-document.dto';
+import { ForceUpdateDto } from '../crawl/dto/force-update.dto';
+import { SearchDocumentsDto } from '../crawl/dto/search-documents.dto';
 import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
-import { SearchSyncDocumentsDto } from './crawl/dto/search-sync-documents.dto';
-import { SearchSyncDocumentsResponseDto } from './crawl/dto/search-sync-documents-response.dto';
-import { SyncAllDto } from './crawl/dto/sync-all.dto';
-import { SyncDocumentDto } from './crawl/dto/sync-document.dto';
-import { SyncDocumentResponseDto } from './crawl/dto/sync-document-response.dto';
+import { SearchSyncDocumentsDto } from '../crawl/dto/search-sync-documents.dto';
+import { SearchSyncDocumentsResponseDto } from '../crawl/dto/search-sync-documents-response.dto';
+import { SyncAllDto } from '../crawl/dto/sync-all.dto';
+import { SyncDocumentDto } from '../crawl/dto/sync-document.dto';
+import { SyncDocumentResponseDto } from '../crawl/dto/sync-document-response.dto';
 import {
   UpdateDocumentByUrlResultDto,
   UpdateDocumentByUrlErrorDto,
-} from './crawl/dto/update-document-by-url-response.dto';
+} from '../crawl/dto/update-document-by-url-response.dto';
 import { CancelJobResponseDto } from './job-queue/dto/cancel-job-response.dto';
 import { JobStatusResponseDto } from './job-queue/dto/job-status-response.dto';
 import { JobSubmittedResponseDto } from './job-queue/dto/job-submitted-response.dto';

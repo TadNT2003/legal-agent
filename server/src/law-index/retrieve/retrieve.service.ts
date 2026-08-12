@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { VbplSearchResult } from '../crawl/vbpl-document.interface';
+import type { VbplSearchResult } from '../../crawl/vbpl-document.interface';
 import type {
   RetrieveIssuingBodiesDto,
   RetrieveIssuingBodiesResponseDto,

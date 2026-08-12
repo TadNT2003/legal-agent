@@ -17,7 +17,7 @@ import {
   UpsertResult,
   ReferenceRow,
 } from './document.repository';
-import type { ParsedVbplDocument } from '../crawl/vbpl-document.interface';
+import type { ParsedVbplDocument } from '../../crawl/vbpl-document.interface';
 
 /** Document schema with raw_source as JSON mode for SQLite compatibility. */
 const docSchema = sqliteTable('document', {

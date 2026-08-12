@@ -1,4 +1,4 @@
-import type { SearchSyncDocumentsDto } from '../crawl/dto/search-sync-documents.dto';
+import type { SearchSyncDocumentsDto } from '../../crawl/dto/search-sync-documents.dto';
 import type {
   BatchUpdateSummary,
   SearchAndSyncSummary,

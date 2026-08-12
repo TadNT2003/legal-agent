@@ -1,15 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { VbplClientService } from './crawl/vbpl-client.service';
-import { VbplSitemapService } from './crawl/vbpl-sitemap.service';
-import { parseVbplPage, parseVbplSearchPage } from './crawl/vbpl.parser';
+import { VbplClientService } from '../crawl/vbpl-client.service';
+import { VbplSitemapService } from '../crawl/vbpl-sitemap.service';
+import { parseVbplPage, parseVbplSearchPage } from '../crawl/vbpl.parser';
 import type {
   VbplSearchFilters,
   VbplSearchResult,
   VbplSearchResultItem,
-} from './crawl/vbpl-document.interface';
+} from '../crawl/vbpl-document.interface';
 import { DocumentRepository } from './persistence/document.repository';
 import { DocumentNodeRepository } from './persistence/document-node.repository';
-import type { SearchSyncDocumentsDto } from './crawl/dto/search-sync-documents.dto';
+import type { SearchSyncDocumentsDto } from '../crawl/dto/search-sync-documents.dto';
 
 export interface SyncDocumentResult {
   documentId: string | null;

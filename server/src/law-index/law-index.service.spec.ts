@@ -8,15 +8,15 @@ import type {
   VbplSearchFilters,
   VbplSearchResult,
   VbplScope,
-} from './crawl/vbpl-document.interface';
-import type { ParsedVbplDocument } from './crawl/vbpl-document.interface';
+} from '../crawl/vbpl-document.interface';
+import type { ParsedVbplDocument } from '../crawl/vbpl-document.interface';
 
-jest.mock('./crawl/vbpl.parser', () => ({
+jest.mock('../crawl/vbpl.parser', () => ({
   parseVbplPage: jest.fn(),
   parseVbplSearchPage: jest.fn(),
 }));
 
-import { parseVbplPage, parseVbplSearchPage } from './crawl/vbpl.parser';
+import { parseVbplPage, parseVbplSearchPage } from '../crawl/vbpl.parser';
 
 const mockParseVbplPage = parseVbplPage as jest.MockedFunction<
   typeof parseVbplPage

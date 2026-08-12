@@ -1,6 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { VbplClientService } from './crawl/vbpl-client.service';
-import { VbplSitemapService } from './crawl/vbpl-sitemap.service';
+import { CrawlModule } from '../crawl/crawl.module';
 import { DbModule } from './persistence/db.module';
 import { DocumentRepository } from './persistence/document.repository';
 import { DocumentNodeRepository } from './persistence/document-node.repository';
@@ -13,15 +12,17 @@ import { SyncModule } from './sync/sync.module';
 
 /**
  * Workflow B: production DB ingestion (vbpl.vn -> Postgres), kept fully
- * separate from LawModule's workflow A (vanban.chinhphu.vn -> laws/ raw-file
- * corpus, no DB) — see the law-index plan's Context section for why the two
- * are deliberately decoupled, not meant to reconcile with each other.
+ * separate from workflow A (vanban.chinhphu.vn -> laws/ raw-file corpus, no
+ * DB — server/src/download/, server/src/catalog/, server/src/utils/) — see
+ * the law-index plan's Context section for why the two are deliberately
+ * decoupled, not meant to reconcile with each other.
  *
  * Imports JobQueueModule via forwardRef — see job-queue.module.ts's own
  * comment for why this is a genuine two-way dependency.
  */
 @Module({
   imports: [
+    CrawlModule,
     DbModule,
     RetrieveModule,
     SyncModule,
@@ -29,13 +30,7 @@ import { SyncModule } from './sync/sync.module';
     forwardRef(() => JobQueueModule),
   ],
   controllers: [LawIndexController],
-  providers: [
-    VbplClientService,
-    VbplSitemapService,
-    DocumentRepository,
-    DocumentNodeRepository,
-    LawIndexService,
-  ],
+  providers: [DocumentRepository, DocumentNodeRepository, LawIndexService],
   exports: [LawIndexService],
 })
 export class LawIndexModule {}

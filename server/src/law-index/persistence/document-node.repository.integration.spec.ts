@@ -13,7 +13,7 @@ import {
   issuingBody as ibSchema,
 } from './schema/sqlite-schema';
 import { DocumentNodeRepository } from './document-node.repository';
-import type { ParsedVbplDocument } from '../crawl/vbpl-document.interface';
+import type { ParsedVbplDocument } from '../../crawl/vbpl-document.interface';
 
 let sqlite: Database;
 let db: any;

@@ -3,7 +3,7 @@ import type {
   ParsedVbplAttributes,
   VbplChangeType,
   VbplReferenceType,
-} from '../crawl/vbpl-document.interface';
+} from '../../crawl/vbpl-document.interface';
 
 // Test the standalone helper functions from document.repository.ts
 // These are module-scoped (not exported), so we replicate their logic
