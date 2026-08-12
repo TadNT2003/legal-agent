@@ -1,4 +1,4 @@
-import type { FlatNodeRow } from '../persistence/document-node.repository';
+import type { FlatNodeRow } from '../../persistence/document-node.repository';
 
 /**
  * Metadata pulled from the `document ⋈ issuing_body` join (see

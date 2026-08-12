@@ -12,11 +12,11 @@ import type {
   RetrieveNodeItemDto,
   RetrieveNodeResponseDto,
 } from './dto/retrieve-node-response.dto';
-import { DocumentRepository } from '../persistence/document.repository';
+import { DocumentRepository } from '../../persistence/document.repository';
 import {
   DocumentNodeRepository,
   type FlatNodeRow,
-} from '../persistence/document-node.repository';
+} from '../../persistence/document-node.repository';
 
 @Injectable()
 export class RetrieveService {

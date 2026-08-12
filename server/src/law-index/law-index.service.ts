@@ -7,8 +7,8 @@ import type {
   VbplSearchResult,
   VbplSearchResultItem,
 } from '../crawl/vbpl-document.interface';
-import { DocumentRepository } from './persistence/document.repository';
-import { DocumentNodeRepository } from './persistence/document-node.repository';
+import { DocumentRepository } from '../persistence/document.repository';
+import { DocumentNodeRepository } from '../persistence/document-node.repository';
 import type { SearchSyncDocumentsDto } from '../crawl/dto/search-sync-documents.dto';
 
 export interface SyncDocumentResult {

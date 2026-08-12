@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DbModule, DRIZZLE } from './db.module';
-import { postgresConfig } from '../../config/configuration';
+import { postgresConfig } from '../config/configuration';
 
 describe('DbModule', () => {
   let moduleRef: TestingModule;

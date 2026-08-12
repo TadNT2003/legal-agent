@@ -1,4 +1,4 @@
-import type { FlatNodeRow } from '../persistence/document-node.repository';
+import type { FlatNodeRow } from '../../persistence/document-node.repository';
 import {
   projectDocument,
   type DocumentProjectionMeta,

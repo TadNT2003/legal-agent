@@ -2,9 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { RetrieveModule } from './retrieve.module';
 import { RetrieveService } from './retrieve.service';
 import { RetrieveController } from './retrieve.controller';
-import { DocumentRepository } from '../persistence/document.repository';
-import { DocumentNodeRepository } from '../persistence/document-node.repository';
-import { DbModule, DRIZZLE } from '../persistence/db.module';
+import { DocumentRepository } from '../../persistence/document.repository';
+import { DocumentNodeRepository } from '../../persistence/document-node.repository';
+import { DbModule, DRIZZLE } from '../../persistence/db.module';
 import { postgresConfig } from '../../config/configuration';
 import {
   createTestDb,

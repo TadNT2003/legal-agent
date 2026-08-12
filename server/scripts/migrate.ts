@@ -21,7 +21,7 @@ async function main() {
   const db = drizzle(pool);
   try {
     await migrate(db, {
-      migrationsFolder: './src/law-index/persistence/migrations',
+      migrationsFolder: './src/persistence/migrations',
     });
     console.log('Migrations applied.');
   } finally {

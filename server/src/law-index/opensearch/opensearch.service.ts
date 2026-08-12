@@ -14,9 +14,9 @@ import {
   type KhoanEntry,
   type LegalProvisionDocument,
 } from './provision.projection';
-import { DocumentNodeRepository } from '../persistence/document-node.repository';
-import { DocumentRepository } from '../persistence/document.repository';
-import { document, issuingBody } from '../persistence/schema';
+import { DocumentNodeRepository } from '../../persistence/document-node.repository';
+import { DocumentRepository } from '../../persistence/document.repository';
+import { document, issuingBody } from '../../persistence/schema';
 
 const DOCUMENT_PAGE_SIZE = 200;
 /** Non-fatal errors (per-document processing failures, per-item bulk

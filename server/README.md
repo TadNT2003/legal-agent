@@ -77,7 +77,7 @@ Setup:
 
 ```bash
 npm run playwright:install   # one-time, downloads Chromium
-npm run db:generate          # generate a migration from src/law-index/persistence/schema/
+npm run db:generate          # generate a migration from src/persistence/schema/
 npm run db:migrate           # apply it (needs postgres up — docker compose up -d postgres)
 ```
 
