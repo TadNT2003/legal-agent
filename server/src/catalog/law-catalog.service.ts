@@ -9,10 +9,10 @@ import {
   findByCitation,
   resolveBestMatch,
   type DocumentQuery,
-} from '../../utils/document-matcher';
-import type { ManifestEntry } from '../../utils/download-outcome.interface';
-import { LawManifestService } from '../../utils/law-manifest.service';
-import { TIER_DEFINITIONS } from '../../utils/tier-definitions';
+} from '../utils/document-matcher';
+import type { ManifestEntry } from '../utils/download-outcome.interface';
+import { LawManifestService } from '../utils/law-manifest.service';
+import { TIER_DEFINITIONS } from '../utils/tier-definitions';
 
 const EXCLUDED_FILENAMES = new Set(['README.md']);
 

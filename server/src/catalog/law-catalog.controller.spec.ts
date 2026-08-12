@@ -103,10 +103,10 @@ describe('LawCatalogController', () => {
     await app.close();
   });
 
-  describe('GET /laws/catalog/overview', () => {
+  describe('GET /catalog/overview', () => {
     it('returns tier overview without tier parameter', async () => {
       const res = await request(app.getHttpServer())
-        .get('/laws/catalog/overview')
+        .get('/catalog/overview')
         .expect(200);
 
       expect(res.body).toHaveLength(2);
@@ -115,16 +115,16 @@ describe('LawCatalogController', () => {
 
     it('returns 400 when tier parameter fails IsInt validation (query string coercion)', async () => {
       await request(app.getHttpServer())
-        .get('/laws/catalog/overview')
+        .get('/catalog/overview')
         .query({ tier: 'notanumber' })
         .expect(400);
     });
   });
 
-  describe('GET /laws/catalog/documents/status', () => {
+  describe('GET /catalog/documents/status', () => {
     it('returns document status for valid citation', async () => {
       const res = await request(app.getHttpServer())
-        .get('/laws/catalog/documents/status')
+        .get('/catalog/documents/status')
         .query({ citation: '01/2025/QH15' })
         .expect(200);
 
@@ -137,7 +137,7 @@ describe('LawCatalogController', () => {
 
     it('returns document status for valid title', async () => {
       await request(app.getHttpServer())
-        .get('/laws/catalog/documents/status')
+        .get('/catalog/documents/status')
         .query({ title: 'Bo luat Lao dong' })
         .expect(200);
 
@@ -148,12 +148,12 @@ describe('LawCatalogController', () => {
 
     it('returns 400 when both citation and title are missing', async () => {
       await request(app.getHttpServer())
-        .get('/laws/catalog/documents/status')
+        .get('/catalog/documents/status')
         .expect(400);
     });
   });
 
-  describe('GET /laws/catalog/documents', () => {
+  describe('GET /catalog/documents', () => {
     it('sets up single file stream correctly', async () => {
       mockCatalog.findDocumentGroup.mockResolvedValueOnce({
         citation: '01/2025/QH15',
@@ -170,7 +170,7 @@ describe('LawCatalogController', () => {
       mockStat.mockResolvedValueOnce({ size: 2048 });
 
       const res = await request(app.getHttpServer())
-        .get('/laws/catalog/documents')
+        .get('/catalog/documents')
         .query({ citation: '01/2025/QH15' })
         .expect(200);
 
@@ -201,7 +201,7 @@ describe('LawCatalogController', () => {
       });
 
       const res = await request(app.getHttpServer())
-        .get('/laws/catalog/documents')
+        .get('/catalog/documents')
         .query({ citation: '02/2025/QH15' })
         .expect(200);
 
@@ -210,7 +210,7 @@ describe('LawCatalogController', () => {
 
     it('returns 400 when both citation and title are missing', async () => {
       await request(app.getHttpServer())
-        .get('/laws/catalog/documents')
+        .get('/catalog/documents')
         .expect(400);
     });
   });

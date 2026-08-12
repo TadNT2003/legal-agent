@@ -10,9 +10,9 @@ import {
   postgresConfig,
 } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
-import { LawModule } from './law/law.module';
 import { lawDownloadConfig } from './utils/law-download.config';
 import { LawDownloadModule } from './download/law-download.module';
+import { LawCatalogModule } from './catalog/law-catalog.module';
 import { LawIndexModule } from './law-index/law-index.module';
 import { lawIndexConfig } from './law-index/law-index.config';
 import { jobQueueConfig } from './law-index/job-queue/job-queue.config';
@@ -39,8 +39,8 @@ import { opensearchProjectorConfig } from './law-index/opensearch/opensearch.con
         abortEarly: false,
       },
     }),
-    LawModule,
     LawDownloadModule,
+    LawCatalogModule,
     LawIndexModule,
   ],
   controllers: [AppController],

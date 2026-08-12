@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { LawUtilsModule } from '../../utils/law-utils.module';
+import { LawUtilsModule } from '../utils/law-utils.module';
 import { LawCatalogController } from './law-catalog.controller';
 import { LawCatalogService } from './law-catalog.service';
 
