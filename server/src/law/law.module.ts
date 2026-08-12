@@ -1,9 +1,13 @@
 import { Module } from '@nestjs/common';
 import { LawCatalogModule } from './catalog/law-catalog.module';
-import { LawDownloadModule } from './download/law-download.module';
 
-/** Umbrella module for everything under laws/ — fetching (download/), browsing/serving (catalog/), and their shared plumbing (utils/). */
+/**
+ * Umbrella module for what's still nested under law/ — browsing/serving
+ * (catalog/) and shared plumbing (utils/). `download/` moved to a top-level
+ * module (see AppModule) as part of flattening this grouping; other
+ * submodules will follow the same way.
+ */
 @Module({
-  imports: [LawDownloadModule, LawCatalogModule],
+  imports: [LawCatalogModule],
 })
 export class LawModule {}

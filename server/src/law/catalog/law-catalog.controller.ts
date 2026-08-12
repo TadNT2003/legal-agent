@@ -104,7 +104,7 @@ export class LawCatalogController {
     }
 
     // Every entry sharing a citation was written with the same `folder`
-    // (see ../download/law-download.service.ts) — safe to read it off any one of them.
+    // (see ../../download/law-download.service.ts) — safe to read it off any one of them.
     const zipFilename = `${files[0].entry.folder}.zip`;
     res.set({
       'Content-Type': 'application/zip',

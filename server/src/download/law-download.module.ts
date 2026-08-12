@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { LawUtilsModule } from '../utils/law-utils.module';
+import { LawUtilsModule } from '../law/utils/law-utils.module';
 import { LawDownloadController } from './law-download.controller';
 import { LawDownloadService } from './law-download.service';
 import { VanBanChinhPhuClientService } from './vanban-chinh-phu-client.service';

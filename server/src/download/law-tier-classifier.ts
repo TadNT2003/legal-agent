@@ -1,4 +1,4 @@
-import { LUAT_BO_LUAT_SUBDIR } from '../utils/tier-definitions';
+import { LUAT_BO_LUAT_SUBDIR } from '../law/utils/tier-definitions';
 
 export interface TierClassification {
   tier: number;

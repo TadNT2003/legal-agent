@@ -43,7 +43,7 @@ async function bootstrap() {
       'Law document download, catalog, and (later) RAG endpoints for the legal-agent server.',
     )
     .setVersion('0.1')
-    .addTag('law-downloads', 'Fetch documents from vanban.chinhphu.vn')
+    .addTag('downloads', 'Fetch documents from vanban.chinhphu.vn')
     .addTag('law-catalog', 'Browse and serve already-downloaded documents')
     .addTag(
       'law-index',

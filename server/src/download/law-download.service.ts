@@ -8,13 +8,13 @@ import { DEFAULT_MAX_RESULTS, DEFAULT_RECORDS_PER_PAGE } from './constants';
 import { DownloadByUrlDto } from './dto/download-by-url.dto';
 import { SearchDownloadDto } from './dto/search-download.dto';
 import { buildFilename, buildLawFolderName } from './filename.util';
-import type { DownloadOutcome } from '../utils/download-outcome.interface';
+import type { DownloadOutcome } from '../law/utils/download-outcome.interface';
 import type {
   ParsedLawDocument,
   SearchResultRow,
 } from './parsed-law-document.interface';
 import { classifyTier } from './law-tier-classifier';
-import { LawManifestService } from '../utils/law-manifest.service';
+import { LawManifestService } from '../law/utils/law-manifest.service';
 import { VanBanChinhPhuClientService } from './vanban-chinh-phu-client.service';
 import {
   parseDocumentDetailPage,

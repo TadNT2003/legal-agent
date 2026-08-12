@@ -7,8 +7,8 @@ import { SearchDownloadDto } from './dto/search-download.dto';
 import { SearchQueryDto } from './dto/search-query.dto';
 import { LawDownloadService } from './law-download.service';
 
-@ApiTags('law-downloads')
-@Controller('laws/downloads')
+@ApiTags('downloads')
+@Controller('downloads')
 export class LawDownloadController {
   constructor(private readonly downloadService: LawDownloadService) {}
 
@@ -30,7 +30,7 @@ export class LawDownloadController {
   @ApiOperation({
     summary: 'Check download status',
     description:
-      'Predicts what POST /laws/downloads would do for this URL (tier, filenames, which files already exist) without fetching or writing anything.',
+      'Predicts what POST /downloads would do for this URL (tier, filenames, which files already exist) without fetching or writing anything.',
   })
   @Get('status')
   checkStatus(@Query() dto: CheckStatusDto) {
@@ -40,7 +40,7 @@ export class LawDownloadController {
   /** Download a batch of documents from a list of vanban.chinhphu.vn detail page URLs. */
   @ApiOperation({
     summary: 'Download a batch of documents',
-    description: 'Same as POST /laws/downloads, for up to 100 URLs at once.',
+    description: 'Same as POST /downloads, for up to 100 URLs at once.',
   })
   @Post('batch')
   downloadBatch(@Body() dto: BatchDownloadDto) {

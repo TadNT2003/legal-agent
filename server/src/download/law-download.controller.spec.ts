@@ -72,10 +72,10 @@ describe('LawDownloadController', () => {
     await app.close();
   });
 
-  describe('POST /laws/downloads/url', () => {
+  describe('POST /downloads/url', () => {
     it('returns 201 and delegates to service', async () => {
       const res = await request(app.getHttpServer())
-        .post('/laws/downloads/url')
+        .post('/downloads/url')
         .send({ url: 'https://vanban.chinhphu.vn/?pageid=27160&docid=213310' })
         .expect(201);
 
@@ -85,23 +85,23 @@ describe('LawDownloadController', () => {
 
     it('returns 400 when url is missing', async () => {
       await request(app.getHttpServer())
-        .post('/laws/downloads/url')
+        .post('/downloads/url')
         .send({})
         .expect(400);
     });
 
     it('returns 400 when url is invalid', async () => {
       await request(app.getHttpServer())
-        .post('/laws/downloads/url')
+        .post('/downloads/url')
         .send({ url: 'not-a-url' })
         .expect(400);
     });
   });
 
-  describe('GET /laws/downloads/status', () => {
+  describe('GET /downloads/status', () => {
     it('returns 200 and passes URL to service', async () => {
       const res = await request(app.getHttpServer())
-        .get('/laws/downloads/status')
+        .get('/downloads/status')
         .query({ url: 'https://vanban.chinhphu.vn/?pageid=27160&docid=213310' })
         .expect(200);
 
@@ -111,7 +111,7 @@ describe('LawDownloadController', () => {
 
     it('passes subdirOverride to service', async () => {
       await request(app.getHttpServer())
-        .get('/laws/downloads/status')
+        .get('/downloads/status')
         .query({
           url: 'https://vanban.chinhphu.vn/?pageid=27160&docid=213310',
           subdirOverride: '05-nghi-dinh',
@@ -125,10 +125,10 @@ describe('LawDownloadController', () => {
     });
   });
 
-  describe('POST /laws/downloads/batch', () => {
+  describe('POST /downloads/batch', () => {
     it('returns download outcomes for batch', async () => {
       const res = await request(app.getHttpServer())
-        .post('/laws/downloads/batch')
+        .post('/downloads/batch')
         .send({
           documents: [
             { url: 'https://vanban.chinhphu.vn/?pageid=27160&docid=1' },
@@ -143,16 +143,16 @@ describe('LawDownloadController', () => {
 
     it('returns 400 when documents array is empty', async () => {
       await request(app.getHttpServer())
-        .post('/laws/downloads/batch')
+        .post('/downloads/batch')
         .send({ documents: [] })
         .expect(400);
     });
   });
 
-  describe('GET /laws/downloads/search', () => {
+  describe('GET /downloads/search', () => {
     it('returns search results with query params', async () => {
       const res = await request(app.getHttpServer())
-        .get('/laws/downloads/search')
+        .get('/downloads/search')
         .query({ keyword: 'luat lao dong', year: '2025' })
         .expect(200);
 
@@ -163,10 +163,10 @@ describe('LawDownloadController', () => {
     });
   });
 
-  describe('POST /laws/downloads/search', () => {
+  describe('POST /downloads/search', () => {
     it('returns search-and-download results', async () => {
       const res = await request(app.getHttpServer())
-        .post('/laws/downloads/search')
+        .post('/downloads/search')
         .send({ keyword: 'test', maxResults: 10, dryRun: false })
         .expect(201);
 
@@ -177,7 +177,7 @@ describe('LawDownloadController', () => {
 
     it('supports dryRun mode', async () => {
       await request(app.getHttpServer())
-        .post('/laws/downloads/search')
+        .post('/downloads/search')
         .send({ keyword: 'test', dryRun: true })
         .expect(201);
 
