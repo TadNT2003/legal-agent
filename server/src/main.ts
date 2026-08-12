@@ -46,6 +46,7 @@ async function bootstrap() {
     .addTag('downloads', 'Fetch documents from vanban.chinhphu.vn')
     .addTag('catalog', 'Browse and serve already-downloaded documents')
     .addTag('retrieve', 'Read/search/delete already-synced documents in Postgres')
+    .addTag('sync', 'Heal dangling document_reference rows in Postgres')
     .addTag(
       'law-index',
       'Scrape vbpl.vn (Trung ương only) and index documents into Postgres',

@@ -27,7 +27,7 @@ export class UpdateDocumentByUrlResultDto {
 
   @ApiProperty({
     description:
-      'Always 0 on this single-document path — dangling document_reference rows are no longer healed per document (that was an expensive full-table scan on every sync). Batch endpoints (PUT /crawl/batch) heal once at the end of the batch instead; for passes driven by repeated single-URL updates, call PATCH /laws/index/sync/refs/all afterward.',
+      'Always 0 on this single-document path — dangling document_reference rows are no longer healed per document (that was an expensive full-table scan on every sync). Batch endpoints (PUT /crawl/batch) heal once at the end of the batch instead; for passes driven by repeated single-URL updates, call PATCH /sync/refs/all afterward.',
     example: 0,
   })
   healedReferences: number;

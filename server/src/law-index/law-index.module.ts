@@ -7,7 +7,6 @@ import { JobQueueModule } from './job-queue/job-queue.module';
 import { LawIndexController } from './law-index.controller';
 import { LawIndexService } from './law-index.service';
 import { OpenSearchModule } from './opensearch/opensearch.module';
-import { SyncModule } from './sync/sync.module';
 
 /**
  * Workflow B: production DB ingestion (vbpl.vn -> Postgres), kept fully
@@ -23,7 +22,6 @@ import { SyncModule } from './sync/sync.module';
   imports: [
     CrawlModule,
     DbModule,
-    SyncModule,
     OpenSearchModule,
     forwardRef(() => JobQueueModule),
   ],

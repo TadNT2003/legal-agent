@@ -17,8 +17,8 @@ import { SyncRefsByCitationResponseDto } from './dto/sync-refs-response.dto';
 import { SyncRefsAllResponseDto } from './dto/sync-refs-all-response.dto';
 import { SyncService } from './sync.service';
 
-@ApiTags('law-index')
-@Controller('laws/index/sync')
+@ApiTags('sync')
+@Controller('sync')
 export class SyncController {
   constructor(private readonly service: SyncService) {}
 

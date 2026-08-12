@@ -1,8 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
-import { DocumentRepository } from '../../persistence/document.repository';
-import { document, documentReference } from '../../persistence/schema';
-import { extractCitationFromTitle } from '../../crawl/vbpl.parser';
+import { DocumentRepository } from '../persistence/document.repository';
+import { document, documentReference } from '../persistence/schema';
+import { extractCitationFromTitle } from '../crawl/vbpl.parser';
 import type { SyncRefsResultItem } from './dto/sync-refs-response.dto';
 
 @Injectable()

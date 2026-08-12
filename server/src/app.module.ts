@@ -14,6 +14,7 @@ import { lawDownloadConfig } from './utils/law-download.config';
 import { LawDownloadModule } from './download/law-download.module';
 import { LawCatalogModule } from './catalog/law-catalog.module';
 import { RetrieveModule } from './retrieve/retrieve.module';
+import { SyncModule } from './sync/sync.module';
 import { LawIndexModule } from './law-index/law-index.module';
 import { lawIndexConfig } from './law-index/law-index.config';
 import { jobQueueConfig } from './law-index/job-queue/job-queue.config';
@@ -43,6 +44,7 @@ import { opensearchProjectorConfig } from './law-index/opensearch/opensearch.con
     LawDownloadModule,
     LawCatalogModule,
     RetrieveModule,
+    SyncModule,
     LawIndexModule,
   ],
   controllers: [AppController],

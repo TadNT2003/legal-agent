@@ -150,7 +150,7 @@ export class LawIndexService {
     // operations (syncDocumentsBatch/updateDocumentsBatch/syncAll/
     // searchAndSyncDocuments) heal once at the end instead. A single-doc sync
     // via this path leaves any newly-resolvable references dangling until
-    // the next batch job or a manual PATCH /laws/index/sync/refs/all call —
+    // the next batch job or a manual PATCH /sync/refs/all call —
     // see the scrape/backfill runbook in CLAUDE.md, which now calls this out
     // explicitly for passes driven by individual POST /crawl/url calls.
     return { documentId, changed, healedReferences: 0 };
@@ -226,7 +226,7 @@ export class LawIndexService {
     }
     // See syncDocument's comment above: no longer healed per document —
     // batch operations heal once at the end, individual-URL passes need a
-    // manual PATCH /laws/index/sync/refs/all (see CLAUDE.md's runbook).
+    // manual PATCH /sync/refs/all (see CLAUDE.md's runbook).
     return {
       documentId: result.documentId,
       citationId: result.citationId,
