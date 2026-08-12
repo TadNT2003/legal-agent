@@ -53,12 +53,10 @@ lý dở, không mất phần đã lưu trên đĩa. Xem `scripts/run_docling_pa
 nhớ thực tế của từng tiến trình trước (khoảng 1,1GB RSS sau khi các mô hình docling+EasyOCR
 được nạp xong, ổn định qua các trang — khớp với phát hiện của đánh giá trước rằng xử lý
 từng trang ngăn được tình trạng tích lũy bộ nhớ *trong cùng một tiến trình*). Tại thời
-điểm đó chỉ còn 5,2GB RAM trống (do stack docker Postgres/OpenSearch/Neo4j/ChromaDB/Redis
-
-+ dev server đã chiếm dụng phần lớn); dừng các container không cần thiết cũng không giúp
-  ích gì, vì VM WSL2 của Docker Desktop không trả lại bộ nhớ cho Windows chỉ vì các
-  container bên trong nó dừng lại. Chốt ở mức 4 worker, sau đó giảm xuống 3 sau một lần
-  crash thực tế (xem bên dưới).
+điểm đó chỉ còn 5,2GB RAM trống (do stack docker Postgres/OpenSearch/Neo4j/ChromaDB/Redis dev server đã chiếm dụng phần lớn); dừng các container không cần thiết cũng không giúp
+ích gì, vì VM WSL2 của Docker Desktop không trả lại bộ nhớ cho Windows chỉ vì các
+container bên trong nó dừng lại. Chốt ở mức 4 worker, sau đó giảm xuống 3 sau một lần
+crash thực tế (xem bên dưới).
 
 ## Độ tin cậy: hai lần sập toàn bộ pool, không mất dữ liệu
 
