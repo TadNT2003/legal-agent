@@ -18,7 +18,7 @@ fallback. Full reasoning in Recommendation, below.
 | **MinerU** | Not recommended — reliable, but architecturally can't fix its Vietnamese OCR | Broken, no fix path (hardcoded language enum, no swappable OCR engine) | 14/14 (100%) complete, zero crashes | Slowest of the OCR-capable tools, 2–5× docling |
 | **docling (default, RapidOCR)** | Not recommended alone — fast but silently unreliable | Broken (no Vietnamese in RapidOCR's language list; tried chinese/latin/en, all fail) | 5/14 (36%) processable docs show content loss; 3/14 (21%) lose >50%, silently | Fast when clean, wildly variable otherwise |
 | **docling + EasyOCR(vi), whole-document** | Dead end as tested | **Fixed** — correct diacritics | Crashed (`std::bad_alloc`) on the one full document tested | N/A — never completed |
-| **docling + EasyOCR(vi), page-by-page** | **Recommended OCR fallback** | **Fixed** — correct diacritics, but a separate word-order bug remains open | 15/15 pages complete, zero crashes | ~3.5× slower than default docling |
+| **docling + EasyOCR(vi), page-by-page** | **Recommended OCR fallback** | **Fixed** — correct diacritics, but a separate word-order bug remains open | 295/295 pages complete across 11 documents, zero crashes — including both documents that crashed under default docling | ~2.8× slower than default docling overall (varies a lot by document — see Metrics) |
 
 **Bottom line:** none of the six entries is a clean, unqualified win. The corpus this pipeline actually
 has to handle is 92%+ scanned Vietnamese PDF (see Issues), so the decisive axis is "does this produce
@@ -240,11 +240,30 @@ when it was found.
   boxes are shaped/ordered differently enough to break it. Page-by-page chunking (which fixes the crash,
   below) neither fixes nor worsens this bug, confirming it's a within-page issue, orthogonal to the
   memory problem.
-- **Page-by-page chunking fixes docling's crash entirely.** One `DocumentConverter` instance, reused
-  across 15 sequential single-page `.convert(path, page_range=(i, i))` calls instead of one whole-document
-  call — 15/15 pages completed, zero crashes, no progressive slowdown (roughly 22.7s/page consistently,
-  early or late in the run). This directly confirms the diagnosis above: the memory pressure accumulates
-  *within* one multi-page `.convert()` call, not across repeated calls to a reused converter.
+- **Page-by-page chunking fixes docling's crash entirely — confirmed at full corpus-subset scale, not
+  just on one document.** One `DocumentConverter` instance, reused across sequential single-page
+  `.convert(path, page_range=(i, i))` calls instead of one whole-document call per file. First confirmed
+  on a single 15-page document (15/15 pages, zero crashes); then re-run across the entire 11-document
+  OCR subset (the same 11 documents used for the default-docling and MinerU reliability comparisons) —
+  **295/295 pages completed, zero crashes**, including both documents that specifically triggered
+  `bad_alloc` under default docling (the 37-page and 46-page documents, previously truncated at ~41% and
+  ~27% of their real content, both completed in full here: 82,853 and 83,078 characters respectively).
+  This directly confirms the diagnosis above: the memory pressure accumulates *within* one multi-page
+  `.convert()` call, not across repeated calls to a reused converter, and the fix holds at scale, not just
+  for one lucky document.
+- **Per-page speed under EasyOCR varies enormously by document, and it lines up with whether the
+  document has a real text layer.** Across the 295-page subset run, documents pdf-inspector classified as
+  clean or mostly-clean (0 or 1 of their pages actually needing OCR) processed at roughly 1.1–1.3s/page —
+  15–20× faster than the ~17–28s/page typical of fully-scanned documents. This held even though every
+  page was run through the identical page-by-page EasyOCR pipeline regardless of classification,
+  suggesting docling's own pipeline skips the actual OCR pass on pages that already carry a usable text
+  layer, even with EasyOCR configured as the OCR backend. Good news for real-world throughput: a mixed
+  corpus doesn't pay full OCR cost on every page, only on the pages that are genuinely scanned.
+- **One document was anomalously slow under both OCR configurations, independent of engine.** `246/2025/QH15`
+  (15 pages) averaged 41.6s/page here (up to 96.25s on one page) — and was also the single slowest
+  document under default docling in this evaluation (688.3s total, with "RapidOCR returned empty result"
+  warnings). Same anomaly, two different OCR engines — points to something about this specific
+  document's scan quality or page complexity, not an OCR-engine-specific bug.
 
 ### Cross-cutting / integration issues, regardless of tool choice
 
@@ -274,10 +293,13 @@ when it was found.
 ## Metrics
 
 Six entries, one row each, per dimension. **n varies by entry** — pdf-inspector/markitdown/MinerU/docling
-(default) were run across the full 56-document corpus (or the subset each format supports); the two
-docling+EasyOCR configurations were tested on the one document (15 pages, confirmed scanned) where the
-original diacritics failure was found, since the question they answer — does this fix the identified
-failure modes — was decisively answered there without needing corpus-wide runs at ~23s/page.
+(default) were run across the full 56-document corpus (or the subset each format supports).
+docling+EasyOCR whole-document was tested on one document (15 pages, confirmed scanned — the same one
+where the original diacritics failure was found) and stayed there, since the result (a crash) made a
+larger run pointless. docling+EasyOCR page-by-page started the same way, then was re-run across the full
+11-document/295-page OCR subset (the same subset used for the default-docling and MinerU reliability
+comparisons) once the single-document result looked promising enough to warrant checking at scale — see
+Issues for the full findings from that larger run.
 
 ### Format coverage
 
@@ -288,7 +310,7 @@ failure modes — was decisively answered there without needing corpus-wide runs
 | MinerU | ✅ | ⚠️ OCR runs, diacritics unusable | ✅ | ❌ not in supported list | ❌ not in supported list |
 | docling (default) | ✅ | ⚠️ OCR runs, diacritics unusable, and unreliable past ~14p | ✅ | ❌ hard error (despite claiming support) | ❌ explicit rejection |
 | docling + EasyOCR, whole-doc | (not re-tested — same non-OCR path as default) | ⚠️ diacritics fixed, but crashes past ~14p | (not re-tested) | (not re-tested) | (not re-tested) |
-| docling + EasyOCR, page-by-page | (not re-tested) | ✅ diacritics fixed, completes reliably; word-order bug open | (not re-tested) | (not re-tested) | (not re-tested) |
+| docling + EasyOCR, page-by-page | (not re-tested) | ✅ diacritics fixed, completes reliably (295/295 pages across 11 docs — see Reliability); word-order bug open | (not re-tested) | (not re-tested) | (not re-tested) |
 
 ### Correctness (diacritics + table fidelity)
 
@@ -299,7 +321,7 @@ failure modes — was decisively answered there without needing corpus-wide runs
 | MinerU | Accurate, complete | Structure correct; diacritics badly garbled | Correct data, but raw inline HTML `<table>` on one long line, not Markdown syntax |
 | docling (default) | Accurate, complete | Structure correct; diacritics badly garbled | Correct — clean native Markdown pipe-table when it doesn't crash |
 | docling + EasyOCR, whole-doc | (not re-tested) | **Diacritics correct** on completed pages; new word-order bug at line-wraps | Not evaluated this pass (crashed before reaching a table page) |
-| docling + EasyOCR, page-by-page | (not re-tested) | **Diacritics correct**; same word-order bug, page-local | Not evaluated this pass |
+| docling + EasyOCR, page-by-page | (not re-tested) | **Diacritics correct**, confirmed on multiple documents up to 46 pages; same word-order bug, page-local, confirmed unchanged at scale | Not evaluated this pass |
 
 One more risk found specifically on the digital-native case: pdf-inspector's heuristic table detector
 produced a garbled, misaligned pipe-table on plain two-column running prose in one VAT law — not just
@@ -318,7 +340,7 @@ got exercised — three of the four base tools reject RTF outright, and the one 
 | MinerU | 14 | **14/14 (100%)** | None — zero crashes across both batches, including 65-page documents |
 | docling (default) | 17 attempted, 14 processable | 14/14 report `status: ok`, but only 9/14 (64%) actually match expected content | 5/14 (36%) show content loss; 3/14 (21%) lose >50%, silently, via `bad_alloc` |
 | docling + EasyOCR, whole-doc | 1 document | 0/1 | Crashed at the final page, zero output |
-| docling + EasyOCR, page-by-page | 1 document, 15 pages | **15/15 pages (100%)** | None — zero crashes |
+| docling + EasyOCR, page-by-page | 11 documents, 295 pages | **295/295 pages (100%)** | None — zero crashes, including on the exact 2 documents (37p, 46p) that crashed under default docling in this same table |
 
 ### Speed (CPU-only, wall-clock)
 
@@ -329,7 +351,7 @@ got exercised — three of the four base tools reject RTF outright, and the one 
 | MinerU | 3,231.3s (~53.9 min) across 14 docs | 821,861 | 2–5× slower than default docling; no wasted work — every character captured is real |
 | docling (default) | 1,715s (~28.6 min) across 14 processable docs | 653,412 | Fast per-document, but a meaningful share of both the time and the characters is spent on documents that silently lost content |
 | docling + EasyOCR, whole-doc | Never completed (crashed) | 0 | — |
-| docling + EasyOCR, page-by-page | 340.4s for 1 document (15 pages) | 29,504 | ~3.5× slower than default docling on the identical document (97.0s) — the measured cost of the fix |
+| docling + EasyOCR, page-by-page | 4,438.4s (~74.0 min) across the 11-document/295-page subset | 635,174 | ~2.8× slower than default docling on the identical 11 documents (1,564.8s) overall — but that ratio understates the real cost, since a chunk of default docling's "fast" time on the 2 documents it crashed on came from stopping early, not from finishing. Per-page speed varies enormously by document: ~1.1–1.3s/page on documents with a real text layer (docling appears to skip the actual OCR pass there even with EasyOCR configured), ~17–28s/page on genuinely scanned ones, and one document anomalously slow (~41.6s/page) under both this and default docling — see Issues |
 
 ### Setup complexity
 
@@ -362,12 +384,21 @@ closed system — confirmed by reading its source, not inferred — so there is 
 to Vietnamese support for it. docling's is genuinely pluggable, and EasyOCR(`lang='vi'`) is a real,
 verified fix for the character-accuracy half of the problem. But that fix alone made docling's other
 known weakness (the `bad_alloc` reliability crash) worse, not better — until combined with page-by-page
-processing, which fixes the crash completely (0 → 15/15 pages) without touching the diacritics fix. The
-combination — EasyOCR(vi) + page-by-page — is the only tested configuration, across all six entries in
-this evaluation, that produces correct Vietnamese text *and* completes reliably. It is not fully solved:
-a distinct word-order bug remains at line-wrap boundaries, and the configuration is ~3.5× slower than
-default docling. Both are open, bounded problems with concrete next steps (see Recommendation), not
-reasons to discard the approach.
+processing, which fixes the crash completely without touching the diacritics fix. That fix isn't a
+single-document fluke: confirmed first on one 15-page document (15/15 pages), then re-confirmed across
+the entire 11-document/295-page reliability subset (295/295 pages, zero crashes, including on the exact
+two documents that crashed under default docling). The combination — EasyOCR(vi) + page-by-page — is the
+only tested configuration, across all six entries in this evaluation, that produces correct Vietnamese
+text *and* completes reliably, and that conclusion now rests on 295 pages of evidence, not one document.
+It is not fully solved: a distinct word-order bug remains at line-wrap boundaries (confirmed unchanged
+at the larger scale too), and the configuration is meaningfully slower than default docling — roughly
+2.8× overall, though that ratio actually understates the gap, since default docling's numbers on the two
+documents it crashed on look artificially fast because it stopped early rather than finished. Speed also
+turns out to depend heavily on the document: pages with an existing text layer process 15–20× faster
+than genuinely scanned ones, since docling appears to skip the real OCR pass on them even with EasyOCR
+configured — so the realistic cost of this configuration is lower than the worst-case numbers suggest for
+a corpus that isn't 100% scanned. Both open issues are bounded problems with concrete next steps (see
+Recommendation), not reasons to discard the approach.
 
 Outside the OCR question entirely, two things hold regardless of which tool is chosen: 37% of the
 existing `laws/` corpus (`.doc` + `.rtf`) is untouched by every tool tested and needs a separate

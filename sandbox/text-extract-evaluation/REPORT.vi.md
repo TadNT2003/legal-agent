@@ -18,7 +18,7 @@ trang làm phương án OCR dự phòng. Lý do đầy đủ nằm trong phần 
 | **MinerU** | Không được khuyến nghị — đáng tin cậy, nhưng không thể sửa OCR tiếng Việt vì lý do kiến trúc | Hỏng, không có hướng sửa (enum ngôn ngữ cố định, không thể hoán đổi OCR engine) | 14/14 (100%) hoàn tất, không crash | Chậm nhất trong các công cụ có khả năng OCR, gấp 2–5× docling |
 | **docling (mặc định, RapidOCR)** | Không được khuyến nghị dùng riêng — nhanh nhưng âm thầm không đáng tin cậy | Hỏng (RapidOCR không có tiếng Việt trong danh sách ngôn ngữ; đã thử chinese/latin/en, đều thất bại) | 5/14 (36%) tài liệu xử lý được có mất nội dung; 3/14 (21%) mất trên 50%, một cách âm thầm | Nhanh khi sạch, biến động rất lớn khi không |
 | **docling + EasyOCR(vi), cả tài liệu một lượt** | Ngõ cụt trong lần kiểm thử này | **Đã sửa** — dấu đúng | Crash (`std::bad_alloc`) trên tài liệu đầy đủ duy nhất đã kiểm thử | Không áp dụng — chưa từng hoàn tất |
-| **docling + EasyOCR(vi), theo từng trang** | **Phương án OCR dự phòng được khuyến nghị** | **Đã sửa** — dấu đúng, nhưng còn một lỗi thứ tự từ riêng biệt chưa xử lý | Hoàn tất 15/15 trang, không crash nào | Chậm hơn docling mặc định khoảng 3,5 lần |
+| **docling + EasyOCR(vi), theo từng trang** | **Phương án OCR dự phòng được khuyến nghị** | **Đã sửa** — dấu đúng, nhưng còn một lỗi thứ tự từ riêng biệt chưa xử lý | Hoàn tất 295/295 trang trên 11 tài liệu, không crash nào — kể cả trên cả hai tài liệu từng crash dưới docling mặc định | Chậm hơn docling mặc định khoảng 2,8 lần tính chung (biến động nhiều theo tài liệu — xem Chỉ số) |
 
 **Kết luận chính:** không mục nào trong sáu mục là một chiến thắng sạch sẽ, không cần bàn cãi. Kho dữ
 liệu mà pipeline này thực sự phải xử lý là PDF tiếng Việt dạng scan chiếm trên 92% (xem Vấn đề), nên
@@ -249,12 +249,31 @@ thực sự của nó — không nhóm theo thời điểm phát hiện.
   RapidOCR, và các box của EasyOCR có hình dạng/thứ tự khác đủ để làm hỏng logic đó. Việc chia nhỏ theo
   từng trang (giúp sửa crash, xem bên dưới) không sửa cũng không làm lỗi này tệ hơn, xác nhận đây là vấn
   đề trong nội bộ một trang, độc lập với vấn đề bộ nhớ.
-- **Chia nhỏ theo từng trang sửa hoàn toàn lỗi crash của docling.** Một instance `DocumentConverter`
-  được tái sử dụng qua 15 lệnh gọi tuần tự `.convert(path, page_range=(i, i))` cho từng trang, thay vì
-  một lệnh gọi duy nhất cho cả tài liệu — hoàn tất 15/15 trang, không crash nào, không có dấu hiệu chậm
-  dần (khoảng 22,7s/trang, ổn định dù ở đầu hay cuối lượt chạy). Điều này trực tiếp xác nhận chẩn đoán ở
-  trên: áp lực bộ nhớ tích lũy *bên trong* một lệnh gọi `.convert()` xử lý nhiều trang, chứ không phải
-  qua các lần gọi lặp lại tới một converter được tái sử dụng.
+- **Chia nhỏ theo từng trang sửa hoàn toàn lỗi crash của docling — đã xác nhận ở quy mô toàn bộ tập con
+  kho dữ liệu, không chỉ trên một tài liệu.** Một instance `DocumentConverter` được tái sử dụng qua các
+  lệnh gọi tuần tự `.convert(path, page_range=(i, i))` cho từng trang, thay vì một lệnh gọi duy nhất cho
+  cả tài liệu. Xác nhận lần đầu trên một tài liệu 15 trang (15/15 trang, không crash); sau đó chạy lại
+  trên toàn bộ tập con 11 tài liệu/295 trang (cùng tập con dùng để so sánh độ tin cậy của docling mặc
+  định và MinerU) — **295/295 trang hoàn tất, không crash nào**, kể cả trên chính hai tài liệu từng gặp
+  `bad_alloc` dưới docling mặc định (tài liệu 37 trang và 46 trang, trước đây chỉ thu được khoảng 41% và
+  27% nội dung thật, nay cả hai đều hoàn tất đầy đủ: lần lượt 82.853 và 83.078 ký tự). Điều này trực tiếp
+  xác nhận chẩn đoán ở trên: áp lực bộ nhớ tích lũy *bên trong* một lệnh gọi `.convert()` xử lý nhiều
+  trang, chứ không phải qua các lần gọi lặp lại tới một converter được tái sử dụng, và cách khắc phục này
+  vẫn đứng vững ở quy mô lớn, không chỉ là may mắn trên một tài liệu.
+- **Tốc độ theo từng trang dưới EasyOCR biến động rất lớn theo tài liệu, và biến động đó khớp với việc
+  tài liệu có lớp văn bản thật hay không.** Trên toàn bộ lượt chạy 295 trang, các tài liệu được
+  pdf-inspector phân loại là sạch hoặc gần-sạch (0 hoặc 1 trang thực sự cần OCR) được xử lý với tốc độ
+  khoảng 1,1–1,3s/trang — nhanh hơn 15–20 lần so với mức ~17–28s/trang thường thấy ở các tài liệu scan
+  hoàn toàn. Điều này xảy ra dù mọi trang đều đi qua đúng cùng một pipeline EasyOCR theo từng trang bất
+  kể phân loại — cho thấy bản thân pipeline của docling đang bỏ qua bước OCR thật sự trên các trang đã có
+  sẵn lớp văn bản dùng được, ngay cả khi EasyOCR được cấu hình làm OCR backend. Tin tốt cho throughput
+  thực tế: một kho dữ liệu hỗn hợp không phải trả chi phí OCR đầy đủ trên mọi trang, chỉ trên những trang
+  thực sự là scan.
+- **Một tài liệu chậm bất thường dưới cả hai cấu hình OCR, bất kể engine nào.** `246/2025/QH15` (15
+  trang) trung bình 41,6s/trang ở đây (có trang lên tới 96,25s) — và cũng là tài liệu chậm nhất trong đợt
+  đánh giá này dưới docling mặc định (688,3s tổng, kèm cảnh báo "RapidOCR returned empty result"). Cùng
+  một bất thường, hai OCR engine khác nhau — cho thấy vấn đề nằm ở chất lượng scan hoặc độ phức tạp của
+  chính tài liệu đó, không phải một bug riêng của OCR engine nào.
 
 ### Các vấn đề xuyên suốt / liên quan đến tích hợp, bất kể chọn công cụ nào
 
@@ -286,10 +305,12 @@ thực sự của nó — không nhóm theo thời điểm phát hiện.
 
 Sáu mục, mỗi mục một hàng, cho từng khía cạnh. **Kích thước mẫu (n) khác nhau giữa các mục** —
 pdf-inspector/markitdown/MinerU/docling (mặc định) được chạy trên toàn bộ 56 tài liệu (hoặc tập con mà
-mỗi định dạng hỗ trợ); hai cấu hình docling+EasyOCR được kiểm thử trên đúng một tài liệu (15 trang, đã
-xác nhận là scan) — nơi lỗi mất dấu ban đầu được phát hiện — vì câu hỏi mà chúng trả lời (cách khắc phục
-này có sửa được các lỗi đã phát hiện hay không) đã được trả lời dứt khoát ở đó mà không cần chạy trên cả
-kho dữ liệu với chi phí ~23s/trang.
+mỗi định dạng hỗ trợ). docling+EasyOCR cả tài liệu một lượt được kiểm thử trên một tài liệu (15 trang, đã
+xác nhận là scan — chính tài liệu nơi lỗi mất dấu ban đầu được phát hiện) và dừng lại ở đó, vì kết quả
+(một lần crash) khiến việc chạy rộng hơn không còn ý nghĩa. docling+EasyOCR theo từng trang bắt đầu theo
+cách tương tự, sau đó được chạy lại trên toàn bộ tập con 11 tài liệu/295 trang (cùng tập con dùng để so
+sánh độ tin cậy của docling mặc định và MinerU) một khi kết quả trên một tài liệu đủ khả quan để đáng
+kiểm chứng ở quy mô lớn hơn — xem phần Vấn đề để biết đầy đủ phát hiện từ lượt chạy quy mô lớn đó.
 
 ### Phạm vi hỗ trợ định dạng
 
@@ -300,7 +321,7 @@ kho dữ liệu với chi phí ~23s/trang.
 | MinerU | ✅ | ⚠️ có chạy OCR, dấu không dùng được | ✅ | ❌ không nằm trong danh sách hỗ trợ | ❌ không nằm trong danh sách hỗ trợ |
 | docling (mặc định) | ✅ | ⚠️ có chạy OCR, dấu không dùng được, và không đáng tin cậy quá ~14 trang | ✅ | ❌ lỗi cứng (dù tuyên bố hỗ trợ) | ❌ từ chối tường minh |
 | docling + EasyOCR, cả tài liệu | (chưa kiểm thử lại — cùng đường xử lý không-OCR như mặc định) | ⚠️ dấu đã sửa, nhưng crash quá ~14 trang | (chưa kiểm thử lại) | (chưa kiểm thử lại) | (chưa kiểm thử lại) |
-| docling + EasyOCR, theo từng trang | (chưa kiểm thử lại) | ✅ dấu đã sửa, hoàn tất đáng tin cậy; lỗi thứ tự từ vẫn mở | (chưa kiểm thử lại) | (chưa kiểm thử lại) | (chưa kiểm thử lại) |
+| docling + EasyOCR, theo từng trang | (chưa kiểm thử lại) | ✅ dấu đã sửa, hoàn tất đáng tin cậy (295/295 trang trên 11 tài liệu — xem Độ tin cậy); lỗi thứ tự từ vẫn mở | (chưa kiểm thử lại) | (chưa kiểm thử lại) | (chưa kiểm thử lại) |
 
 ### Độ chính xác (dấu tiếng Việt + độ trung thực của bảng)
 
@@ -311,7 +332,7 @@ kho dữ liệu với chi phí ~23s/trang.
 | MinerU | Chính xác, đầy đủ | Cấu trúc đúng; dấu bị lỗi nghiêm trọng | Đúng dữ liệu, nhưng là HTML `<table>` thô nằm trên một dòng dài, không phải cú pháp Markdown |
 | docling (mặc định) | Chính xác, đầy đủ | Cấu trúc đúng; dấu bị lỗi nghiêm trọng | Đúng — pipe-table Markdown gốc sạch sẽ khi không crash |
 | docling + EasyOCR, cả tài liệu | (chưa kiểm thử lại) | **Dấu đúng** trên các trang đã hoàn tất; có lỗi thứ tự từ mới tại các điểm xuống dòng | Chưa đánh giá trong đợt này (crash trước khi tới trang có bảng) |
-| docling + EasyOCR, theo từng trang | (chưa kiểm thử lại) | **Dấu đúng**; cùng lỗi thứ tự từ, mang tính cục bộ theo trang | Chưa đánh giá trong đợt này |
+| docling + EasyOCR, theo từng trang | (chưa kiểm thử lại) | **Dấu đúng**, đã xác nhận trên nhiều tài liệu lên tới 46 trang; cùng lỗi thứ tự từ, mang tính cục bộ theo trang, xác nhận không đổi ở quy mô lớn | Chưa đánh giá trong đợt này |
 
 Một rủi ro khác phát hiện được cụ thể trên trường hợp digital-native: bộ nhận diện bảng theo heuristic
 của pdf-inspector tạo ra một pipe-table sai lệch, lệch hàng trên phần văn xuôi hai cột thông thường
@@ -331,7 +352,7 @@ từ chối RTF hoàn toàn, còn công cụ duy nhất báo `status: ok` (marki
 | MinerU | 14 | **14/14 (100%)** | Không có — không crash qua cả hai đợt lấy mẫu, kể cả tài liệu 65 trang |
 | docling (mặc định) | 17 lượt thử, 14 xử lý được | 14/14 báo `status: ok`, nhưng chỉ 9/14 (64%) thực sự khớp với nội dung kỳ vọng | 5/14 (36%) có mất nội dung; 3/14 (21%) mất trên 50%, một cách âm thầm, qua `bad_alloc` |
 | docling + EasyOCR, cả tài liệu | 1 tài liệu | 0/1 | Crash ở trang cuối cùng, không có output |
-| docling + EasyOCR, theo từng trang | 1 tài liệu, 15 trang | **15/15 trang (100%)** | Không có — không crash nào |
+| docling + EasyOCR, theo từng trang | 11 tài liệu, 295 trang | **295/295 trang (100%)** | Không có — không crash nào, kể cả trên chính 2 tài liệu (37 trang, 46 trang) từng crash dưới docling mặc định trong cùng bảng này |
 
 ### Tốc độ (chỉ chạy CPU, thời gian thực)
 
@@ -342,7 +363,7 @@ từ chối RTF hoàn toàn, còn công cụ duy nhất báo `status: ok` (marki
 | MinerU | 3.231,3s (~53,9 phút) trên 14 tài liệu | 821.861 | Chậm hơn docling mặc định 2–5 lần; không có công sức lãng phí — mọi ký tự thu được đều là thật |
 | docling (mặc định) | 1.715s (~28,6 phút) trên 14 tài liệu xử lý được | 653.412 | Nhanh trên từng tài liệu, nhưng một phần đáng kể cả thời gian lẫn số ký tự bị dùng cho các tài liệu âm thầm mất nội dung |
 | docling + EasyOCR, cả tài liệu | Chưa từng hoàn tất (crash) | 0 | — |
-| docling + EasyOCR, theo từng trang | 340,4s cho 1 tài liệu (15 trang) | 29.504 | Chậm hơn docling mặc định khoảng 3,5 lần trên cùng tài liệu (97,0s) — cái giá đo được của cách khắc phục |
+| docling + EasyOCR, theo từng trang | 4.438,4s (~74,0 phút) trên tập con 11 tài liệu/295 trang | 635.174 | Chậm hơn docling mặc định khoảng 2,8 lần tính chung trên đúng 11 tài liệu đó (1.564,8s) — nhưng tỷ lệ này thực ra còn đánh giá thấp mức chênh lệch thật, vì một phần thời gian "nhanh" của docling mặc định trên 2 tài liệu nó từng crash chỉ nhanh vì nó dừng sớm, không phải vì hoàn tất. Tốc độ mỗi trang biến động rất lớn theo tài liệu: khoảng 1,1–1,3s/trang trên các tài liệu có lớp văn bản thật (docling có vẻ bỏ qua bước OCR thật sự ở đó dù đã cấu hình EasyOCR), khoảng 17–28s/trang trên các tài liệu scan thật sự, và một tài liệu chậm bất thường (~41,6s/trang) dưới cả hai cấu hình — xem phần Vấn đề |
 
 ### Độ phức tạp khi cài đặt
 
@@ -375,13 +396,22 @@ Việc sửa ngôn ngữ OCR chỉ khả thi với đúng một trong hai ứng 
 đã kiểm thử hay sẵn có, dẫn tới hỗ trợ tiếng Việt cho nó. OCR engine của docling thực sự có thể hoán đổi,
 và EasyOCR(`lang='vi'`) là một cách khắc phục thật, đã được xác minh cho nửa vấn đề về độ chính xác ký
 tự. Nhưng bản thân cách khắc phục đó lại khiến điểm yếu đã biết khác của docling (crash `bad_alloc`) tệ
-hơn, không phải tốt hơn — cho tới khi kết hợp với việc xử lý theo từng trang, giúp sửa hoàn toàn crash
-đó (0 → hoàn tất 15/15 trang) mà không ảnh hưởng tới cách sửa dấu. Tổ hợp EasyOCR(vi) + theo từng trang
-là cấu hình đã kiểm thử duy nhất, trong cả sáu mục của đợt đánh giá này, cho ra văn bản tiếng Việt đúng
-*và* hoàn tất một cách đáng tin cậy. Nó chưa được giải quyết hoàn toàn: vẫn còn một lỗi thứ tự từ riêng
-biệt tại các điểm xuống dòng, và cấu hình này chậm hơn docling mặc định khoảng 3,5 lần. Cả hai đều là
-những vấn đề mở, có phạm vi rõ ràng với các bước tiếp theo cụ thể (xem Khuyến nghị), không phải lý do để
-từ bỏ hướng tiếp cận này.
+hơn, không phải tốt hơn — cho tới khi kết hợp với việc xử lý theo từng trang, giúp sửa hoàn toàn crash đó
+mà không ảnh hưởng tới cách sửa dấu. Cách sửa đó không phải một may mắn ngẫu nhiên trên một tài liệu: xác
+nhận lần đầu trên một tài liệu 15 trang (15/15 trang), sau đó xác nhận lại trên toàn bộ tập con độ tin
+cậy 11 tài liệu/295 trang (295/295 trang, không crash nào, kể cả trên chính hai tài liệu từng crash dưới
+docling mặc định). Tổ hợp EasyOCR(vi) + theo từng trang là cấu hình đã kiểm thử duy nhất, trong cả sáu
+mục của đợt đánh giá này, cho ra văn bản tiếng Việt đúng *và* hoàn tất một cách đáng tin cậy, và kết luận
+đó giờ dựa trên bằng chứng từ 295 trang, không phải một tài liệu. Nó chưa được giải quyết hoàn toàn: vẫn
+còn một lỗi thứ tự từ riêng biệt tại các điểm xuống dòng (xác nhận không đổi ở quy mô lớn hơn), và cấu
+hình này chậm hơn docling mặc định một cách đáng kể — khoảng 2,8 lần tính chung, dù tỷ lệ đó thực ra còn
+đánh giá thấp khoảng cách thật, vì số liệu của docling mặc định trên hai tài liệu nó từng crash trông
+nhanh một cách giả tạo do nó dừng sớm chứ không phải vì hoàn tất. Tốc độ cũng phụ thuộc rất nhiều vào
+tài liệu: các trang có sẵn lớp văn bản xử lý nhanh hơn 15–20 lần so với các trang scan thật sự, vì
+docling có vẻ bỏ qua bước OCR thật sự trên chúng ngay cả khi đã cấu hình EasyOCR — nên chi phí thực tế
+của cấu hình này thấp hơn con số kịch bản-xấu-nhất gợi ý, đối với một kho dữ liệu không phải 100% scan.
+Cả hai vấn đề mở đều có phạm vi rõ ràng với các bước tiếp theo cụ thể (xem Khuyến nghị), không phải lý do
+để từ bỏ hướng tiếp cận này.
 
 Ngoài câu hỏi về OCR, hai điều sau đúng bất kể chọn công cụ nào: 37% kho dữ liệu `laws/` hiện có
 (`.doc` + `.rtf`) không được công cụ nào đã kiểm thử xử lý và cần một bước chuyển đổi LibreOffice riêng
