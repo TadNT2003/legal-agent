@@ -31,10 +31,10 @@ import {
   UpdateDocumentByUrlResultDto,
   UpdateDocumentByUrlErrorDto,
 } from '../crawl/dto/update-document-by-url-response.dto';
-import { CancelJobResponseDto } from './job-queue/dto/cancel-job-response.dto';
-import { JobStatusResponseDto } from './job-queue/dto/job-status-response.dto';
-import { JobSubmittedResponseDto } from './job-queue/dto/job-submitted-response.dto';
-import { JobQueueService } from './job-queue/job-queue.service';
+import { CancelJobResponseDto } from '../job-queue/dto/cancel-job-response.dto';
+import { JobStatusResponseDto } from '../job-queue/dto/job-status-response.dto';
+import { JobSubmittedResponseDto } from '../job-queue/dto/job-submitted-response.dto';
+import { JobQueueService } from '../job-queue/job-queue.service';
 import { LawIndexService } from './law-index.service';
 
 @ApiTags('law-index')

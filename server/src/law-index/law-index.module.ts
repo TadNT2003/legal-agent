@@ -3,7 +3,7 @@ import { CrawlModule } from '../crawl/crawl.module';
 import { DbModule } from '../persistence/db.module';
 import { DocumentRepository } from '../persistence/document.repository';
 import { DocumentNodeRepository } from '../persistence/document-node.repository';
-import { JobQueueModule } from './job-queue/job-queue.module';
+import { JobQueueModule } from '../job-queue/job-queue.module';
 import { LawIndexController } from './law-index.controller';
 import { LawIndexService } from './law-index.service';
 import { OpenSearchModule } from './opensearch/opensearch.module';

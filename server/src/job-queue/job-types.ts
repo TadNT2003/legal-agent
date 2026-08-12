@@ -1,9 +1,9 @@
-import type { SearchSyncDocumentsDto } from '../../crawl/dto/search-sync-documents.dto';
+import type { SearchSyncDocumentsDto } from '../crawl/dto/search-sync-documents.dto';
 import type {
   BatchUpdateSummary,
   SearchAndSyncSummary,
   SyncSummary,
-} from '../law-index.service';
+} from '../law-index/law-index.service';
 
 /**
  * Four distinct job types rather than a `force` flag distinguishing two of

@@ -17,7 +17,7 @@ import { RetrieveModule } from './retrieve/retrieve.module';
 import { SyncModule } from './sync/sync.module';
 import { LawIndexModule } from './law-index/law-index.module';
 import { lawIndexConfig } from './law-index/law-index.config';
-import { jobQueueConfig } from './law-index/job-queue/job-queue.config';
+import { jobQueueConfig } from './job-queue/job-queue.config';
 import { opensearchProjectorConfig } from './law-index/opensearch/opensearch.config';
 
 @Module({

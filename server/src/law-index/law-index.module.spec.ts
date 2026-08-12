@@ -16,8 +16,8 @@ import {
   closeTestDb,
 } from '../test/setup-test-db';
 import { lawIndexConfig } from './law-index.config';
-import { JobQueueService } from './job-queue/job-queue.service';
-import { JobWorkerService } from './job-queue/job-worker';
+import { JobQueueService } from '../job-queue/job-queue.service';
+import { JobWorkerService } from '../job-queue/job-worker';
 import { opensearchProjectorConfig } from './opensearch/opensearch.config';
 import { OPENSEARCH_CLIENT } from './opensearch/opensearch-client.module';
 import { IndexAdminService } from './opensearch/index-admin.service';

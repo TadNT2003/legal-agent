@@ -9,7 +9,7 @@ import {
 import type { ConfigType } from '@nestjs/config';
 import { Job, Worker } from 'bullmq';
 import { jobQueueConfig } from './job-queue.config';
-import { LawIndexService } from '../law-index.service';
+import { LawIndexService } from '../law-index/law-index.service';
 import type { JobPayload, JobProgress, JobRunResult } from './job-types';
 
 /**

@@ -1,5 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { LawIndexModule } from '../law-index.module';
+import { LawIndexModule } from '../law-index/law-index.module';
 import { JobQueueService } from './job-queue.service';
 import { JobWorkerService } from './job-worker';
 

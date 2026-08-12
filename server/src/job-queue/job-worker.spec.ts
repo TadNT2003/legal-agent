@@ -14,7 +14,7 @@ jest.mock('bullmq', () => ({
 // the real module.repository.ts -> db.module.ts -> schema chain, which is
 // broken in this dev environment for reasons unrelated to this file (see
 // docs/monitoring — same root cause blocks law-index.service.spec.ts).
-jest.mock('../law-index.service', () => ({
+jest.mock('../law-index/law-index.service', () => ({
   LawIndexService: jest.fn(),
 }));
 

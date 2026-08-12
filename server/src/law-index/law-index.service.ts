@@ -69,8 +69,8 @@ export interface SearchAndSyncSummary {
 
 /**
  * Reported by the batch/all/search-and-sync methods as each document
- * finishes, so the job-queue worker (see job-queue/job-worker.ts) can relay
- * it to BullMQ's job.updateProgress(). `total` is null when it isn't known
+ * finishes, so the job-queue worker (see ../job-queue/job-worker.ts) can
+ * relay it to BullMQ's job.updateProgress(). `total` is null when it isn't known
  * yet — syncAll without a `limit` discovers document URLs incrementally as
  * it walks the sitemap, so there's no true total until the run is already
  * finished (see syncAll's own comment).
@@ -334,7 +334,7 @@ export class LawIndexService {
    * Crawls the trung-ương sitemap block and syncs every document URL found,
    * up to `limit` (unset = unbounded — driven via the job queue for a real
    * "hundreds of documents" pass rather than one blocking HTTP request, see
-   * job-queue/job-worker.ts). Always smoke-test with a small limit first.
+   * ../job-queue/job-worker.ts). Always smoke-test with a small limit first.
    *
    * Progress reporting: `onProgress` is called with `total: limit` from the
    * very first document when a `limit` was given (a bounded run's total is

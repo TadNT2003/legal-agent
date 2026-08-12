@@ -16,7 +16,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { LawIndexController } from './law-index.controller';
 import { LawIndexService } from './law-index.service';
-import { JobQueueService } from './job-queue/job-queue.service';
+import { JobQueueService } from '../job-queue/job-queue.service';
 
 describe('LawIndexController', () => {
   let app: INestApplication;
