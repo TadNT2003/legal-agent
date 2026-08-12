@@ -11,7 +11,7 @@ import {
 } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { LawModule } from './law/law.module';
-import { lawDownloadConfig } from './law/utils/law-download.config';
+import { lawDownloadConfig } from './utils/law-download.config';
 import { LawDownloadModule } from './download/law-download.module';
 import { LawIndexModule } from './law-index/law-index.module';
 import { lawIndexConfig } from './law-index/law-index.config';

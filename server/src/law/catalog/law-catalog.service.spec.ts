@@ -1,4 +1,4 @@
-import type { ManifestEntry } from '../utils/download-outcome.interface';
+import type { ManifestEntry } from '../../utils/download-outcome.interface';
 import {
   LawCatalogService,
   FolderStats,
@@ -6,12 +6,12 @@ import {
   DocumentStatusResult,
 } from './law-catalog.service';
 
-jest.mock('../utils/document-matcher', () => ({
+jest.mock('../../utils/document-matcher', () => ({
   findByCitation: jest.fn(),
   resolveBestMatch: jest.fn(),
 }));
 
-import { findByCitation, resolveBestMatch } from '../utils/document-matcher';
+import { findByCitation, resolveBestMatch } from '../../utils/document-matcher';
 
 jest.mock('fs/promises', () => ({
   access: jest.fn(),
