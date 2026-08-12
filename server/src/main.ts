@@ -43,6 +43,7 @@ async function bootstrap() {
       'Law document download, catalog, and (later) RAG endpoints for the legal-agent server.',
     )
     .setVersion('0.1')
+    .addTag('app', 'Root/liveness endpoints')
     .addTag('downloads', 'Fetch documents from vanban.chinhphu.vn')
     .addTag('catalog', 'Browse and serve already-downloaded documents')
     .addTag('retrieve', 'Read/search/delete already-synced documents in Postgres')
