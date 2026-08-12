@@ -69,17 +69,17 @@ describe('LawApiClient', () => {
     expect(value).toBe(nfd.normalize('NFC'));
   });
 
-  it('getById() hits /laws/index/retrieve/:id', async () => {
+  it('getById() hits /retrieve/:id', async () => {
     const fetchMock = mockFetchOnce({ id: 'doc-1' });
     const client = buildClient();
 
     await client.getById('doc-1');
 
     const calledUrl = fetchMock.mock.calls[0][0];
-    expect(calledUrl).toBe('http://localhost:3000/laws/index/retrieve/doc-1');
+    expect(calledUrl).toBe('http://localhost:3000/retrieve/doc-1');
   });
 
-  it('getReferences() hits /laws/index/retrieve/references with documentId and optional filters', async () => {
+  it('getReferences() hits /retrieve/references with documentId and optional filters', async () => {
     const fetchMock = mockFetchOnce({
       citationId: '59/2020/QH14',
       title: 'Luật Doanh nghiệp',
@@ -96,7 +96,7 @@ describe('LawApiClient', () => {
 
     const calledUrl = fetchMock.mock.calls[0][0];
     const parsed = new URL(calledUrl);
-    expect(parsed.pathname).toBe('/laws/index/retrieve/references');
+    expect(parsed.pathname).toBe('/retrieve/references');
     expect(parsed.searchParams.get('documentId')).toBe('doc-1');
     expect(parsed.searchParams.get('direction')).toBe('incoming');
     expect(parsed.searchParams.get('referenceType')).toBe('amends');
