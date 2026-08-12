@@ -8,8 +8,6 @@ import { VbplSitemapService } from '../crawl/vbpl-sitemap.service';
 import { DocumentRepository } from '../persistence/document.repository';
 import { DocumentNodeRepository } from '../persistence/document-node.repository';
 import { DRIZZLE } from '../persistence/db.module';
-import { RetrieveModule } from './retrieve/retrieve.module';
-import { RetrieveService } from './retrieve/retrieve.service';
 import { postgresConfig } from '../config/configuration';
 import {
   createTestDb,
@@ -137,12 +135,6 @@ describe('LawIndexModule', () => {
     const controller = moduleRef.get(LawIndexController);
     expect(controller).toBeDefined();
     expect(controller).toBeInstanceOf(LawIndexController);
-  });
-
-  it('imports RetrieveModule and provides RetrieveService', () => {
-    const retrieveService = moduleRef.get(RetrieveService);
-    expect(retrieveService).toBeDefined();
-    expect(retrieveService).toBeInstanceOf(RetrieveService);
   });
 
   it('imports OpenSearchModule and provides IndexAdminService/OpenSearchService', () => {

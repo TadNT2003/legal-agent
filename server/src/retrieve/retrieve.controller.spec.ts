@@ -98,10 +98,10 @@ describe('RetrieveController', () => {
     await app.close();
   });
 
-  describe('GET /laws/index/retrieve', () => {
+  describe('GET /retrieve', () => {
     it('returns 200 with keyword and scope filters', async () => {
       const res = await request(app.getHttpServer())
-        .get('/laws/index/retrieve')
+        .get('/retrieve')
         .query({ keyword: 'luat lao dong', searchScope: 'tieu-de' })
         .expect(200);
 
@@ -116,7 +116,7 @@ describe('RetrieveController', () => {
 
     it('returns 200 with date range filters', async () => {
       const res = await request(app.getHttpServer())
-        .get('/laws/index/retrieve')
+        .get('/retrieve')
         .query({
           issuedFrom: '01/01/2020',
           issuedTo: '31/12/2025',
@@ -137,7 +137,7 @@ describe('RetrieveController', () => {
 
     it('returns 200 with no filters', async () => {
       await request(app.getHttpServer())
-        .get('/laws/index/retrieve')
+        .get('/retrieve')
         .expect(200);
 
       expect(mockService.search).toHaveBeenCalled();
@@ -145,7 +145,7 @@ describe('RetrieveController', () => {
 
     it('returns 200 with documentTypes and issuingBodies filters', async () => {
       await request(app.getHttpServer())
-        .get('/laws/index/retrieve')
+        .get('/retrieve')
         .query({
           documentTypes: ['Luật', 'Nghị định'],
           issuingBodies: 'Quốc hội',
@@ -163,10 +163,10 @@ describe('RetrieveController', () => {
     });
   });
 
-  describe('GET /laws/index/retrieve/nodes', () => {
+  describe('GET /retrieve/nodes', () => {
     it('returns 200 with documentId', async () => {
       const res = await request(app.getHttpServer())
-        .get('/laws/index/retrieve/nodes')
+        .get('/retrieve/nodes')
         .query({ documentId: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445' })
         .expect(200);
 
@@ -180,7 +180,7 @@ describe('RetrieveController', () => {
 
     it('returns 200 with nodeType and number filters', async () => {
       const res = await request(app.getHttpServer())
-        .get('/laws/index/retrieve/nodes')
+        .get('/retrieve/nodes')
         .query({
           documentId: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
           nodeType: 'dieu',
@@ -200,7 +200,7 @@ describe('RetrieveController', () => {
     it('returns 200 with nodeId filter', async () => {
       const nodeId = 'a1b2c3d4-5678-40ab-8def-1234567890ab';
       const res = await request(app.getHttpServer())
-        .get('/laws/index/retrieve/nodes')
+        .get('/retrieve/nodes')
         .query({
           documentId: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
           nodeId,
@@ -215,15 +215,15 @@ describe('RetrieveController', () => {
 
     it('returns 400 when documentId is missing', async () => {
       await request(app.getHttpServer())
-        .get('/laws/index/retrieve/nodes')
+        .get('/retrieve/nodes')
         .expect(400);
     });
   });
 
-  describe('GET /laws/index/retrieve/references', () => {
+  describe('GET /retrieve/references', () => {
     it('returns 200 with outgoing direction', async () => {
       const res = await request(app.getHttpServer())
-        .get('/laws/index/retrieve/references')
+        .get('/retrieve/references')
         .query({
           documentId: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
           direction: 'outgoing',
@@ -238,7 +238,7 @@ describe('RetrieveController', () => {
 
     it('returns 200 with incoming direction', async () => {
       await request(app.getHttpServer())
-        .get('/laws/index/retrieve/references')
+        .get('/retrieve/references')
         .query({
           documentId: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
           direction: 'incoming',
@@ -252,7 +252,7 @@ describe('RetrieveController', () => {
 
     it('returns 200 with all direction', async () => {
       await request(app.getHttpServer())
-        .get('/laws/index/retrieve/references')
+        .get('/retrieve/references')
         .query({
           documentId: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
           direction: 'all',
@@ -266,7 +266,7 @@ describe('RetrieveController', () => {
 
     it('returns 200 with referenceType filter', async () => {
       await request(app.getHttpServer())
-        .get('/laws/index/retrieve/references')
+        .get('/retrieve/references')
         .query({
           documentId: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
           referenceType: 'amends',
@@ -279,10 +279,10 @@ describe('RetrieveController', () => {
     });
   });
 
-  describe('GET /laws/index/retrieve/issuing-bodies', () => {
+  describe('GET /retrieve/issuing-bodies', () => {
     it('returns 200 with no filters', async () => {
       const res = await request(app.getHttpServer())
-        .get('/laws/index/retrieve/issuing-bodies')
+        .get('/retrieve/issuing-bodies')
         .expect(200);
 
       expect(res.body).toHaveProperty('items');
@@ -292,7 +292,7 @@ describe('RetrieveController', () => {
 
     it('returns 200 with keyword filter', async () => {
       await request(app.getHttpServer())
-        .get('/laws/index/retrieve/issuing-bodies')
+        .get('/retrieve/issuing-bodies')
         .query({ keyword: 'Quốc hội' })
         .expect(200);
 
@@ -303,7 +303,7 @@ describe('RetrieveController', () => {
 
     it('returns 200 with scope filter', async () => {
       await request(app.getHttpServer())
-        .get('/laws/index/retrieve/issuing-bodies')
+        .get('/retrieve/issuing-bodies')
         .query({ scope: 'national' })
         .expect(200);
 

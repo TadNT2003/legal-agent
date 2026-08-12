@@ -5,7 +5,7 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
-import { SearchDocumentsResponseDto } from '../dto/search-documents-response.dto';
+import { SearchDocumentsResponseDto } from '../law-index/dto/search-documents-response.dto';
 import {
   DeleteDocumentResultDto,
   DeleteDocumentsBySearchResponseDto,
@@ -22,8 +22,8 @@ import { RetrieveReferencesResponseDto } from './dto/retrieve-references-respons
 import { RetrieveSearchDto } from './dto/retrieve-search.dto';
 import { RetrieveService } from './retrieve.service';
 
-@ApiTags('law-index')
-@Controller('laws/index/retrieve')
+@ApiTags('retrieve')
+@Controller('retrieve')
 export class RetrieveController {
   constructor(private readonly service: RetrieveService) {}
 
@@ -76,7 +76,7 @@ export class RetrieveController {
     required: true,
     type: String,
     description:
-      'Document UUID (from `GET /laws/index/retrieve` results or crawl sync).',
+      'Document UUID (from `GET /retrieve` results or crawl sync).',
     example: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
   })
   @ApiOkResponse({ type: RetrieveNodeResponseDto })
@@ -167,7 +167,7 @@ export class RetrieveController {
   @ApiOperation({
     summary: 'Delete documents matching search filters',
     description:
-      'Uses the same search filters as GET /laws/index/retrieve to find ' +
+      'Uses the same search filters as GET /retrieve to find ' +
       'matching documents, then deletes all of them with cascade (nodes and ' +
       'references). Returns a summary of matched, deleted, and not-found ' +
       'documents. If no filters are provided, all documents in the index ' +

@@ -1,10 +1,10 @@
 import { RetrieveService } from './retrieve.service';
-import type { DocumentRepository } from '../../persistence/document.repository';
+import type { DocumentRepository } from '../persistence/document.repository';
 import type {
   DocumentNodeRepository,
   FlatNodeRow,
-} from '../../persistence/document-node.repository';
-import type { RetrieveNodeItemDto } from '../dto/retrieve-node-response.dto';
+} from '../persistence/document-node.repository';
+import type { RetrieveNodeItemDto } from './dto/retrieve-node-response.dto';
 
 const docId = 'doc-1';
 const citationId = '51/2024/QH15';
