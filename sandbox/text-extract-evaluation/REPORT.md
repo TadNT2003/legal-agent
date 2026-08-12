@@ -11,14 +11,14 @@ each in docling's case — with results merged into one dataset per tool/configu
 OCR, markitdown as primary for `.docx` only, docling + EasyOCR(`lang='vi'`) run page-by-page as the OCR
 fallback. Full reasoning in Recommendation, below.
 
-| Entry | Role | Vietnamese OCR | Reliability | Speed (CPU-only) |
-|---|---|---|---|---|
-| **pdf-inspector** | Recommended primary for anything not needing OCR | N/A — never attempts OCR | Zero failures across 52 attempts | ~free (<100ms) |
-| **markitdown** | Recommended primary for `.docx` only | N/A — never attempts OCR | Zero crashes across 56 attempts, but two silent-failure modes (see Issues) | Fast when it does anything |
-| **MinerU** | Not recommended — reliable, but architecturally can't fix its Vietnamese OCR | Broken, no fix path (hardcoded language enum, no swappable OCR engine) | 14/14 (100%) complete, zero crashes | Slowest of the OCR-capable tools, 2–5× docling |
-| **docling (default, RapidOCR)** | Not recommended alone — fast but silently unreliable | Broken (no Vietnamese in RapidOCR's language list; tried chinese/latin/en, all fail) | 5/14 (36%) processable docs show content loss; 3/14 (21%) lose >50%, silently | Fast when clean, wildly variable otherwise |
-| **docling + EasyOCR(vi), whole-document** | Dead end as tested | **Fixed** — correct diacritics | Crashed (`std::bad_alloc`) on the one full document tested | N/A — never completed |
-| **docling + EasyOCR(vi), page-by-page** | **Recommended OCR fallback** | **Fixed** — correct diacritics, but a separate word-order bug remains open | 295/295 pages complete across 11 documents, zero crashes — including both documents that crashed under default docling | ~2.8× slower than default docling overall (varies a lot by document — see Metrics) |
+| Entry                                           | Role                                                                          | Vietnamese OCR                                                                       | Reliability                                                                                                             | Speed (CPU-only)                                                                     |
+| ----------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **pdf-inspector**                         | Recommended primary for anything not needing OCR                              | N/A — never attempts OCR                                                            | Zero failures across 52 attempts                                                                                        | ~free (<100ms)                                                                       |
+| **markitdown**                            | Recommended primary for`.docx` only                                         | N/A — never attempts OCR                                                            | Zero crashes across 56 attempts, but two silent-failure modes (see Issues)                                              | Fast when it does anything                                                           |
+| **MinerU**                                | Not recommended — reliable, but architecturally can't fix its Vietnamese OCR | Broken, no fix path (hardcoded language enum, no swappable OCR engine)               | 14/14 (100%) complete, zero crashes                                                                                     | Slowest of the OCR-capable tools, 2–5× docling                                     |
+| **docling (default, RapidOCR)**           | Not recommended alone — fast but silently unreliable                         | Broken (no Vietnamese in RapidOCR's language list; tried chinese/latin/en, all fail) | 5/14 (36%) processable docs show content loss; 3/14 (21%) lose >50%, silently                                           | Fast when clean, wildly variable otherwise                                           |
+| **docling + EasyOCR(vi), whole-document** | Dead end as tested                                                            | **Fixed** — correct diacritics                                                | Crashed (`std::bad_alloc`) on the one full document tested                                                            | N/A — never completed                                                               |
+| **docling + EasyOCR(vi), page-by-page**   | **Recommended OCR fallback**                                            | **Fixed** — correct diacritics, but a separate word-order bug remains open    | 295/295 pages complete across 11 documents, zero crashes — including both documents that crashed under default docling | ~2.8× slower than default docling overall (varies a lot by document — see Metrics) |
 
 **Bottom line:** none of the six entries is a clean, unqualified win. The corpus this pipeline actually
 has to handle is 92%+ scanned Vietnamese PDF (see Issues), so the decisive axis is "does this produce
@@ -67,26 +67,26 @@ Studio Build Tools installed.
 (PDF/DOCX/RTF/DOC); a later 50 were sampled specifically to test PDF depth (since PDF is what new
 documents actually arrive as), stratified by tier/year/size and excluding the first 6.
 
-| | Count |
-|---|---|
-| Format-diverse set | 6 — 2 PDF, 2 legacy `.doc`, 1 `.rtf`, 1 `.docx` |
-| PDF-stratified set | 50 |
-| **Total** | **56** |
-| Tiers represented | `01-hien-phap`, `02-luat-nghi-quyet-quoc-hoi`, `03-phap-lenh-nghi-quyet-ubtvqh` |
-| Year range (stratified set) | 2005–2026 |
-| Size range (stratified set) | 33KB – 21.5MB |
+|                                                             | Count                                                                                                                                                              |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Format-diverse set                                          | 6 — 2 PDF, 2 legacy`.doc`, 1 `.rtf`, 1 `.docx`                                                                                                              |
+| PDF-stratified set                                          | 50                                                                                                                                                                 |
+| **Total**                                             | **56**                                                                                                                                                       |
+| Tiers represented                                           | `01-hien-phap`, `02-luat-nghi-quyet-quoc-hoi`, `03-phap-lenh-nghi-quyet-ubtvqh`                                                                              |
+| Year range (stratified set)                                 | 2005–2026                                                                                                                                                         |
+| Size range (stratified set)                                 | 33KB – 21.5MB                                                                                                                                                     |
 | Carried into the docling/MinerU OCR-configuration deep-dive | 11 of the 50 stratified samples, plus one of the initial 6 (reused across every EasyOCR/page-by-page test — the single most-analyzed document in this evaluation) |
 
 ### Format-diverse set (6 documents)
 
-| # | Document | Format | Scan status | Notes |
-|---|---|---|---|---|
-| 01 | 48/2024/QH15 (Luật Thuế GTGT) | PDF, 20p | Clean digital text (confirmed via `pypdfium2`) | |
-| 02 | 109/2025/QH15 (Luật Thuế TNCN) | PDF, 15p | Fully scanned (confirmed via `pypdfium2`) | Reused for every docling+EasyOCR test (whole-doc and page-by-page) |
-| 03 | 57/2010/QH12 (Luật Thuế BVMT) | legacy `.doc` | N/A | |
-| 04 | 01/2002/QH11 (Luật Ngân sách) | legacy `.doc` | N/A | |
-| 05 | Hiến pháp 1980 | `.rtf` | N/A | Legacy TCVN3/VNI font encoding |
-| 06 | 248/2025/QH15 | `.docx` | N/A | |
+| #  | Document                         | Format         | Scan status                                     | Notes                                                              |
+| -- | -------------------------------- | -------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
+| 01 | 48/2024/QH15 (Luật Thuế GTGT)  | PDF, 20p       | Clean digital text (confirmed via`pypdfium2`) |                                                                    |
+| 02 | 109/2025/QH15 (Luật Thuế TNCN) | PDF, 15p       | Fully scanned (confirmed via`pypdfium2`)      | Reused for every docling+EasyOCR test (whole-doc and page-by-page) |
+| 03 | 57/2010/QH12 (Luật Thuế BVMT)  | legacy`.doc` | N/A                                             |                                                                    |
+| 04 | 01/2002/QH11 (Luật Ngân sách) | legacy`.doc` | N/A                                             |                                                                    |
+| 05 | Hiến pháp 1980                 | `.rtf`       | N/A                                             | Legacy TCVN3/VNI font encoding                                     |
+| 06 | 248/2025/QH15                    | `.docx`      | N/A                                             |                                                                    |
 
 ### PDF-stratified set (50 documents)
 
@@ -94,58 +94,58 @@ Sourced from `laws/manifest.json`, excluding the 2 PDFs already in the format-di
 **Scan status** is pdf-inspector's classification; **OCR subset** marks the 11 documents used in the
 docling/MinerU configuration deep-dive.
 
-| # | Citation | Tier | Year | Size | Scan status | OCR subset? |
-|---|---|---|---|---|---|---|
-| 01 | `.` (Hiến pháp 2013) | 01-hien-phap | 2013 | 2.0MB | Fully scanned | |
-| 02 | 02/2026/QH16 | 02 | 2026 | 578KB | Fully scanned | |
-| 03 | 10/2009/PL-UBTVQH12 | 03-phap-lenh | 2009 | 1.2MB | Fully scanned | |
-| 04 | 2013 (Hiến pháp 2013) | 01-hien-phap | 2013 | 2.0MB | Fully scanned | ✅ |
-| 05 | 38/2013/QH13 | 02 | 2013 | 1.3MB | Fully scanned | |
-| 06 | 50/2014/QH13 | 02 | 2014 | 6.3MB | Fully scanned | |
-| 07 | 74/2018/QH14 | 02 | 2018 | 561KB | Fully scanned | ✅ |
-| 08 | 68/2025/QH15 | 02 | 2025 | 1.4MB | Fully scanned | ✅ |
-| 09 | 179/2025/QH15 | 02 | 2025 | 132KB | Fully scanned | ✅ |
-| 10 | 36/2021/QH15 | 02 | 2021 | 247KB | Fully scanned | |
-| 11 | 35/2017/QH14 | 02 | 2017 | 224KB | Fully scanned | |
-| 12 | 99/2019/QH14 | 02 | 2019 | 372KB | Fully scanned | |
-| 13 | 103/2025/QH15 | 02 | 2025 | 949KB | Fully scanned | |
-| 14 | 153/2024/QH15 | 02 | 2024 | 138KB | Fully scanned | |
-| 15 | 03/2026/QH16 | 02 | 2026 | 600KB | Fully scanned | |
-| 16 | 125/2025/QH15 | 02 | 2025 | 7.8MB | Fully scanned | |
-| 17 | 33/2021/QH15 | 02 | 2021 | 188KB | Fully scanned | |
-| 18 | 127/2016/QH13 | 02 | 2016 | 140KB | Fully scanned | |
-| 19 | 43/2022/QH15 | 02 | 2022 | 710KB | Fully scanned | |
-| 20 | 126/2025/QH15 | 02 | 2025 | 7.1MB | Fully scanned | |
-| 21 | 51/2022/QH15 | 02 | 2022 | 230KB | Fully scanned | |
-| 22 | 06/2022/QH15 | 02 | 2022 | 666KB | Mixed — 1/65 pages scanned | ✅ |
-| 23 | 128/2025/QH15 | 02 | 2025 | 21.0MB | Fully scanned | |
-| 24 | 108/2025/QH15 | 02 | 2025 | 2.9MB | Fully scanned | |
-| 25 | 39/2024/QH15 | 02 | 2024 | 820KB | Clean — 0/46 pages scanned | ✅ |
-| 26 | 41/2017/QH14 | 02 | 2017 | 392KB | Fully scanned | ✅ |
-| 27 | 11/2026/QH16 | 02 | 2026 | 661KB | Fully scanned | |
-| 28 | 59/2024/QH15 | 02 | 2024 | 315KB | Clean — 0/12 pages scanned | ✅ |
-| 29 | 131/2025/QH15 | 02 | 2025 | 10.7MB | Fully scanned | |
-| 30 | 149/2025/QH15 | 02 | 2025 | 151KB | Fully scanned | |
-| 31 | 198/2025/QH15 | 02 | 2025 | 4.1MB | Fully scanned | |
-| 32 | 137/2025/QH15 | 02 | 2025 | 4.5MB | Fully scanned | |
-| 33 | 114/2016/QH13 | 02 | 2016 | 175KB | Fully scanned | |
-| 34 | 117/2020/QH14 | 02 | 2020 | 211KB | Fully scanned | |
-| 35 | 246/2025/QH15 | 02 | 2025 | 6.6MB | Fully scanned | ✅ |
-| 36 | 14/2026/QH16 | 02 | 2026 | 773KB | Fully scanned | |
-| 37 | 97/2025/QH15 | 02 | 2025 | 352KB | Fully scanned | |
-| 38 | 148/2025/QH15 | 02 | 2025 | 1.2MB | Fully scanned | |
-| 39 | 59/2018/QHH14 | 02 | 2018 | 210KB | Fully scanned | |
-| 40 | 213/2025/QH15 | 02 | 2025 | 135KB | Fully scanned | |
-| 41 | 88/2019/QH14 | 02 | 2019 | 494KB | Fully scanned | |
-| 42 | 74/2022/QH15 | 02 | 2022 | 5.1MB | Fully scanned (corrupted baked-in text layer — see Issues) | |
-| 43 | 81/2025/QH15 | 02 | 2025 | 1.1MB | Fully scanned | |
-| 44 | 43/2005/QH11 | 02 | 2005 | 33KB | **Error — not actually a PDF** (mislabeled RTF, see Issues) | |
-| 45 | 44/2013/QH13 | 02 | 2013 | 2.5MB | Fully scanned | ✅ |
-| 46 | 94/2019/QH14 | 02 | 2019 | 446KB | Fully scanned | |
-| 47 | 85/2015/QH13 | 02 | 2015 | 2.3MB | Fully scanned | ✅ |
-| 48 | 192/2025/QH15 | 02 | 2025 | 420KB | Fully scanned | |
-| 49 | 134/2020/QH14 | 02 | 2020 | 719KB | Fully scanned | |
-| 50 | 106/2016/QH13 | 02 | 2016 | 460KB | Fully scanned | |
+| #  | Citation                 | Tier         | Year | Size   | Scan status                                                        | OCR subset? |
+| -- | ------------------------ | ------------ | ---- | ------ | ------------------------------------------------------------------ | ----------- |
+| 01 | `.` (Hiến pháp 2013) | 01-hien-phap | 2013 | 2.0MB  | Fully scanned                                                      |             |
+| 02 | 02/2026/QH16             | 02           | 2026 | 578KB  | Fully scanned                                                      |             |
+| 03 | 10/2009/PL-UBTVQH12      | 03-phap-lenh | 2009 | 1.2MB  | Fully scanned                                                      |             |
+| 04 | 2013 (Hiến pháp 2013)  | 01-hien-phap | 2013 | 2.0MB  | Fully scanned                                                      | ✅          |
+| 05 | 38/2013/QH13             | 02           | 2013 | 1.3MB  | Fully scanned                                                      |             |
+| 06 | 50/2014/QH13             | 02           | 2014 | 6.3MB  | Fully scanned                                                      |             |
+| 07 | 74/2018/QH14             | 02           | 2018 | 561KB  | Fully scanned                                                      | ✅          |
+| 08 | 68/2025/QH15             | 02           | 2025 | 1.4MB  | Fully scanned                                                      | ✅          |
+| 09 | 179/2025/QH15            | 02           | 2025 | 132KB  | Fully scanned                                                      | ✅          |
+| 10 | 36/2021/QH15             | 02           | 2021 | 247KB  | Fully scanned                                                      |             |
+| 11 | 35/2017/QH14             | 02           | 2017 | 224KB  | Fully scanned                                                      |             |
+| 12 | 99/2019/QH14             | 02           | 2019 | 372KB  | Fully scanned                                                      |             |
+| 13 | 103/2025/QH15            | 02           | 2025 | 949KB  | Fully scanned                                                      |             |
+| 14 | 153/2024/QH15            | 02           | 2024 | 138KB  | Fully scanned                                                      |             |
+| 15 | 03/2026/QH16             | 02           | 2026 | 600KB  | Fully scanned                                                      |             |
+| 16 | 125/2025/QH15            | 02           | 2025 | 7.8MB  | Fully scanned                                                      |             |
+| 17 | 33/2021/QH15             | 02           | 2021 | 188KB  | Fully scanned                                                      |             |
+| 18 | 127/2016/QH13            | 02           | 2016 | 140KB  | Fully scanned                                                      |             |
+| 19 | 43/2022/QH15             | 02           | 2022 | 710KB  | Fully scanned                                                      |             |
+| 20 | 126/2025/QH15            | 02           | 2025 | 7.1MB  | Fully scanned                                                      |             |
+| 21 | 51/2022/QH15             | 02           | 2022 | 230KB  | Fully scanned                                                      |             |
+| 22 | 06/2022/QH15             | 02           | 2022 | 666KB  | Mixed — 1/65 pages scanned                                        | ✅          |
+| 23 | 128/2025/QH15            | 02           | 2025 | 21.0MB | Fully scanned                                                      |             |
+| 24 | 108/2025/QH15            | 02           | 2025 | 2.9MB  | Fully scanned                                                      |             |
+| 25 | 39/2024/QH15             | 02           | 2024 | 820KB  | Clean — 0/46 pages scanned                                        | ✅          |
+| 26 | 41/2017/QH14             | 02           | 2017 | 392KB  | Fully scanned                                                      | ✅          |
+| 27 | 11/2026/QH16             | 02           | 2026 | 661KB  | Fully scanned                                                      |             |
+| 28 | 59/2024/QH15             | 02           | 2024 | 315KB  | Clean — 0/12 pages scanned                                        | ✅          |
+| 29 | 131/2025/QH15            | 02           | 2025 | 10.7MB | Fully scanned                                                      |             |
+| 30 | 149/2025/QH15            | 02           | 2025 | 151KB  | Fully scanned                                                      |             |
+| 31 | 198/2025/QH15            | 02           | 2025 | 4.1MB  | Fully scanned                                                      |             |
+| 32 | 137/2025/QH15            | 02           | 2025 | 4.5MB  | Fully scanned                                                      |             |
+| 33 | 114/2016/QH13            | 02           | 2016 | 175KB  | Fully scanned                                                      |             |
+| 34 | 117/2020/QH14            | 02           | 2020 | 211KB  | Fully scanned                                                      |             |
+| 35 | 246/2025/QH15            | 02           | 2025 | 6.6MB  | Fully scanned                                                      | ✅          |
+| 36 | 14/2026/QH16             | 02           | 2026 | 773KB  | Fully scanned                                                      |             |
+| 37 | 97/2025/QH15             | 02           | 2025 | 352KB  | Fully scanned                                                      |             |
+| 38 | 148/2025/QH15            | 02           | 2025 | 1.2MB  | Fully scanned                                                      |             |
+| 39 | 59/2018/QHH14            | 02           | 2018 | 210KB  | Fully scanned                                                      |             |
+| 40 | 213/2025/QH15            | 02           | 2025 | 135KB  | Fully scanned                                                      |             |
+| 41 | 88/2019/QH14             | 02           | 2019 | 494KB  | Fully scanned                                                      |             |
+| 42 | 74/2022/QH15             | 02           | 2022 | 5.1MB  | Fully scanned (corrupted baked-in text layer — see Issues)        |             |
+| 43 | 81/2025/QH15             | 02           | 2025 | 1.1MB  | Fully scanned                                                      |             |
+| 44 | 43/2005/QH11             | 02           | 2005 | 33KB   | **Error — not actually a PDF** (mislabeled RTF, see Issues) |             |
+| 45 | 44/2013/QH13             | 02           | 2013 | 2.5MB  | Fully scanned                                                      | ✅          |
+| 46 | 94/2019/QH14             | 02           | 2019 | 446KB  | Fully scanned                                                      |             |
+| 47 | 85/2015/QH13             | 02           | 2015 | 2.3MB  | Fully scanned                                                      | ✅          |
+| 48 | 192/2025/QH15            | 02           | 2025 | 420KB  | Fully scanned                                                      |             |
+| 49 | 134/2020/QH14            | 02           | 2020 | 719KB  | Fully scanned                                                      |             |
+| 50 | 106/2016/QH13            | 02           | 2016 | 460KB  | Fully scanned                                                      |             |
 
 Tier codes: `01` = `01-hien-phap`, `02` = `02-luat-nghi-quyet-quoc-hoi`, `03` = `03-phap-lenh-nghi-quyet-ubtvqh`.
 Full citation/title/source-path detail is in `samples2/_manifest.json`.
@@ -172,8 +172,7 @@ when it was found.
   either tool's content-sniffing can be fully trusted here.
 - **A text layer that's present but already corrupted.** `74/2022/QH15` is classified "fully scanned" by
   pdf-inspector, yet markitdown (which never OCRs) extracted 580K real characters from it — because it
-  has an embedded text layer, just one that's already diacritic-stripped (`"QUOC HOI CQNG HOa XA HOI CHU
-  NGHIA VIET NAM"`), apparently from a low-quality OCR pass baked in before this pipeline ever touched
+  has an embedded text layer, just one that's already diacritic-stripped (`"QUOC HOI CQNG HOa XA HOI CHU NGHIA VIET NAM"`), apparently from a low-quality OCR pass baked in before this pipeline ever touched
   it. A third failure mode beyond clean/scanned: present-but-unusable, invisible to a naive
   "does it have text?" check, and something a tool that trusts any existing text layer (markitdown) will
   silently index as-is.
@@ -230,8 +229,9 @@ when it was found.
   word order scrambles at line-wrap boundaries.** Confirmed on multiple pages, same consistent pattern
   each time — the last word (or few words) of a line that wraps mid-sentence gets displaced to the *end*
   of its paragraph instead of staying in place:
-  > `"...tính theo 12 liên tục kể từ ngày đầu tiên có mặt tại Việt Nam; tháng"` (should read `"...tính
-  > theo 12 tháng liên tục kể từ ngày đầu tiên có mặt tại Việt Nam"` — `"tháng"` displaced to the end)
+
+  > `"...tính theo 12 liên tục kể từ ngày đầu tiên có mặt tại Việt Nam; tháng"` (should read `"...tính theo 12 tháng liên tục kể từ ngày đầu tiên có mặt tại Việt Nam"` — `"tháng"` displaced to the end)
+  >
 
   Every individual word is spelled correctly (diacritics intact) — this is purely a reading-order bug,
   not a character-recognition bug, and it's the kind of error that's easy to miss on a skim but corrupts
@@ -303,25 +303,25 @@ Issues for the full findings from that larger run.
 
 ### Format coverage
 
-| Entry | PDF (digital) | PDF (scanned) | `.docx` | legacy `.doc` | `.rtf` |
-|---|---|---|---|---|---|
-| pdf-inspector | ✅ | ⚠️ classify-only, no OCR | ❌ not a PDF tool | ❌ | ❌ |
-| markitdown | ✅ | ❌ silent empty | ✅ | ❌ clean exception | ❌ silent corruption |
-| MinerU | ✅ | ⚠️ OCR runs, diacritics unusable | ✅ | ❌ not in supported list | ❌ not in supported list |
-| docling (default) | ✅ | ⚠️ OCR runs, diacritics unusable, and unreliable past ~14p | ✅ | ❌ hard error (despite claiming support) | ❌ explicit rejection |
-| docling + EasyOCR, whole-doc | (not re-tested — same non-OCR path as default) | ⚠️ diacritics fixed, but crashes past ~14p | (not re-tested) | (not re-tested) | (not re-tested) |
-| docling + EasyOCR, page-by-page | (not re-tested) | ✅ diacritics fixed, completes reliably (295/295 pages across 11 docs — see Reliability); word-order bug open | (not re-tested) | (not re-tested) | (not re-tested) |
+| Entry                           | PDF (digital)                                   | PDF (scanned)                                                                                                  | `.docx`         | legacy`.doc`                           | `.rtf`                 |
+| ------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------- | ---------------------------------------- | ------------------------ |
+| pdf-inspector                   | ✅                                              | ⚠️ classify-only, no OCR                                                                                     | ❌ not a PDF tool | ❌                                       | ❌                       |
+| markitdown                      | ✅                                              | ❌ silent empty                                                                                                | ✅                | ❌ clean exception                       | ❌ silent corruption     |
+| MinerU                          | ✅                                              | ⚠️ OCR runs, diacritics unusable                                                                             | ✅                | ❌ not in supported list                 | ❌ not in supported list |
+| docling (default)               | ✅                                              | ⚠️ OCR runs, diacritics unusable, and unreliable past ~14p                                                   | ✅                | ❌ hard error (despite claiming support) | ❌ explicit rejection    |
+| docling + EasyOCR, whole-doc    | (not re-tested — same non-OCR path as default) | ⚠️ diacritics fixed, but crashes past ~14p                                                                   | (not re-tested)   | (not re-tested)                          | (not re-tested)          |
+| docling + EasyOCR, page-by-page | (not re-tested)                                 | ✅ diacritics fixed, completes reliably (295/295 pages across 11 docs — see Reliability); word-order bug open | (not re-tested)   | (not re-tested)                          | (not re-tested)          |
 
 ### Correctness (diacritics + table fidelity)
 
-| Entry | Digital-native text | Scanned-PDF text | Table fidelity |
-|---|---|---|---|
-| pdf-inspector | Accurate, complete | N/A — correctly detects "needs OCR," doesn't attempt | Usually correct; false-positive risk on complex layouts (see Issues), predictable via `is_complex_layout` |
-| markitdown | Accurate, complete | Silent failure — 0 chars, no error | N/A (doesn't extract structured tables) |
-| MinerU | Accurate, complete | Structure correct; diacritics badly garbled | Correct data, but raw inline HTML `<table>` on one long line, not Markdown syntax |
-| docling (default) | Accurate, complete | Structure correct; diacritics badly garbled | Correct — clean native Markdown pipe-table when it doesn't crash |
-| docling + EasyOCR, whole-doc | (not re-tested) | **Diacritics correct** on completed pages; new word-order bug at line-wraps | Not evaluated this pass (crashed before reaching a table page) |
-| docling + EasyOCR, page-by-page | (not re-tested) | **Diacritics correct**, confirmed on multiple documents up to 46 pages; same word-order bug, page-local, confirmed unchanged at scale | Not evaluated this pass |
+| Entry                           | Digital-native text | Scanned-PDF text                                                                                                                            | Table fidelity                                                                                             |
+| ------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| pdf-inspector                   | Accurate, complete  | N/A — correctly detects "needs OCR," doesn't attempt                                                                                       | Usually correct; false-positive risk on complex layouts (see Issues), predictable via`is_complex_layout` |
+| markitdown                      | Accurate, complete  | Silent failure — 0 chars, no error                                                                                                         | N/A (doesn't extract structured tables)                                                                    |
+| MinerU                          | Accurate, complete  | Structure correct; diacritics badly garbled                                                                                                 | Correct data, but raw inline HTML`<table>` on one long line, not Markdown syntax                         |
+| docling (default)               | Accurate, complete  | Structure correct; diacritics badly garbled                                                                                                 | Correct — clean native Markdown pipe-table when it doesn't crash                                          |
+| docling + EasyOCR, whole-doc    | (not re-tested)     | **Diacritics correct** on completed pages; new word-order bug at line-wraps                                                           | Not evaluated this pass (crashed before reaching a table page)                                             |
+| docling + EasyOCR, page-by-page | (not re-tested)     | **Diacritics correct**, confirmed on multiple documents up to 46 pages; same word-order bug, page-local, confirmed unchanged at scale | Not evaluated this pass                                                                                    |
 
 One more risk found specifically on the digital-native case: pdf-inspector's heuristic table detector
 produced a garbled, misaligned pipe-table on plain two-column running prose in one VAT law — not just
@@ -333,35 +333,35 @@ got exercised — three of the four base tools reject RTF outright, and the one 
 
 ### Reliability at scale
 
-| Entry | Attempts | Completed cleanly | Known failure mode |
-|---|---|---|---|
-| pdf-inspector | 52 | 51 (1 correctly rejected malformed input) | None — the one "failure" is the *correct* call on genuinely malformed input (the mislabeled RTF file); it's the only tool of the four that neither faked a result nor crashed on that file |
-| markitdown | 56 | 54 report `status: ok` (2 clean rejections) | 46/56 silent-empty on scanned PDFs; 2/2 silent RTF-source-dump (see Issues) — zero crashes |
-| MinerU | 14 | **14/14 (100%)** | None — zero crashes across both batches, including 65-page documents |
-| docling (default) | 17 attempted, 14 processable | 14/14 report `status: ok`, but only 9/14 (64%) actually match expected content | 5/14 (36%) show content loss; 3/14 (21%) lose >50%, silently, via `bad_alloc` |
-| docling + EasyOCR, whole-doc | 1 document | 0/1 | Crashed at the final page, zero output |
-| docling + EasyOCR, page-by-page | 11 documents, 295 pages | **295/295 pages (100%)** | None — zero crashes, including on the exact 2 documents (37p, 46p) that crashed under default docling in this same table |
+| Entry                           | Attempts                     | Completed cleanly                                                               | Known failure mode                                                                                                                                                                           |
+| ------------------------------- | ---------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| pdf-inspector                   | 52                           | 51 (1 correctly rejected malformed input)                                       | None — the one "failure" is the*correct* call on genuinely malformed input (the mislabeled RTF file); it's the only tool of the four that neither faked a result nor crashed on that file |
+| markitdown                      | 56                           | 54 report`status: ok` (2 clean rejections)                                    | 46/56 silent-empty on scanned PDFs; 2/2 silent RTF-source-dump (see Issues) — zero crashes                                                                                                  |
+| MinerU                          | 14                           | **14/14 (100%)**                                                          | None — zero crashes across both batches, including 65-page documents                                                                                                                        |
+| docling (default)               | 17 attempted, 14 processable | 14/14 report`status: ok`, but only 9/14 (64%) actually match expected content | 5/14 (36%) show content loss; 3/14 (21%) lose >50%, silently, via`bad_alloc`                                                                                                               |
+| docling + EasyOCR, whole-doc    | 1 document                   | 0/1                                                                             | Crashed at the final page, zero output                                                                                                                                                       |
+| docling + EasyOCR, page-by-page | 11 documents, 295 pages      | **295/295 pages (100%)**                                                  | None — zero crashes, including on the exact 2 documents (37p, 46p) that crashed under default docling in this same table                                                                    |
 
 ### Speed (CPU-only, wall-clock)
 
-| Entry | Total time | Total characters captured | Notes |
-|---|---|---|---|
-| pdf-inspector | Negligible (sub-100ms/doc, up to ~0.23s when generating real markdown) | — | Effectively free next to the other five |
-| markitdown | 48.4s across 56 docs | — | Fast because it does little on scanned input (no OCR) |
-| MinerU | 3,231.3s (~53.9 min) across 14 docs | 821,861 | 2–5× slower than default docling; no wasted work — every character captured is real |
-| docling (default) | 1,715s (~28.6 min) across 14 processable docs | 653,412 | Fast per-document, but a meaningful share of both the time and the characters is spent on documents that silently lost content |
-| docling + EasyOCR, whole-doc | Never completed (crashed) | 0 | — |
-| docling + EasyOCR, page-by-page | 4,438.4s (~74.0 min) across the 11-document/295-page subset | 635,174 | ~2.8× slower than default docling on the identical 11 documents (1,564.8s) overall — but that ratio understates the real cost, since a chunk of default docling's "fast" time on the 2 documents it crashed on came from stopping early, not from finishing. Per-page speed varies enormously by document: ~1.1–1.3s/page on documents with a real text layer (docling appears to skip the actual OCR pass there even with EasyOCR configured), ~17–28s/page on genuinely scanned ones, and one document anomalously slow (~41.6s/page) under both this and default docling — see Issues |
+| Entry                           | Total time                                                             | Total characters captured | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| pdf-inspector                   | Negligible (sub-100ms/doc, up to ~0.23s when generating real markdown) | —                        | Effectively free next to the other five                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| markitdown                      | 48.4s across 56 docs                                                   | —                        | Fast because it does little on scanned input (no OCR)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| MinerU                          | 3,231.3s (~53.9 min) across 14 docs                                    | 821,861                   | 2–5× slower than default docling; no wasted work — every character captured is real                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| docling (default)               | 1,715s (~28.6 min) across 14 processable docs                          | 653,412                   | Fast per-document, but a meaningful share of both the time and the characters is spent on documents that silently lost content                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| docling + EasyOCR, whole-doc    | Never completed (crashed)                                              | 0                         | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| docling + EasyOCR, page-by-page | 4,438.4s (~74.0 min) across the 11-document/295-page subset            | 635,174                   | ~2.8× slower than default docling on the identical 11 documents (1,564.8s) overall — but that ratio understates the real cost, since a chunk of default docling's "fast" time on the 2 documents it crashed on came from stopping early, not from finishing. Per-page speed varies enormously by document: ~1.1–1.3s/page on documents with a real text layer (docling appears to skip the actual OCR pass there even with EasyOCR configured), ~17–28s/page on genuinely scanned ones, and one document anomalously slow (~41.6s/page) under both this and default docling — see Issues |
 
 ### Setup complexity
 
-| Entry | Install | Real footguns hit |
-|---|---|---|
-| pdf-inspector | `pip install pdf-inspector` | None — simplest of all six by a wide margin |
-| markitdown | `pip install markitdown[pdf,docx]` | `[all]` extra is broken on PyPI (bad dependency pin) — scope extras to what's needed |
-| MinerU | `pip install mineru[core]` in a dedicated Python <3.14 venv | Hard Python version cap (but pip fails loudly/immediately); heaviest download (bundles a full Gradio web UI even for CLI-only use) |
-| docling (default) | `pip install docling` | Needs `TORCHDYNAMO_DISABLE=1` or an MSVC compiler to run at all on Windows; default OCR language is silently wrong for Vietnamese |
-| docling + EasyOCR, either config | Add `pip install easyocr`, set `ocr_options = EasyOcrOptions(lang=['vi'])` | Same docling footguns as above, plus: EasyOCR downloads its own detection/recognition models on first use |
+| Entry                            | Install                                                                       | Real footguns hit                                                                                                                  |
+| -------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| pdf-inspector                    | `pip install pdf-inspector`                                                 | None — simplest of all six by a wide margin                                                                                       |
+| markitdown                       | `pip install markitdown[pdf,docx]`                                          | `[all]` extra is broken on PyPI (bad dependency pin) — scope extras to what's needed                                            |
+| MinerU                           | `pip install mineru[core]` in a dedicated Python <3.14 venv                 | Hard Python version cap (but pip fails loudly/immediately); heaviest download (bundles a full Gradio web UI even for CLI-only use) |
+| docling (default)                | `pip install docling`                                                       | Needs`TORCHDYNAMO_DISABLE=1` or an MSVC compiler to run at all on Windows; default OCR language is silently wrong for Vietnamese |
+| docling + EasyOCR, either config | Add`pip install easyocr`, set `ocr_options = EasyOcrOptions(lang=['vi'])` | Same docling footguns as above, plus: EasyOCR downloads its own detection/recognition models on first use                          |
 
 ### Parser compatibility
 
