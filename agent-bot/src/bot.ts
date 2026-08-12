@@ -1,8 +1,17 @@
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
+import { REST, Routes } from 'discord.js';
 import type { AgentService } from './agent/agentService.js';
 import type { PgSessionStore } from './agent/pgSessionStore.js';
+import { config } from './config.js';
 import { registerMessageCreateEvent } from './events/messageCreate.js';
 import { registerReadyEvent } from './events/ready.js';
+import {
+  getCommandBuilders,
+  registerSlashCommands,
+} from './commands/splashCommands.js';
+import { createLogger } from './tools/logging.js';
+
+const logger = createLogger('discord-bot');
 
 export function createBot(
   agentService: AgentService,
@@ -20,8 +29,31 @@ export function createBot(
 
   registerReadyEvent(client);
   registerMessageCreateEvent(client, agentService, sessionStore);
+  registerSlashCommands(client);
+
+  client.once('ready', () => {
+    void registerGlobalCommands(client);
+  });
 
   return client;
+}
+
+async function registerGlobalCommands(client: Client): Promise<void> {
+  const commands = getCommandBuilders();
+  const clientId = client.user?.id;
+  if (!clientId) return;
+
+  const rest = new REST({ version: '10' }).setToken(config.discord.token);
+
+  try {
+    logger.log('Started refreshing global application (/) commands.');
+    await rest.put(Routes.applicationCommands(clientId), {
+      body: [...commands.values()].map((cmd) => cmd.toJSON()),
+    });
+    logger.log('Successfully reloaded global application (/) commands.');
+  } catch (error) {
+    logger.error('Failed to register slash commands:', error);
+  }
 }
 
 export async function startBot(
