@@ -3,9 +3,9 @@ import { createHash } from 'crypto';
 import { and, eq } from 'drizzle-orm';
 import {
   parseDocumentBody,
+  type DocumentTextSource,
   type ParsedDocumentNode,
 } from '../crawl/document-node.parser';
-import type { ParsedVbplDocument } from '../crawl/vbpl-document.interface';
 import { DRIZZLE, type DrizzleDb } from './db.module';
 import { document, documentNode } from './schema';
 
@@ -81,7 +81,7 @@ export class DocumentNodeRepository {
    */
   async syncNodes(
     documentId: string,
-    parsed: ParsedVbplDocument,
+    parsed: DocumentTextSource,
     contentChanged: boolean,
   ): Promise<void> {
     if (!contentChanged && (await this.hasNodes(documentId))) return;

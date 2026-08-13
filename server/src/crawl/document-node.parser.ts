@@ -34,6 +34,20 @@ export interface ParsedDocumentNode {
   children: ParsedDocumentNode[];
 }
 
+/**
+ * Minimal contract document-node.repository.ts's syncNodes actually needs
+ * from a "parsed document" — any source's own parsed-document shape (e.g.
+ * crawl/vbpl-document.interface.ts's ParsedVbplDocument, or
+ * crawl-chinhphu/chinhphu-document.interface.ts's ParsedChinhPhuDocument)
+ * satisfies this structurally as long as it carries a fullText field, null
+ * meaning no body text is available yet to build a tree from (e.g. before a
+ * source's own document-processing step has run — see
+ * crawl-chinhphu/document-text-extractor.ts).
+ */
+export interface DocumentTextSource {
+  fullText: string | null;
+}
+
 /** Sibling-order depth for the non-phụ-lục stack — a new heading at level L closes every currently-open node with level >= L. */
 const LEVEL: Record<Exclude<DocumentNodeType, 'phu_luc'>, number> = {
   phan: 0,
