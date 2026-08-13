@@ -2,8 +2,16 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { CrawlModule } from './crawl.module';
 import { CrawlService } from './crawl.service';
 import { CrawlController } from './crawl.controller';
+import { ChinhPhuCrawlService } from './chinhphu-crawl.service';
+import { ChinhPhuSearchService } from './chinhphu-search.service';
+import { FallbackSearchService } from './fallback-search.service';
+import {
+  DOCUMENT_TEXT_EXTRACTOR,
+  NullDocumentTextExtractor,
+} from './document-text-extractor';
 import { VbplClientService } from './vbpl-client.service';
 import { VbplSitemapService } from './vbpl-sitemap.service';
+import { ChinhPhuDocumentRepository } from '../persistence/chinhphu-document.repository';
 import { DocumentRepository } from '../persistence/document.repository';
 import { DocumentNodeRepository } from '../persistence/document-node.repository';
 import { DRIZZLE } from '../persistence/db.module';
@@ -110,6 +118,35 @@ describe('CrawlModule', () => {
   it('provides DRIZZLE token', () => {
     const drizzle = moduleRef.get(DRIZZLE);
     expect(drizzle).toBeDefined();
+  });
+
+  it('provides ChinhPhuCrawlService', () => {
+    const service = moduleRef.get(ChinhPhuCrawlService);
+    expect(service).toBeDefined();
+    expect(service).toBeInstanceOf(ChinhPhuCrawlService);
+  });
+
+  it('provides ChinhPhuSearchService', () => {
+    const service = moduleRef.get(ChinhPhuSearchService);
+    expect(service).toBeDefined();
+    expect(service).toBeInstanceOf(ChinhPhuSearchService);
+  });
+
+  it('provides FallbackSearchService', () => {
+    const service = moduleRef.get(FallbackSearchService);
+    expect(service).toBeDefined();
+    expect(service).toBeInstanceOf(FallbackSearchService);
+  });
+
+  it('provides ChinhPhuDocumentRepository', () => {
+    const repo = moduleRef.get(ChinhPhuDocumentRepository);
+    expect(repo).toBeDefined();
+    expect(repo).toBeInstanceOf(ChinhPhuDocumentRepository);
+  });
+
+  it('provides a NullDocumentTextExtractor by default', () => {
+    const extractor = moduleRef.get(DOCUMENT_TEXT_EXTRACTOR);
+    expect(extractor).toBeInstanceOf(NullDocumentTextExtractor);
   });
 
   it('registers CrawlController', () => {

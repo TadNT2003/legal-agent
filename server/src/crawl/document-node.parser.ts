@@ -37,12 +37,11 @@ export interface ParsedDocumentNode {
 /**
  * Minimal contract document-node.repository.ts's syncNodes actually needs
  * from a "parsed document" — any source's own parsed-document shape (e.g.
- * crawl/vbpl-document.interface.ts's ParsedVbplDocument, or
- * crawl-chinhphu/chinhphu-document.interface.ts's ParsedChinhPhuDocument)
- * satisfies this structurally as long as it carries a fullText field, null
- * meaning no body text is available yet to build a tree from (e.g. before a
- * source's own document-processing step has run — see
- * crawl-chinhphu/document-text-extractor.ts).
+ * this file's own ParsedVbplDocument sibling vbpl-document.interface.ts, or
+ * chinhphu-document.interface.ts's ParsedChinhPhuDocument) satisfies this
+ * structurally as long as it carries a fullText field, null meaning no body
+ * text is available yet to build a tree from (e.g. before a source's own
+ * document-processing step has run — see document-text-extractor.ts).
  */
 export interface DocumentTextSource {
   fullText: string | null;

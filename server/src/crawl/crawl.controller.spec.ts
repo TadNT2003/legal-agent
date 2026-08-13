@@ -1,14 +1,20 @@
-// CrawlController imports the real CrawlService for its DI token, whose
-// own module graph (CrawlService -> DocumentRepository -> db.module ->
-// schema/document-reference.schema.ts) is broken in this dev environment for
-// reasons unrelated to this file (a drizzle-orm/Node interaction — same root
-// cause blocks crawl.service.spec.ts and document.repository.integration
-// .spec.ts too). Mocking the whole module before importing the controller
-// makes the controller's own `import { CrawlService } from
-// './crawl.service'` resolve to this stub instead, so the real schema
-// chain is never loaded.
+// CrawlController imports the real CrawlService/ChinhPhuCrawlService for
+// their DI tokens, whose own module graphs (CrawlService/ChinhPhuCrawlService
+// -> DocumentRepository -> db.module -> schema/document-reference.schema.ts)
+// are broken in this dev environment for reasons unrelated to this file (a
+// drizzle-orm/Node interaction — same root cause blocks crawl.service.spec.ts
+// and document.repository.integration.spec.ts too). Mocking both modules
+// before importing the controller makes the controller's own `import {
+// CrawlService } from './crawl.service'` / `import { ChinhPhuCrawlService }
+// from './chinhphu-crawl.service'` resolve to these stubs instead, so the
+// real schema chain is never loaded. FallbackSearchService only imports
+// CrawlService (already mocked above) and ChinhPhuSearchService (which only
+// touches download/, no schema chain) — safe to leave unmocked.
 jest.mock('./crawl.service', () => ({
   CrawlService: jest.fn(),
+}));
+jest.mock('./chinhphu-crawl.service', () => ({
+  ChinhPhuCrawlService: jest.fn(),
 }));
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -16,17 +22,27 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { CrawlController } from './crawl.controller';
 import { CrawlService } from './crawl.service';
+import { ChinhPhuCrawlService } from './chinhphu-crawl.service';
+import { FallbackSearchService } from './fallback-search.service';
 import { JobQueueService } from '../job-queue/job-queue.service';
 
 describe('CrawlController', () => {
   let app: INestApplication;
   let mockService: jest.Mocked<Partial<CrawlService>>;
   let mockJobQueue: jest.Mocked<Partial<JobQueueService>>;
+  let mockChinhPhuCrawl: jest.Mocked<Partial<ChinhPhuCrawlService>>;
+  let mockFallbackSearch: jest.Mocked<Partial<FallbackSearchService>>;
 
   const mockSyncResult = {
     documentId: 'test-doc-id',
     changed: true,
     healedReferences: 0,
+  };
+
+  const mockChinhPhuSyncResult = {
+    documentId: 'test-chinhphu-doc-id',
+    changed: true,
+    hasFullText: false,
   };
 
   const mockSearchResult = {
@@ -42,6 +58,11 @@ describe('CrawlController', () => {
         sourceUrl: 'https://vbpl.vn/test',
       },
     ],
+  };
+
+  const mockFallbackResult = {
+    source: 'vbpl.vn' as const,
+    result: mockSearchResult,
   };
 
   beforeEach(async () => {
@@ -61,12 +82,20 @@ describe('CrawlController', () => {
       getJob: jest.fn(),
       cancelJob: jest.fn(),
     };
+    mockChinhPhuCrawl = {
+      syncDocument: jest.fn().mockResolvedValue(mockChinhPhuSyncResult),
+    };
+    mockFallbackSearch = {
+      search: jest.fn().mockResolvedValue(mockFallbackResult),
+    };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [CrawlController],
       providers: [
         { provide: CrawlService, useValue: mockService },
         { provide: JobQueueService, useValue: mockJobQueue },
+        { provide: ChinhPhuCrawlService, useValue: mockChinhPhuCrawl },
+        { provide: FallbackSearchService, useValue: mockFallbackSearch },
       ],
     }).compile();
 
@@ -110,6 +139,30 @@ describe('CrawlController', () => {
       await request(app.getHttpServer())
         .post('/crawl/url')
         .send({ url: 'not-a-url' })
+        .expect(400);
+    });
+  });
+
+  describe('POST /crawl/chinhphu/url', () => {
+    it('returns 201 with sync result for valid URL', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/crawl/chinhphu/url')
+        .send({ url: 'https://vanban.chinhphu.vn/?pageid=27160&docid=1' })
+        .expect(201);
+
+      expect(res.body).toHaveProperty(
+        'documentId',
+        mockChinhPhuSyncResult.documentId,
+      );
+      expect(mockChinhPhuCrawl.syncDocument).toHaveBeenCalledWith(
+        'https://vanban.chinhphu.vn/?pageid=27160&docid=1',
+      );
+    });
+
+    it('returns 400 when URL is missing', async () => {
+      await request(app.getHttpServer())
+        .post('/crawl/chinhphu/url')
+        .send({})
         .expect(400);
     });
   });
@@ -213,19 +266,20 @@ describe('CrawlController', () => {
   });
 
   describe('GET /crawl/search', () => {
-    it('returns 200 with search results', async () => {
+    it('returns 200 with a { source, result } envelope from FallbackSearchService', async () => {
       const res = await request(app.getHttpServer())
         .get('/crawl/search')
         .query({ keyword: 'luat lao dong', page: 1 })
         .expect(200);
 
-      expect(res.body).toHaveProperty('total', mockSearchResult.total);
-      expect(mockService.searchDocuments).toHaveBeenCalledWith(
+      expect(res.body).toHaveProperty('source', 'vbpl.vn');
+      expect(res.body.result).toHaveProperty('total', mockSearchResult.total);
+      expect(mockFallbackSearch.search).toHaveBeenCalledWith(
         expect.objectContaining({ keyword: 'luat lao dong', page: 1 }),
       );
     });
 
-    it('passes all filter params to service', async () => {
+    it('passes all filter params to FallbackSearchService (vbpl.vn side keeps its full filter set)', async () => {
       await request(app.getHttpServer())
         .get('/crawl/search')
         .query({
@@ -237,7 +291,7 @@ describe('CrawlController', () => {
         })
         .expect(200);
 
-      expect(mockService.searchDocuments).toHaveBeenCalledWith(
+      expect(mockFallbackSearch.search).toHaveBeenCalledWith(
         expect.objectContaining({
           keyword: 'test',
           searchScope: 'noi-dung',
@@ -246,6 +300,20 @@ describe('CrawlController', () => {
           issuedTo: '31/12/2025',
         }),
       );
+    });
+
+    it('surfaces a vanban.chinhphu.vn fallback result', async () => {
+      mockFallbackSearch.search!.mockResolvedValueOnce({
+        source: 'vanban.chinhphu.vn',
+        result: { total: 1, items: [], issuingBodyUnresolved: false },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/crawl/search')
+        .query({ keyword: 'test' })
+        .expect(200);
+
+      expect(res.body.source).toBe('vanban.chinhphu.vn');
     });
   });
 
@@ -305,9 +373,7 @@ describe('CrawlController', () => {
     it('returns 404 when the job does not exist', async () => {
       mockJobQueue.getJob!.mockResolvedValue(null);
 
-      await request(app.getHttpServer())
-        .get('/jobs/missing')
-        .expect(404);
+      await request(app.getHttpServer()).get('/jobs/missing').expect(404);
     });
   });
 

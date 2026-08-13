@@ -17,7 +17,6 @@ import { RetrieveModule } from './retrieve/retrieve.module';
 import { SyncModule } from './sync/sync.module';
 import { CrawlModule } from './crawl/crawl.module';
 import { crawlConfig } from './crawl/crawl.config';
-import { CrawlChinhPhuModule } from './crawl-chinhphu/crawl-chinhphu.module';
 import { jobQueueConfig } from './job-queue/job-queue.config';
 import { OpenSearchModule } from './opensearch/opensearch.module';
 import { opensearchProjectorConfig } from './opensearch/opensearch.config';
@@ -49,7 +48,6 @@ import { opensearchProjectorConfig } from './opensearch/opensearch.config';
     SyncModule,
     OpenSearchModule,
     CrawlModule,
-    CrawlChinhPhuModule,
   ],
   controllers: [AppController],
   providers: [AppService],

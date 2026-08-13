@@ -2,8 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class SearchDocumentItemDto {
   @ApiProperty({
-    description:
-      'Internal document UUID. Use with GET /retrieve/nodes.',
+    description: 'Internal document UUID. Use with GET /retrieve/nodes.',
     example: 'bd76b9be-5fb6-45c4-9e32-5d16b7866445',
   })
   documentId: string;

@@ -19,12 +19,14 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { BatchSyncDocumentDto } from './dto/batch-sync-document.dto';
+import { FallbackSearchResponseDto } from './dto/fallback-search-response.dto';
 import { ForceUpdateDto } from './dto/force-update.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
-import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
 import { SearchSyncDocumentsDto } from './dto/search-sync-documents.dto';
 import { SearchSyncDocumentsResponseDto } from './dto/search-sync-documents-response.dto';
 import { SyncAllDto } from './dto/sync-all.dto';
+import { SyncChinhPhuDocumentDto } from './dto/sync-chinhphu-document.dto';
+import { SyncChinhPhuDocumentResponseDto } from './dto/sync-chinhphu-document-response.dto';
 import { SyncDocumentDto } from './dto/sync-document.dto';
 import { SyncDocumentResponseDto } from './dto/sync-document-response.dto';
 import {
@@ -35,7 +37,9 @@ import { CancelJobResponseDto } from '../job-queue/dto/cancel-job-response.dto';
 import { JobStatusResponseDto } from '../job-queue/dto/job-status-response.dto';
 import { JobSubmittedResponseDto } from '../job-queue/dto/job-submitted-response.dto';
 import { JobQueueService } from '../job-queue/job-queue.service';
+import { ChinhPhuCrawlService } from './chinhphu-crawl.service';
 import { CrawlService } from './crawl.service';
+import { FallbackSearchService } from './fallback-search.service';
 
 @ApiTags('crawl')
 @Controller()
@@ -43,6 +47,8 @@ export class CrawlController {
   constructor(
     private readonly service: CrawlService,
     private readonly jobQueue: JobQueueService,
+    private readonly chinhPhuCrawl: ChinhPhuCrawlService,
+    private readonly fallbackSearch: FallbackSearchService,
   ) {}
 
   @ApiOperation({
@@ -62,6 +68,31 @@ export class CrawlController {
   @Post('crawl/url')
   syncDocument(@Body() dto: SyncDocumentDto) {
     return this.service.syncDocument(dto.url);
+  }
+
+  @ApiOperation({
+    summary:
+      'Sync one document from vanban.chinhphu.vn into Postgres (supplementary source)',
+    description:
+      'Supplementary source alongside vbpl.vn (POST /crawl/url, the primary source — see docs/plan/law-' +
+      "index-plan.md's Context section on why) — fetches a vanban.chinhphu.vn document detail page and " +
+      'upserts its metadata. vanban.chinhphu.vn exposes no server-rendered full text (only downloadable ' +
+      'PDF/DOC/RTF attachments), so today every synced document is persisted with indexScope=' +
+      '"metadata_only" and no document_node tree, until a document-processing tool is wired into ' +
+      'DOCUMENT_TEXT_EXTRACTOR (see document-text-extractor.ts). KNOWN LIMITATION, permanent, not tied to ' +
+      'that: vanban.chinhphu.vn has no curated relationship graph the way vbpl.vn\'s "Lược đồ" tab does, so ' +
+      'this endpoint never creates document_reference rows in either direction for the documents it syncs — ' +
+      "see persistence/chinhphu-document.repository.ts's own comment. Never overwrites a document already " +
+      'indexed under the same citation from another source.',
+  })
+  @ApiCreatedResponse({ type: SyncChinhPhuDocumentResponseDto })
+  @ApiBadGatewayResponse({
+    description:
+      'vanban.chinhphu.vn failed to load the page, or the page has no recognizable "Số ký hiệu".',
+  })
+  @Post('crawl/chinhphu/url')
+  syncChinhPhuDocument(@Body() dto: SyncChinhPhuDocumentDto) {
+    return this.chinhPhuCrawl.syncDocument(dto.url);
   }
 
   @ApiOperation({
@@ -190,23 +221,30 @@ export class CrawlController {
 
   @ApiOperation({
     summary:
-      'Targeted/filtered search against vbpl.vn/van-ban/trung-uong — read-only, does not sync',
+      'Targeted/filtered search against vbpl.vn — falls back to vanban.chinhphu.vn on zero matches, read-only, does not sync',
     description:
       'Mirrors vbpl.vn\'s own "Bộ lọc" sidebar (Nhóm văn bản / Cơ quan ban hành / Hình thức văn bản ' +
       'checkboxes) and "Tìm kiếm nâng cao" advanced panel (Tình trạng hiệu lực + date ranges) by driving ' +
       'the real filter UI via a headless browser, then reads the resulting matches off the network response ' +
-      "the site's own search action produces (result cards have no href/id in the DOM to scrape). Returns " +
-      "each match's metadata plus a sourceUrl directly usable as the document-sync endpoint's `url` — this " +
-      'endpoint itself only searches, it never persists anything.',
+      "the site's own search action produces (result cards have no href/id in the DOM to scrape). If vbpl.vn " +
+      'returns zero matches for these filters (or rejects an unrecognized issuingBody value), falls back to ' +
+      'a read-only search against vanban.chinhphu.vn using the subset of these filters it can express — ' +
+      'keyword, the first issuingBody, and a year derived from issuedFrom/issuedTo (see ' +
+      'FallbackSearchService; the rest of this endpoint\'s filters, and vanban.chinhphu.vn\'s own "Lĩnh vực" ' +
+      'filter, have no counterpart on the other site and are dropped for that fallback query only). Returns ' +
+      "a { source, result } envelope — result carries each match's metadata plus a sourceUrl directly " +
+      "usable as either document-sync endpoint's `url` (POST /crawl/url for vbpl.vn matches, POST " +
+      '/crawl/chinhphu/url for vanban.chinhphu.vn ones) — this endpoint itself only searches, it never ' +
+      'persists anything.',
   })
-  @ApiOkResponse({ type: SearchDocumentsResponseDto })
+  @ApiOkResponse({ type: FallbackSearchResponseDto })
   @ApiBadGatewayResponse({
     description:
-      'vbpl.vn failed to load or render the search page (network error, timeout, or unexpected DOM shape).',
+      'Either site failed to load or render its search page (network error, timeout, or unexpected page shape).',
   })
   @Get('crawl/search')
   search(@Query() dto: SearchDocumentsDto) {
-    return this.service.searchDocuments(dto);
+    return this.fallbackSearch.search(dto);
   }
 
   @ApiOperation({

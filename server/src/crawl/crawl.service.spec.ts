@@ -1,8 +1,4 @@
-import {
-  CrawlService,
-  SyncDocumentResult,
-  SyncSummary,
-} from './crawl.service';
+import { CrawlService, SyncDocumentResult, SyncSummary } from './crawl.service';
 import type {
   RawVbplPage,
   VbplSearchFilters,
@@ -80,12 +76,7 @@ describe('CrawlService', () => {
       syncNodes: jest.fn(),
     };
 
-    service = new CrawlService(
-      mockSitemap,
-      mockClient,
-      mockRepo,
-      mockNodeRepo,
-    );
+    service = new CrawlService(mockSitemap, mockClient, mockRepo, mockNodeRepo);
   });
 
   describe('syncDocument', () => {

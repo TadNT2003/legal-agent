@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { eq, sql } from 'drizzle-orm';
-import type { ParsedChinhPhuDocument } from '../crawl-chinhphu/chinhphu-document.interface';
+import type { ParsedChinhPhuDocument } from '../crawl/chinhphu-document.interface';
 import { parseVbplDate } from '../crawl/vbpl.parser';
 import { DRIZZLE, type DrizzleDb } from './db.module';
 import { document } from './schema';
@@ -36,6 +36,17 @@ export interface ChinhPhuUpsertResult {
  * necessarily apply here. Reuses
  * DocumentRepository.resolveOrCreateIssuingBody rather than duplicating it —
  * issuing_body is a shared table with no source-specific meaning.
+ *
+ * KNOWN LIMITATION, permanent (not a TODO): this repository never writes
+ * document_reference rows. vbpl.vn's "Lược đồ" tab gives crawl.service.ts's
+ * upsertRelations + extractTextReferences a curated relationship graph plus
+ * enough full text to mine inline citations from; vanban.chinhphu.vn has
+ * neither — no relationship graph at all, and (until DOCUMENT_TEXT_EXTRACTOR
+ * is wired to a real implementation, see document-text-extractor.ts) no
+ * body text to extract citations from either. A chinhphu-sourced document
+ * therefore has zero outgoing/incoming references in the graph until it is
+ * re-synced from vbpl.vn instead (if vbpl.vn ever indexes it) — this
+ * repository does not and cannot backfill that gap on its own.
  */
 @Injectable()
 export class ChinhPhuDocumentRepository {
