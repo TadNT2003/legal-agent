@@ -197,6 +197,22 @@ describe('parseDocumentBody', () => {
     );
   });
 
+  it('drops a signature block that opens directly with the signer\'s standalone title line, no TM./KT./THAY MẶT/Nơi nhận prefix at all (confirmed against real vbpl.vn output, Nghị quyết 128/2020/QH14)', () => {
+    const fullText = [
+      'Điều 4. Giám sát và kiểm toán việc thực hiện dự toán ngân sách nhà nước',
+      '1. Ủy ban Thường vụ Quốc hội giám sát việc thực hiện Nghị quyết này.',
+      'Nghị quyết này được Quốc hội thông qua ngày 12 tháng 11 năm 2020.',
+      'CHỦ TỊCH QUỐC HỘI',
+      'Nguyễn Thị Kim Ngân',
+    ].join('\n');
+
+    const [dieu] = parseDocumentBody(fullText);
+    expect(dieu.children).toHaveLength(1);
+    expect(dieu.children[0].textContent).toBe(
+      'Ủy ban Thường vụ Quốc hội giám sát việc thực hiện Nghị quyết này.\nNghị quyết này được Quốc hội thông qua ngày 12 tháng 11 năm 2020.',
+    );
+  });
+
   it('does not adopt a parenthetical "(Kèm theo ...)" cross-reference line as a Phụ lục heading, confirmed against real vbpl.vn output (Thông tư 05/2026/TT-BNG)', () => {
     const fullText = [
       'Phụ lục',
