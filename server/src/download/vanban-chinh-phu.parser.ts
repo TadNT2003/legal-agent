@@ -15,12 +15,33 @@ export interface SearchFormControls {
   gridView: string;
 }
 
+/** One <option value="...">label</option> from a search-form <select>. */
+export interface SearchFormOption {
+  value: string;
+  label: string;
+}
+
 export interface ParsedSearchPage {
   hiddenFields: Record<string, string>;
   controls: SearchFormControls | null;
   rows: SearchResultRow[];
   shownCount: number | null;
   totalCount: number | null;
+  /**
+   * The "Cơ quan ban hành" (drdDocOrg) dropdown's own option list — unlike
+   * "Năm ban hành" (drdDocYear, confirmed live: value equals the visible
+   * year, e.g. `<option value="2025">2025</option>`, so no lookup is needed
+   * there), drdDocOrg's option value is an opaque internal id unrelated to
+   * the label text (confirmed live, e.g. `<option value="1">Quốc hội
+   * </option>`) — a caller wanting to filter by org name has to resolve it
+   * against this list first. Not guaranteed unique by label: the live list
+   * has at least one body appearing under more than one id (an
+   * administrative rename/reorg over time, e.g. "Ban Chỉ đạo cải cách hành
+   * chính của Chính phủ" at both 14578 and 15459) — same kind of
+   * upstream-data-quality issue documented for vbpl.vn's own agency list
+   * (docs/monitoring/law-index-flagged-documents.md).
+   */
+  orgOptions: SearchFormOption[];
 }
 
 /** Normalizes both "DD-MM-YYYY" (detail page) and "DD/MM/YYYY" (listing) to DD/MM/YYYY. */
@@ -48,6 +69,21 @@ function findControlName(
   idSuffix: string,
 ): string | null {
   return $(`[id$="${idSuffix}"]`).first().attr('name') ?? null;
+}
+
+/** Every <option value="...">label</option> under the <select> whose id ends in idSuffix — used for drdDocOrg (see ParsedSearchPage.orgOptions). The "-- Tất cả --" placeholder option (value="0") is excluded — it isn't a real org to match against. */
+function parseSelectOptions(
+  $: cheerio.CheerioAPI,
+  idSuffix: string,
+): SearchFormOption[] {
+  const options: SearchFormOption[] = [];
+  $(`select[id$="${idSuffix}"] option`).each((_, el) => {
+    const $el = $(el);
+    const value = $el.attr('value');
+    const label = $el.text().trim();
+    if (value && value !== '0' && label) options.push({ value, label });
+  });
+  return options;
 }
 
 export function parseSearchPage(html: string): ParsedSearchPage {
@@ -115,7 +151,16 @@ export function parseSearchPage(html: string): ParsedSearchPage {
   const shownCount = pageInfoMatch ? parseInt(pageInfoMatch[2], 10) : null;
   const totalCount = pageInfoMatch ? parseInt(pageInfoMatch[3], 10) : null;
 
-  return { hiddenFields, controls, rows, shownCount, totalCount };
+  const orgOptions = parseSelectOptions($, '_drdDocOrg');
+
+  return {
+    hiddenFields,
+    controls,
+    rows,
+    shownCount,
+    totalCount,
+    orgOptions,
+  };
 }
 
 export function parseDocumentDetailPage(

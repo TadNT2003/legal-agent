@@ -11,7 +11,12 @@ const SEARCH_PAGE_HTML = `
   <input type="hidden" name="__EVENTTARGET" value="" />
   <input type="hidden" name="__EVENTARGUMENT" value="" />
   <select name="ctrl_1$drdDocCategory" id="ctrl_1_drdDocCategory"><option value="0">-- Tất cả --</option></select>
-  <select name="ctrl_1$drdDocOrg" id="ctrl_1_drdDocOrg"><option value="0">-- Tất cả --</option></select>
+  <select name="ctrl_1$drdDocOrg" id="ctrl_1_drdDocOrg">
+    <option value="0">-- Tất cả --</option>
+    <option value="1">Quốc hội</option>
+    <option value="14578">Ban Chỉ đạo cải cách hành chính của Chính phủ</option>
+    <option value="15459">Ban Chỉ đạo cải cách hành chính của Chính phủ</option>
+  </select>
   <select name="ctrl_1$drdDocYear" id="ctrl_1_drdDocYear"><option value="0">-- Tất cả --</option></select>
   <select name="ctrl_1$drdRecordPerPage" id="ctrl_1_drdRecordPerPage"><option value="50">50</option></select>
   <input name="ctrl_1$txtSearchKeyword" id="ctrl_1_txtSearchKeyword" type="text" />
@@ -92,6 +97,22 @@ describe('parseSearchPage', () => {
 
     expect(result.shownCount).toBe(1);
     expect(result.totalCount).toBe(1);
+  });
+
+  it('extracts org dropdown options, excluding the "-- Tất cả --" placeholder', () => {
+    const result = parseSearchPage(SEARCH_PAGE_HTML);
+
+    expect(result.orgOptions).toEqual([
+      { value: '1', label: 'Quốc hội' },
+      {
+        value: '14578',
+        label: 'Ban Chỉ đạo cải cách hành chính của Chính phủ',
+      },
+      {
+        value: '15459',
+        label: 'Ban Chỉ đạo cải cách hành chính của Chính phủ',
+      },
+    ]);
   });
 });
 
