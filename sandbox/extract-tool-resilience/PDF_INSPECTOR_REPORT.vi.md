@@ -18,14 +18,14 @@ chỉ coi là một lưu ý nhỏ (n=4, tương quan "4/4" với `is_complex_lay
 sạch**, không phải là trường hợp hiếm gặp, và tín hiệu dự báo vốn có vẻ hoàn hảo ở n=4 lại
 có ít nhất một trường hợp phản chứng đã xác nhận ở n=100.
 
-| Phát hiện | Kết quả |
-| --- | --- |
-| Độ tin cậy | 100/100 xử lý thành công, 0 crash/lỗi |
-| Tốc độ | 17,7 giây cho 100 tài liệu (trung bình 0,177 giây/tài liệu); vẫn gần như miễn phí |
-| Độ chính xác định tuyến OCR | 20/20 tài liệu đã scan đúng đắn cho ra đầu ra rỗng; 80/80 tài liệu sạch cho ra nội dung thật |
-| **Tỷ lệ báo động giả về bảng** | **22/71 tài liệu sạch duy nhất (31%)** tạo ra một pipe-table lộn xộn trên văn xuôi bình thường — kiểm tra trực tiếp 10 trường hợp, cả 10/10 đều xác nhận là báo động giả |
-| Tín hiệu dự báo `is_complex_layout` | Vẫn có ích về mặt xu hướng (21/22 tài liệu báo động giả có cờ này bật), nhưng không hoàn hảo: tìm thấy một trường hợp phản chứng đã xác nhận (cờ `False`, đầu ra vẫn lộn xộn) |
-| Phát hiện về chất lượng dữ liệu trong kho ngữ liệu | 9 trong 100 file được lấy mẫu là bản sao giống hệt nhau về byte dưới hai mục khác nhau trong `laws/manifest.json` — một vấn đề thật sự của kho ngữ liệu, không phải lỗi lấy mẫu |
+| Phát hiện                                                  | Kết quả                                                                                                                                                                                                             |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Độ tin cậy                                                | 100/100 xử lý thành công, 0 crash/lỗi                                                                                                                                                                            |
+| Tốc độ                                                    | 17,7 giây cho 100 tài liệu (trung bình 0,177 giây/tài liệu); vẫn gần như miễn phí                                                                                                                         |
+| Độ chính xác định tuyến OCR                           | 20/20 tài liệu đã scan đúng đắn cho ra đầu ra rỗng; 80/80 tài liệu sạch cho ra nội dung thật                                                                                                          |
+| **Tỷ lệ báo động giả về bảng**                 | **22/71 tài liệu sạch duy nhất (31%)** tạo ra một pipe-table lộn xộn trên văn xuôi bình thường — kiểm tra trực tiếp 10 trường hợp, cả 10/10 đều xác nhận là báo động giả         |
+| Tín hiệu dự báo`is_complex_layout`                     | Vẫn có ích về mặt xu hướng (21/22 tài liệu báo động giả có cờ này bật), nhưng không hoàn hảo: tìm thấy một trường hợp phản chứng đã xác nhận (cờ`False`, đầu ra vẫn lộn xộn) |
+| Phát hiện về chất lượng dữ liệu trong kho ngữ liệu | 9 trong 100 file được lấy mẫu là bản sao giống hệt nhau về byte dưới hai mục khác nhau trong`laws/manifest.json` — một vấn đề thật sự của kho ngữ liệu, không phải lỗi lấy mẫu         |
 
 ## Thiết lập
 
