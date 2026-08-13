@@ -8,11 +8,14 @@
  * vbpl.vn as the primary DB-ingestion source instead of this site): no
  * "Tình trạng hiệu lực" (validity status) field, no curated relationship
  * graph, and — unlike vbpl.vn's "Nội dung" tab — no server-rendered full
- * text at all, only downloadable PDF/DOC/RTF attachments. The fields below
- * reflect that ceiling: everything vanban.chinhphu.vn cannot supply is an
- * explicit `null`-typed field (not omitted), so this shape stays
- * structurally comparable to crawl/vbpl-document.interface.ts's
- * ParsedVbplAttributes wherever both might be consumed generically.
+ * text at all, only downloadable PDF/DOC/RTF attachments. signerName/
+ * signerTitle are a partial exception — "Người ký" IS present on the real
+ * page (confirmed live) and gets extracted, unlike the rest of this
+ * interface's `null`-typed fields, which reflect a genuine ceiling on what
+ * this site exposes at all. Kept as explicit `string | null`-typed fields
+ * (not omitted), so this shape stays structurally comparable to
+ * crawl/vbpl-document.interface.ts's ParsedVbplAttributes wherever both
+ * might be consumed generically.
  */
 export interface ChinhPhuAttributes {
   citation: string;
@@ -20,10 +23,12 @@ export interface ChinhPhuAttributes {
   issuingBody: string;
   /** DD/MM/YYYY — see download/vanban-chinh-phu.parser.ts's normalizeDate. */
   issuedDateRaw: string | null;
+  /** "Người ký" — confirmed present on vanban.chinhphu.vn's own detail page (unlike industry/field/effectiveDate/expiryDate/validityStatus below, which genuinely aren't). */
+  signerName: string | null;
+  /** "Chức danh" — read the same way as signerName, but not confirmed present on any real document seen so far; see download/parsed-law-document.interface.ts's own comment on this field. */
+  signerTitle: string | null;
   industry: null;
   field: null;
-  signerName: null;
-  signerTitle: null;
   effectiveDateRaw: null;
   expiryDateRaw: null;
   validityStatusRaw: null;

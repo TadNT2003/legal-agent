@@ -10,6 +10,8 @@ const makeRaw = (
   date: '18/01/2024',
   docType: 'Luật',
   issuingBody: 'Quốc hội',
+  signerName: 'Nguyễn Thị Kim Ngân',
+  signerTitle: null,
   sourceUrl: 'https://vanban.chinhphu.vn/?pageid=27160&docid=219000',
   fileUrls: ['https://cdn.chinhphu.vn/files/51-2024-qh15.pdf'],
   ...overrides,
@@ -33,10 +35,10 @@ describe('parseChinhPhuDocument', () => {
       documentType: 'Luật',
       issuingBody: 'Quốc hội',
       issuedDateRaw: '18/01/2024',
+      signerName: 'Nguyễn Thị Kim Ngân',
+      signerTitle: null,
       industry: null,
       field: null,
-      signerName: null,
-      signerTitle: null,
       effectiveDateRaw: null,
       expiryDateRaw: null,
       validityStatusRaw: null,
@@ -73,5 +75,14 @@ describe('parseChinhPhuDocument', () => {
   it('passes through a null date as-is (validated downstream)', () => {
     const parsed = parseChinhPhuDocument(makeRaw({ date: null }), noText);
     expect(parsed.attributes.issuedDateRaw).toBeNull();
+  });
+
+  it('passes through null signerName/signerTitle when the page has no "Người ký" row', () => {
+    const parsed = parseChinhPhuDocument(
+      makeRaw({ signerName: null, signerTitle: null }),
+      noText,
+    );
+    expect(parsed.attributes.signerName).toBeNull();
+    expect(parsed.attributes.signerTitle).toBeNull();
   });
 });

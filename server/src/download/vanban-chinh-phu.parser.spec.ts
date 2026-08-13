@@ -41,6 +41,7 @@ const DETAIL_PAGE_HTML = `
     <tr><td class="col1">Ngày ban hành</td><td>20-11-2019</td></tr>
     <tr><td class="col1">Loại văn bản</td><td>Bộ luật</td></tr>
     <tr><td class="col1">Cơ quan ban hành</td><td>Quốc hội</td></tr>
+    <tr><td class="col1">Người ký</td><td>Nguyễn Thị Kim Ngân</td></tr>
     <tr><td class="col1">Trích yếu</td><td>Bộ luật Lao động</td></tr>
     <tr class="doc-list">
       <td class="col1">Tài liệu đính kèm</td>
@@ -107,6 +108,8 @@ describe('parseDocumentDetailPage', () => {
       date: '20/11/2019',
       docType: 'Bộ luật',
       issuingBody: 'Quốc hội',
+      signerName: 'Nguyễn Thị Kim Ngân',
+      signerTitle: null,
       sourceUrl: 'https://vanban.chinhphu.vn/?pageid=27160&docid=1',
       fileUrls: ['https://datafiles.chinhphu.vn/cpp/files/45qh14.pdf'],
     });

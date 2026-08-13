@@ -21,6 +21,8 @@ const makeRaw = (
   date: '18/01/2024',
   docType: 'Luật',
   issuingBody: 'Quốc hội',
+  signerName: 'Nguyễn Thị Kim Ngân',
+  signerTitle: null,
   sourceUrl: 'https://vanban.chinhphu.vn/?pageid=27160&docid=219000',
   fileUrls: ['https://cdn.chinhphu.vn/files/51-2024-qh15.pdf'],
   ...overrides,

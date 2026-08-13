@@ -13,6 +13,8 @@ function computeChinhPhuContentVersion(parsed: ParsedChinhPhuDocument): string {
   hash.update(parsed.attributes.citation);
   hash.update(parsed.title);
   hash.update(parsed.attributes.issuingBody);
+  hash.update(parsed.attributes.signerName ?? '');
+  hash.update(parsed.attributes.signerTitle ?? '');
   hash.update(parsed.attachmentFileUrls.join(','));
   return hash.digest('hex');
 }
@@ -99,6 +101,8 @@ export class ChinhPhuDocumentRepository {
       title: parsed.title,
       documentType: parsed.attributes.documentType,
       issuingBodyId,
+      signerName: parsed.attributes.signerName,
+      signerTitle: parsed.attributes.signerTitle,
       enactedDate,
       // 'metadata_only' is exactly the case this column was designed for
       // (see document.schema.ts's own comment) — a document with no body

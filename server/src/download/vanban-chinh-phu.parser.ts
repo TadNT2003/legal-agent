@@ -145,6 +145,8 @@ export function parseDocumentDetailPage(
     date: normalizeDate(meta['Ngày ban hành']),
     docType: meta['Loại văn bản'] ?? null,
     issuingBody: meta['Cơ quan ban hành'] ?? null,
+    signerName: meta['Người ký'] ?? null,
+    signerTitle: meta['Chức danh'] ?? null,
     sourceUrl,
     fileUrls,
   };

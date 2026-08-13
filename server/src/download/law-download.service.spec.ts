@@ -68,6 +68,8 @@ const makeParsedDoc = (): ParsedLawDocument => ({
   date: '20/11/2019',
   docType: 'Luật',
   issuingBody: 'Quốc hội',
+  signerName: 'Nguyễn Thị Kim Ngân',
+  signerTitle: null,
   sourceUrl: 'https://vanban.chinhphu.vn/?pageid=27160&docid=203914',
   fileUrls: ['https://datafiles.chinhphu.vn/x/bldd.pdf'],
 });
