@@ -1,10 +1,104 @@
-import type { ChatInputCommandInteraction, Client, Interaction } from 'discord.js';
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type {
+  ChatInputCommandInteraction,
+  Interaction,
+  Client as DiscordClient,
+} from 'discord.js';
 import {
   SlashCommandBuilder,
   EmbedBuilder,
   Events,
   Collection,
 } from 'discord.js';
+import { callMcpTool } from '../mcp/tools.js';
+import { createLogger } from '../tools/logging.js';
+
+const logger = createLogger('splash-commands');
+
+const DISCORD_EMBED_DESC_LIMIT = 4096;
+const DISCORD_FIELD_VALUE_LIMIT = 1024;
+const MAX_SEARCH_RESULTS = 5;
+
+interface LegalDocument {
+  id?: string;
+  title?: string;
+  tieuDe?: string;
+  soHieu?: string;
+  citation?: string;
+  documentType?: string;
+  hinhThuc?: string;
+  issuingBody?: string;
+  coQuanBanHanh?: string;
+  effectiveDate?: string;
+  ngayBanHanh?: string;
+  validityStatus?: string;
+  trangThaiHieuLuc?: string;
+}
+
+interface SearchResponse {
+  documents?: LegalDocument[];
+  results?: LegalDocument[];
+  total?: number;
+  totalCount?: number;
+  totalResults?: number;
+}
+
+const searchCommand = new SlashCommandBuilder()
+  .setName('search')
+  .setDescription('Tìm kiếm văn bản pháp luật Việt Nam')
+  .addStringOption((option) =>
+    option
+      .setName('keyword')
+      .setDescription('Từ khóa tìm kiếm')
+      .setRequired(true),
+  )
+  .addStringOption((option) =>
+    option
+      .setName('phạm-vi')
+      .setDescription('Phạm vi tìm kiếm')
+      .setRequired(false)
+      .addChoices(
+        { name: 'Tiêu đề + Số hiệu', value: 'tieu-de' },
+        { name: 'Số hiệu', value: 'so-hieu' },
+        { name: 'Nội dung', value: 'noi-dung' },
+      ),
+  )
+  .addStringOption((option) =>
+    option
+      .setName('loai-van-ban')
+      .setDescription('Loại văn bản (cách nhau bởi dấu phẩy)')
+      .setRequired(false)
+      .setMaxLength(256),
+  )
+  .addStringOption((option) =>
+    option
+      .setName('co-quan')
+      .setDescription('Cơ quan ban hành (cách nhau bởi dấu phẩy)')
+      .setRequired(false)
+      .setMaxLength(256),
+  )
+  .addStringOption((option) =>
+    option
+      .setName('hieu-luc')
+      .setDescription('Trạng thái hiệu lực')
+      .setRequired(false)
+      .addChoices(
+        { name: 'Còn hiệu lực', value: 'Còn hiệu lực' },
+        { name: 'Chưa có hiệu lực', value: 'Chưa có hiệu lực' },
+        { name: 'Hết hiệu lực toàn bộ', value: 'Hết hiệu lực toàn bộ' },
+        { name: 'Hết hiệu lực một phần', value: 'Hết hiệu lực một phần' },
+        { name: 'Ngưng hiệu lực', value: 'Ngưng hiệu lực' },
+        { name: 'Tất cả', value: '' },
+      ),
+  )
+  .addIntegerOption((option) =>
+    option
+      .setName('so-ket-qua')
+      .setDescription('Số kết quả tối đa (1-50, mặc định 5)')
+      .setRequired(false)
+      .setMinValue(1)
+      .setMaxValue(50),
+  );
 
 const commands: SlashCommandBuilder[] = [
   new SlashCommandBuilder()
@@ -18,6 +112,8 @@ const commands: SlashCommandBuilder[] = [
   new SlashCommandBuilder()
     .setName('status')
     .setDescription('Kiểm tra trạng thái bot'),
+
+  searchCommand as unknown as SlashCommandBuilder,
 ];
 
 const commandBuilders = new Collection<string, SlashCommandBuilder>(
@@ -26,16 +122,25 @@ const commandBuilders = new Collection<string, SlashCommandBuilder>(
 
 type CmdHandler = (
   interaction: ChatInputCommandInteraction,
-  client: Client,
+  client: DiscordClient,
+  mcpClient: Client,
 ) => Promise<void>;
+
+let mcpClientRef: Client | undefined;
 
 const handlers = new Collection<string, CmdHandler>([
   ['help', helpHandler],
   ['about', aboutHandler],
   ['status', statusHandler],
+  ['search', searchHandler],
 ]);
 
-export function registerSlashCommands(client: Client): void {
+export function registerSlashCommands(
+  client: DiscordClient,
+  mcpClient: Client,
+): void {
+  mcpClientRef = mcpClient;
+
   client.on(Events.InteractionCreate, (interaction) => {
     void handleInteraction(interaction, client);
   });
@@ -43,22 +148,37 @@ export function registerSlashCommands(client: Client): void {
 
 async function handleInteraction(
   interaction: Interaction,
-  client: Client,
+  client: DiscordClient,
 ): Promise<void> {
-  if (!interaction.isChatInputCommand()) return;
   if (!interaction.isChatInputCommand()) return;
 
   const handler = handlers.get(interaction.commandName);
   if (!handler) return;
 
-  try {
-    await handler(interaction, client);
-  } catch (error) {
-    console.error(`Error executing ${interaction.commandName}:`, error);
+  if (!mcpClientRef) {
+    logger.error('MCP client not initialized');
     await interaction.reply({
-      content: 'Xin lỗi, đã có lỗi xảy ra khi xử lý lệnh.',
+      content: 'MCP chưa được khởi tạo. Vui lòng thử lại sau.',
       ephemeral: true,
     });
+    return;
+  }
+
+  try {
+    await handler(interaction, client, mcpClientRef);
+  } catch (error) {
+    logger.error(`Error executing ${interaction.commandName}:`, error);
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({
+        content: 'Xin lỗi, đã có lỗi xảy ra khi xử lý lệnh.',
+        ephemeral: true,
+      }).catch(() => {});
+    } else {
+      await interaction.reply({
+        content: 'Xin lỗi, đã có lỗi xảy ra khi xử lý lệnh.',
+        ephemeral: true,
+      }).catch(() => {});
+    }
   }
 }
 
@@ -66,9 +186,12 @@ export function getCommandBuilders(): Collection<string, SlashCommandBuilder> {
   return commandBuilders;
 }
 
+/* ── Handlers ── */
+
 async function helpHandler(
   interaction: ChatInputCommandInteraction,
-  _client: Client,
+  _client: DiscordClient,
+  _mcp: Client,
 ): Promise<void> {
   const embed = new EmbedBuilder()
     .setTitle('📖 Trợ Lý Pháp Luật — Hướng Dẫn Sử Dụng')
@@ -79,7 +202,8 @@ async function helpHandler(
         value:
           '`/help` — Hiển thị hướng dẫn này\n' +
           '`/about` — Thông tin về trợ lý\n' +
-          '`/status` — Kiểm tra trạng thái bot',
+          '`/status` — Kiểm tra trạng thái bot\n' +
+          '`/search` — Tìm kiếm văn bản pháp luật',
       },
       {
         name: 'Cách Hỏi Bằng Tin Nhắn Thường',
@@ -112,7 +236,8 @@ async function helpHandler(
 
 async function aboutHandler(
   interaction: ChatInputCommandInteraction,
-  _client: Client,
+  _client: DiscordClient,
+  _mcp: Client,
 ): Promise<void> {
   const embed = new EmbedBuilder()
     .setTitle('ℹ️ Về Trợ Lý Pháp Luật')
@@ -151,7 +276,8 @@ async function aboutHandler(
 
 async function statusHandler(
   interaction: ChatInputCommandInteraction,
-  client: Client,
+  client: DiscordClient,
+  mcp: Client,
 ): Promise<void> {
   const uptime = getUptimeString(client.uptime);
   const guildCount = client.guilds.cache.size;
@@ -159,6 +285,14 @@ async function statusHandler(
     (acc, g) => acc + (g.memberCount || 0),
     0,
   );
+
+  let mcpStatus = '❌ Không kết nối';
+  try {
+    await mcp.listTools();
+    mcpStatus = '✅ Đã kết nối';
+  } catch {
+    mcpStatus = '❌ Lỗi kết nối';
+  }
 
   const embed = new EmbedBuilder()
     .setTitle('🟢 Trạng Thái Bot')
@@ -180,6 +314,11 @@ async function statusHandler(
         inline: true,
       },
       {
+        name: 'MCP Server',
+        value: mcpStatus,
+        inline: true,
+      },
+      {
         name: 'Trạng Thái',
         value: '✅ Hoạt động bình thường',
         inline: false,
@@ -191,6 +330,137 @@ async function statusHandler(
     .setTimestamp();
 
   await interaction.reply({ embeds: [embed], ephemeral: true });
+}
+
+async function searchHandler(
+  interaction: ChatInputCommandInteraction,
+  _client: DiscordClient,
+  mcp: Client,
+): Promise<void> {
+  const keyword = interaction.options.getString('keyword', true);
+  const searchScope = interaction.options.getString('phạm-vi', false);
+  const docTypesRaw = interaction.options.getString('loai-van-ban', false);
+  const issuingBodiesRaw = interaction.options.getString('co-quan', false);
+  const validityStatus = interaction.options.getString('hieu-luc', false);
+  const maxResults = interaction.options.getInteger('so-ket-qua', false) ?? 5;
+
+  const toolArgs: Record<string, unknown> = { keyword };
+
+  if (searchScope) toolArgs.searchScope = searchScope;
+  if (docTypesRaw) {
+    toolArgs.documentTypes = splitCsv(docTypesRaw);
+  }
+  if (issuingBodiesRaw) {
+    toolArgs.issuingBodies = splitCsv(issuingBodiesRaw);
+  }
+  if (validityStatus === '') {
+    toolArgs.includeHistorical = true;
+  } else if (validityStatus) {
+    toolArgs.validityStatus = validityStatus;
+  }
+
+  toolArgs.pageSize = Math.min(maxResults, MAX_SEARCH_RESULTS);
+  toolArgs.page = 1;
+
+  await interaction.deferReply({ ephemeral: true });
+
+  try {
+    const rawResult = await callMcpTool(mcp, 'search_documents', JSON.stringify(toolArgs));
+    const data = JSON.parse(rawResult) as SearchResponse;
+
+    const documents = data.documents ?? data.results ?? [];
+    const total =
+      data.total ?? data.totalCount ?? data.totalResults ?? documents.length;
+
+    if (!documents.length) {
+      await interaction.editReply({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle('🔍 Không Tìm Thấy Kết Quả')
+            .setColor(0xffaa00)
+            .setDescription(
+              `Không có văn bản nào khớp với từ khóa "${keyword}".\n\nThử thay đổi từ khóa hoặc mở rộng phạm vi tìm kiếm.`,
+            )
+            .setTimestamp(),
+        ],
+      });
+      return;
+    }
+
+    const sliced = documents.slice(0, maxResults);
+    const fields = sliced.map((doc, i) => ({
+      name: `${i + 1}. ${doc.title ?? doc.tieuDe ?? 'Không có tiêu đề'}`,
+      value: formatDocumentSummary(doc),
+      inline: false,
+    }));
+
+    const embed = new EmbedBuilder()
+      .setTitle('🔍 Kết Quả Tìm Kiếm')
+      .setColor(0x0099ff)
+      .setDescription(
+        `Tìm thấy ${total} văn bản khớp với "${keyword}"`,
+      )
+      .addFields(fields)
+      .setFooter({
+        text: `Hiển thị ${Math.min(sliced.length, total)} / ${total} kết quả`,
+      })
+      .setTimestamp();
+
+    if (embed.data.description && embed.data.description.length > DISCORD_EMBED_DESC_LIMIT) {
+      embed.setDescription(
+        embed.data.description?.slice(0, DISCORD_EMBED_DESC_LIMIT - 3) + '...',
+      );
+    }
+
+    for (const field of embed.data.fields ?? []) {
+      if (field.value && field.value.length > DISCORD_FIELD_VALUE_LIMIT) {
+        field.value = field.value.slice(0, DISCORD_FIELD_VALUE_LIMIT - 3) + '...';
+      }
+    }
+
+    await interaction.editReply({ embeds: [embed] });
+  } catch (error) {
+    logger.error('Search failed:', error);
+    await interaction.editReply({
+      content:
+        'Xin lỗi, tìm kiếm thất bại. Vui lòng thử lại sau.',
+    });
+  }
+}
+
+/* ── Helpers ── */
+
+function splitCsv(value: string): string[] {
+  return value
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function formatDocumentSummary(doc: LegalDocument): string {
+  const parts: string[] = [];
+
+  const strVal = (v?: string) => (typeof v === 'string' ? v : '');
+
+  const soHieu = strVal(doc.soHieu) || strVal(doc.citation);
+  if (soHieu) parts.push(`**Số hiệu:** ${soHieu}`);
+
+  const loai = strVal(doc.documentType) || strVal(doc.hinhThuc);
+  if (loai) parts.push(`**Loại:** ${loai}`);
+
+  const coQuan = strVal(doc.issuingBody) || strVal(doc.coQuanBanHanh);
+  if (coQuan) parts.push(`**Cơ quan:** ${coQuan}`);
+
+  const ngayBanHanh = strVal(doc.effectiveDate) || strVal(doc.ngayBanHanh);
+  if (ngayBanHanh) parts.push(`**Ban hành:** ${ngayBanHanh}`);
+
+  const hieuLuc = strVal(doc.validityStatus) || strVal(doc.trangThaiHieuLuc);
+  if (hieuLuc) parts.push(`**Hiệu lực:** ${hieuLuc}`);
+
+  const id = strVal(doc.id);
+  if (id) parts.push(`ID: ${id.slice(0, 8)}...`);
+
+  return parts.join('\n');
 }
 
 function getUptimeString(uptime: number | null | undefined): string {

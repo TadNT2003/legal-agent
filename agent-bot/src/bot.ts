@@ -1,3 +1,4 @@
+import type { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import { REST, Routes } from 'discord.js';
 import type { AgentService } from './agent/agentService.js';
@@ -16,6 +17,7 @@ const logger = createLogger('discord-bot');
 export function createBot(
   agentService: AgentService,
   sessionStore: PgSessionStore,
+  mcpClient: McpClient,
 ): Client {
   const client = new Client({
     intents: [
@@ -29,7 +31,7 @@ export function createBot(
 
   registerReadyEvent(client);
   registerMessageCreateEvent(client, agentService, sessionStore);
-  registerSlashCommands(client);
+  registerSlashCommands(client, mcpClient);
 
   client.once('ready', () => {
     void registerGlobalCommands(client);
@@ -59,9 +61,10 @@ async function registerGlobalCommands(client: Client): Promise<void> {
 export async function startBot(
   agentService: AgentService,
   sessionStore: PgSessionStore,
+  mcpClient: McpClient,
   token: string,
 ): Promise<Client> {
-  const client = createBot(agentService, sessionStore);
+  const client = createBot(agentService, sessionStore, mcpClient);
   await client.login(token);
   return client;
 }

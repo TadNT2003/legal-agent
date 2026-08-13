@@ -8,11 +8,11 @@ Improvement recommendations for the Discord legal agent (`agent-bot/`), grouped 
 
 ## UX / Discord-Facing
 
-### 1. `/search` Slash Command (Medium effort — High impact)
+### 1. ✅ `/search` Slash Command — DONE (2026-08-13)
 
 A structured search command with optional fields: `keyword`, `documentType`, `issuingBody`, `validityStatus`. Gives users a form-based alternative to free-text questions, useful for those who know exactly what document type they want.
 
-**Implementation:** Add a new `SlashCommandBuilder` with `addStringOption` for each field, route to a dedicated handler that calls the MCP `search_documents` tool directly and formats results as an embed.
+**Status: Implemented.** See `agent-bot/src/commands/splashCommands.ts` (`searchHandler`). The command calls MCP `search_documents` directly (no LLM involved), returns results as an ephemeral embed. Options include `keyword` (required), `phạm-vi` (scope), `loai-van-ban` (doc types), `co-quan` (issuing bodies), `hieu-luc` (validity), and `so-ket-qua` (max results, default 5).
 
 ### 2. Interactive Follow-Up Buttons (Medium effort — High impact)
 
@@ -103,6 +103,6 @@ Sessions older than 7 days accumulate in Postgres with no cleanup. The `SESSION_
 | Priority | Items                                    | Rationale                           |
 |----------|------------------------------------------|-------------------------------------|
 | P0       | #4 Typing indicator, #12 MCP reconnect   | Highest impact, lowest effort       |
-| P1       | #1 `/search`, #2 Buttons, #10 Retry      | Strong UX and reliability wins      |
+| P1       | #2 Buttons, #10 Retry                     | Strong UX and reliability wins      |
 | P2       | #6 Streaming, #7 Abort, #8 Rate limit    | Requires more refactoring           |
 | P3       | #3 `/sources`, #5 Embeds, #9 Health, #11 Cleanup | Nice-to-have, incremental value |
