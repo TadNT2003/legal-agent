@@ -10,11 +10,16 @@ import {
   postgresConfig,
 } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
-import { LawModule } from './law/law.module';
-import { lawDownloadConfig } from './law/utils/law-download.config';
-import { LawIndexModule } from './law-index/law-index.module';
-import { lawIndexConfig } from './law-index/law-index.config';
-import { jobQueueConfig } from './law-index/job-queue/job-queue.config';
+import { lawDownloadConfig } from './utils/law-download.config';
+import { LawDownloadModule } from './download/law-download.module';
+import { LawCatalogModule } from './catalog/law-catalog.module';
+import { RetrieveModule } from './retrieve/retrieve.module';
+import { SyncModule } from './sync/sync.module';
+import { CrawlModule } from './crawl/crawl.module';
+import { crawlConfig } from './crawl/crawl.config';
+import { jobQueueConfig } from './job-queue/job-queue.config';
+import { OpenSearchModule } from './opensearch/opensearch.module';
+import { opensearchProjectorConfig } from './opensearch/opensearch.config';
 
 @Module({
   imports: [
@@ -28,16 +33,21 @@ import { jobQueueConfig } from './law-index/job-queue/job-queue.config';
         neo4jConfig,
         chromadbConfig,
         lawDownloadConfig,
-        lawIndexConfig,
+        crawlConfig,
         jobQueueConfig,
+        opensearchProjectorConfig,
       ],
       validationSchema: envValidationSchema,
       validationOptions: {
         abortEarly: false,
       },
     }),
-    LawModule,
-    LawIndexModule,
+    LawDownloadModule,
+    LawCatalogModule,
+    RetrieveModule,
+    SyncModule,
+    OpenSearchModule,
+    CrawlModule,
   ],
   controllers: [AppController],
   providers: [AppService],

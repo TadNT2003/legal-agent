@@ -10,7 +10,7 @@ import type {
 
 /**
  * Thin HTTP client over the scraper server's (../server) existing
- * /laws/index/retrieve/* endpoints. This app never talks to Postgres
+ * /retrieve/* endpoints. This app never talks to Postgres
  * directly — retrieval only ever goes through here.
  *
  * Deliberately a faithful, low-level proxy with no business-rule defaults
@@ -45,12 +45,12 @@ export class LawApiClient {
     query.set('page', String(params.page ?? 1));
     query.set('pageSize', String(params.pageSize ?? 10));
 
-    return this.get<LawSearchResult>(`/laws/index/retrieve?${query}`);
+    return this.get<LawSearchResult>(`/retrieve?${query}`);
   }
 
   async getById(documentId: string): Promise<LawDocument> {
     return this.get<LawDocument>(
-      `/laws/index/retrieve/${encodeURIComponent(documentId)}`,
+      `/retrieve/${encodeURIComponent(documentId)}`,
     );
   }
 
@@ -61,7 +61,7 @@ export class LawApiClient {
     if (params.number) query.set('number', params.number);
     if (params.nodeId) query.set('nodeId', params.nodeId);
 
-    return this.get<LawNodeResult>(`/laws/index/retrieve/nodes?${query}`);
+    return this.get<LawNodeResult>(`/retrieve/nodes?${query}`);
   }
 
   async getReferences(
@@ -75,7 +75,7 @@ export class LawApiClient {
     }
 
     return this.get<LawReferencesResult>(
-      `/laws/index/retrieve/references?${query}`,
+      `/retrieve/references?${query}`,
     );
   }
 

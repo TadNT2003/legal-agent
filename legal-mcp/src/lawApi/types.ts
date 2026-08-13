@@ -1,4 +1,4 @@
-/** Mirrors the scraper server's `RetrieveSearchDto` (server/src/law-index/retrieve/dto/retrieve-search.dto.ts). */
+/** Mirrors the scraper server's `RetrieveSearchDto` (server/src/retrieve/dto/retrieve-search.dto.ts). */
 export interface LawSearchParams {
   keyword?: string;
   searchScope?: 'noi-dung' | 'tieu-de' | 'so-hieu';

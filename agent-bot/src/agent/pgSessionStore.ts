@@ -111,8 +111,40 @@ export class PgSessionStore {
     return session;
   }
 
-  getById(id: string): Session | undefined {
-    return this.sessions.get(id);
+  /**
+   * Cache hit returns synchronously in spirit but this is async throughout
+   * since a miss falls through to Postgres — a session created by another
+   * process, or evicted/not yet loaded by this one, must still resolve
+   * instead of silently behaving as "not found".
+   */
+  async getById(id: string): Promise<Session | undefined> {
+    const cached = this.sessions.get(id);
+    if (cached) return cached;
+
+    let rows: { id: string; messages: unknown }[];
+    try {
+      rows = await this.db
+        .select({ id: sessions.id, messages: sessions.messages })
+        .from(sessions)
+        .where(eq(sessions.id, id))
+        .limit(1);
+    } catch (err) {
+      // Covers a malformed (non-UUID) id, which Postgres rejects outright,
+      // the same way a genuine miss does: not found, not a 500.
+      logger.error(`Failed to look up session ${id}`, err);
+      return undefined;
+    }
+
+    const row = rows[0];
+    if (!row) return undefined;
+
+    const session: Session = {
+      id: row.id,
+      messages: (row.messages as ChatCompletionMessageParam[]) ?? [],
+    };
+    this.sessions.set(session.id, session);
+    evictOldest(this.sessions, MAX_CACHE);
+    return session;
   }
 
   getByReplyTarget(discordMessageId: string): Session | undefined {

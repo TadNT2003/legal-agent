@@ -33,29 +33,29 @@ Copy `.env.example` to `.env` and fill in real values — see the file for what 
 
 ## Law document downloads
 
-`src/law/` scrapes [vanban.chinhphu.vn](https://vanban.chinhphu.vn/) — the only source this module ever fetches documents from — and files results into `LAWS_DOWNLOAD_DIR` (defaults to the repo-root `../laws/`, see [laws/README.md](../laws/README.md) for the 14-tier folder layout). Every download updates `laws/manifest.json` and `laws/download-log.csv` in place, matching their existing schema. Internally it's split into `src/law/download/` (fetching from vanban.chinhphu.vn), `src/law/catalog/` (browsing/serving what's already downloaded), and `src/law/utils/` (the manifest read-write layer and other plumbing shared by both).
+This workflow scrapes [vanban.chinhphu.vn](https://vanban.chinhphu.vn/) — the only source this workflow ever fetches documents from — and files results into `LAWS_DOWNLOAD_DIR` (defaults to the repo-root `../laws/`, see [laws/README.md](../laws/README.md) for the 14-tier folder layout). Every download updates `laws/manifest.json` and `laws/download-log.csv` in place, matching their existing schema. It's split into three top-level modules: `src/download/` (fetching from vanban.chinhphu.vn), `src/catalog/` (browsing/serving what's already downloaded), and `src/utils/` (the manifest read-write layer and other plumbing shared between them) — formerly nested under one `src/law/` umbrella module, now fully flattened.
 
 Document type + issuing body (read off vanban.chinhphu.vn's own detail page) are mapped to one of the 14 tiers by `law-tier-classifier.ts`. When a document doesn't fit a recognized tier (e.g. "Văn bản hợp nhất", which isn't one of the 14 Điều 4 categories), the API returns a clear error instead of guessing — pass `subdirOverride` to force a location. Every Bộ luật/luật document lands in one flat `02-luat-nghi-quyet-quoc-hoi/luat-bo-luat/` folder regardless of validity status or amendment-vs-base-law distinction — the dataset is a text corpus for retrieval, not a "current law" database, so there's no supersession/validity routing to speak of.
 
-Downloading, all under `/laws/downloads`:
+Downloading, all under `/downloads`:
 
-- `POST /laws/downloads/url` — download one document from its `vanban.chinhphu.vn` detail page URL.
+- `POST /downloads/url` — download one document from its `vanban.chinhphu.vn` detail page URL.
 
   ```json
   { "url": "https://vanban.chinhphu.vn/?pageid=27160&docid=219000" }
   ```
 
-- `GET /laws/downloads/status?url=...` — check whether a `vanban.chinhphu.vn` document URL (same shape as above) is already downloaded, without fetching or writing any file. Fetches only the detail page, classifies it the same way a real download would, and reports per-file `downloaded: true/false` — so it exactly predicts what `POST /laws/downloads/url` would do.
+- `GET /downloads/status?url=...` — check whether a `vanban.chinhphu.vn` document URL (same shape as above) is already downloaded, without fetching or writing any file. Fetches only the detail page, classifies it the same way a real download would, and reports per-file `downloaded: true/false` — so it exactly predicts what `POST /downloads/url` would do.
 
-- `POST /laws/downloads/batch` — download a list of documents (same shape, up to 100 per call).
+- `POST /downloads/batch` — download a list of documents (same shape, up to 100 per call).
 
   ```json
   { "documents": [{ "url": "https://vanban.chinhphu.vn/?pageid=27160&docid=219000" }] }
   ```
 
-- `GET /laws/downloads/search` — search documents via the "TÌM KIẾM VĂN BẢN" filter form (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and return matching document detail URLs without downloading.
+- `GET /downloads/search` — search documents via the "TÌM KIẾM VĂN BẢN" filter form (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and return matching document detail URLs without downloading.
 
-- `POST /laws/downloads/search` — replays the "TÌM KIẾM VĂN BẢN" filter form at `vanban.chinhphu.vn/?pageid=41852&mode=0` (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and downloads matches, paginating as needed up to `maxResults`.
+- `POST /downloads/search` — replays the "TÌM KIẾM VĂN BẢN" filter form at `vanban.chinhphu.vn/?pageid=41852&mode=0` (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and downloads matches, paginating as needed up to `maxResults`.
 
   ```json
   { "keyword": "đất đai", "year": "2024", "maxResults": 20, "dryRun": true }
@@ -69,7 +69,7 @@ Downloads are sequential with a small delay between requests to `vanban.chinhphu
 
 ## Law index (vbpl.vn -> Postgres)
 
-`src/law-index/` is a separate, independent workflow from the download module above — see [../CLAUDE.md](../CLAUDE.md) for why the two are deliberately kept decoupled. Where `src/law/` builds a raw-file corpus on disk from vanban.chinhphu.vn, `src/law-index/` scrapes [vbpl.vn](https://vbpl.vn/) ("Cơ sở dữ liệu quốc gia về pháp luật", Bộ Tư pháp) and writes structured rows into Postgres — the actual ingestion path for the RAG/chatbot system. Scoped to **Trung ương only** (tiers 1–9, Điều 4 Luật 64/2025/QH15) — central-issued documents have nationwide effect; local (tiers 10–14) documents don't and aren't in scope.
+`src/law-index/` is a separate, independent workflow from the download/catalog/utils modules above — see [../CLAUDE.md](../CLAUDE.md) for why the two are deliberately kept decoupled. Where those build a raw-file corpus on disk from vanban.chinhphu.vn, `src/law-index/` scrapes [vbpl.vn](https://vbpl.vn/) ("Cơ sở dữ liệu quốc gia về pháp luật", Bộ Tư pháp) and writes structured rows into Postgres — the actual ingestion path for the RAG/chatbot system. Scoped to **Trung ương only** (tiers 1–9, Điều 4 Luật 64/2025/QH15) — central-issued documents have nationwide effect; local (tiers 10–14) documents don't and aren't in scope.
 
 vbpl.vn is a Next.js SPA whose document data (attributes, full text, relationship diagram) is rendered client-side, not present in the raw HTML — this module drives a real headless browser (Playwright) rather than a plain HTTP client. Run `npm run playwright:install` once after `npm install` to fetch the Chromium binary.
 
@@ -77,7 +77,7 @@ Setup:
 
 ```bash
 npm run playwright:install   # one-time, downloads Chromium
-npm run db:generate          # generate a migration from src/law-index/persistence/schema/
+npm run db:generate          # generate a migration from src/persistence/schema/
 npm run db:migrate           # apply it (needs postgres up — docker compose up -d postgres)
 ```
 

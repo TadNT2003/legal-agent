@@ -37,9 +37,12 @@ async function handleChat(
   let session;
   if (typeof sessionId === 'string' && sessionId.length > 0) {
     // Try to find existing session by ID; fall back to creating a new one.
-    session = sessionStore.getById(sessionId);
+    // No real discordUserId/discordChannelId exists for an HTTP-originated
+    // session, so this is the same no-args call as the stateless branch
+    // below — sessionId is a lookup key here, never a value to persist.
+    session = await sessionStore.getById(sessionId);
     if (!session) {
-      session = sessionStore.createSession(sessionId, 'http');
+      session = sessionStore.createSession();
     }
   } else {
     // Stateless mode — each call starts a fresh conversation.
