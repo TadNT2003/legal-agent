@@ -1,6 +1,6 @@
 import type { Client, DMChannel, Message } from 'discord.js';
 import { ChannelType, Events } from 'discord.js';
-import type { AgentService } from '../agent/agentService.js';
+import type { AgentService, ProgressEvent } from '../agent/agentService.js';
 import type { Session } from '../agent/sessionStore.js';
 import type { PgSessionStore } from '../agent/pgSessionStore.js';
 import { createLogger } from '../tools/logging.js';
@@ -87,15 +87,21 @@ async function handleMessage(
     await message.channel.sendTyping();
   }
 
+  const typingInterval = startTypingInterval(message.channel);
+
   let reply: string;
   try {
-    const result = await agentService.chat(session.messages, question);
+    const result = await agentService.chat(session.messages, question, (event) => {
+      handleProgressEvent(event, message.channel);
+    });
     reply = result.reply;
     await sessionStore.update(session, result.messages);
   } catch (error) {
     logger.error('AgentService.chat failed', error);
     reply =
       'Xin lỗi, đã có lỗi xảy ra khi xử lý câu hỏi. Vui lòng thử lại sau.';
+  } finally {
+    clearInterval(typingInterval);
   }
 
   for (const chunk of splitMessage(reply)) {
@@ -126,6 +132,34 @@ async function isReplyToBotMessage(
     logger.error('Failed to fetch replied-to message', error);
     return false;
   }
+}
+
+const TYPING_INTERVAL_MS = 10000;
+
+async function sendTyping(channel: Message['channel']): Promise<void> {
+  if ('sendTyping' in channel) {
+    try {
+      await channel.sendTyping();
+    } catch {
+      // sendTyping can fail if the channel is no longer available; ignore.
+    }
+  }
+}
+
+function startTypingInterval(channel: Message['channel']): ReturnType<typeof setInterval> {
+  return setInterval(() => {
+    void sendTyping(channel);
+  }, TYPING_INTERVAL_MS);
+}
+
+function handleProgressEvent(
+  event: ProgressEvent,
+  channel: Message['channel'],
+): void {
+  if (event.phase === 'final_answer') {
+    return;
+  }
+  void sendTyping(channel);
 }
 
 function splitMessage(text: string): string[] {

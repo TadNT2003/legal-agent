@@ -35,6 +35,16 @@ export interface ChatResult {
   messages: ChatCompletionMessageParam[];
 }
 
+export type ProgressPhase = 'round_start' | 'tool_call' | 'final_answer';
+
+export interface ProgressEvent {
+  phase: ProgressPhase;
+  round?: number;
+  toolName?: string;
+}
+
+export type ProgressCallback = (event: ProgressEvent) => void;
+
 export class AgentService {
   constructor(
     private readonly openai: OpenAI,
@@ -48,10 +58,15 @@ export class AgentService {
    * `history` is the prior conversation's accumulated messages (empty for a
    * fresh session) — the system prompt is seeded only when history is empty,
    * since it's already present at the start of any non-empty history.
+   *
+   * `onProgress` is an optional callback invoked at key points in the
+   * tool-calling loop (round start, tool call, final answer). Useful for
+   * driving persistent typing indicators or progress displays.
    */
   async chat(
     history: ChatCompletionMessageParam[],
     userMessage: string,
+    onProgress?: ProgressCallback,
   ): Promise<ChatResult> {
     const messages: ChatCompletionMessageParam[] =
       history.length > 0
@@ -62,6 +77,7 @@ export class AgentService {
           ];
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      onProgress?.({ phase: 'round_start', round });
       const response = await this.openai.chat.completions.create({
         model: this.model,
         messages,
@@ -77,6 +93,7 @@ export class AgentService {
         logger.log(
           `Round ${round}: final answer (${(message.content ?? '').length} chars)`,
         );
+        onProgress?.({ phase: 'final_answer' });
         return { reply: message.content ?? '', messages };
       }
 
@@ -86,19 +103,20 @@ export class AgentService {
           .join(', ')}`,
       );
 
-      for (const toolCall of message.tool_calls) {
-        if (toolCall.type !== 'function') continue;
-        logger.log(
-          `  ${toolCall.function.name}(${toolCall.function.arguments})`,
-        );
-        const toolMessage = await this.runTool(toolCall);
-        const preview =
-          typeof toolMessage.content === 'string'
-            ? toolMessage.content
-            : JSON.stringify(toolMessage.content);
-        logger.log(`  -> ${preview.slice(0, 300)}`);
-        messages.push(toolMessage);
-      }
+for (const toolCall of message.tool_calls) {
+          if (toolCall.type !== 'function') continue;
+          onProgress?.({ phase: 'tool_call', round, toolName: toolCall.function.name });
+          logger.log(
+            `  ${toolCall.function.name}(${toolCall.function.arguments})`,
+          );
+          const toolMessage = await this.runTool(toolCall);
+          const preview =
+            typeof toolMessage.content === 'string'
+              ? toolMessage.content
+              : JSON.stringify(toolMessage.content);
+          logger.log(`  -> ${preview.slice(0, 300)}`);
+          messages.push(toolMessage);
+        }
     }
 
     logger.log(

@@ -88,7 +88,7 @@ const searchCommand = new SlashCommandBuilder()
         { name: 'Hết hiệu lực toàn bộ', value: 'Hết hiệu lực toàn bộ' },
         { name: 'Hết hiệu lực một phần', value: 'Hết hiệu lực một phần' },
         { name: 'Ngưng hiệu lực', value: 'Ngưng hiệu lực' },
-        { name: 'Tất cả', value: '' },
+        { name: 'Tất cả (bao gồm lịch sử)', value: 'all' },
       ),
   )
   .addIntegerOption((option) =>
@@ -353,7 +353,7 @@ async function searchHandler(
   if (issuingBodiesRaw) {
     toolArgs.issuingBodies = splitCsv(issuingBodiesRaw);
   }
-  if (validityStatus === '') {
+  if (validityStatus === 'all') {
     toolArgs.includeHistorical = true;
   } else if (validityStatus) {
     toolArgs.validityStatus = validityStatus;

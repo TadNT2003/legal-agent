@@ -4,6 +4,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { AgentService } from './agentService.js';
+import type { ProgressEvent } from './agentService.js';
 
 interface MockToolCallMessage {
   role: string;
@@ -251,6 +252,35 @@ describe('AgentService', () => {
       error: string;
     };
     expect(parsed.error).toContain('404 not found');
+  });
+
+  it('invokes the onProgress callback at each phase of the tool-calling loop', async () => {
+    const events: ProgressEvent[] = [];
+    const onProgress = (event: ProgressEvent) => events.push(event);
+
+    const openai = buildMockOpenAi([
+      toolCallResponse('search_documents', { keyword: 'test' }),
+      finalResponse('Found document.'),
+    ]);
+    const mcpClient = buildMockMcpClient();
+    jest.mocked(mcpClient.callTool).mockResolvedValue(textResult({ id: 'doc-1' }));
+    const service = new AgentService(
+      asOpenAi(openai),
+      'test-model',
+      mcpClient,
+      NO_TOOLS,
+      SYSTEM_PROMPT,
+    );
+
+    const result = await service.chat(NO_HISTORY, 'search test', onProgress);
+
+    expect(result.reply).toBe('Found document.');
+    expect(events).toEqual([
+      { phase: 'round_start', round: 0 },
+      { phase: 'tool_call', round: 0, toolName: 'search_documents' },
+      { phase: 'round_start', round: 1 },
+      { phase: 'final_answer' },
+    ]);
   });
 
   it('reports an MCP-level tool error (isError) back to the model instead of throwing', async () => {

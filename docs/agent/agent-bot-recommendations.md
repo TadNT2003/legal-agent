@@ -32,11 +32,11 @@ List the documents the agent consulted during the current session, with clickabl
 
 **Implementation:** Extract `citationId` / source references from the session's tool call history (stored in `session.messages`), format as an embed with hyperlinks.
 
-### 4. Persistent Typing Indicator During Tool Calls (Low effort — High impact)
+### 4. ✅ Persistent Typing Indicator During Tool Calls — DONE (2026-08-13)
 
 The bot sends a typing indicator on the initial message, but not during the multi-round tool-calling loop (which can take 40s+). Users may think the bot froze.
 
-**Implementation:** In `agentService.ts`, emit a hook or callback at the start/end of each round. In `messageCreate.ts`, start a `setInterval` that calls `channel.sendTyping()` every ~10s, and clear it when the reply arrives.
+**Status: Implemented.** The `AgentService.chat()` method now accepts an optional `onProgress` callback that fires at three phases: `round_start`, `tool_call`, and `final_answer`. The Discord message handler (`messageCreate.ts`) uses this callback to send `channel.sendTyping()` on each tool call and round start, plus runs a `setInterval` (every 10s) as a safety net for long-running rounds. The interval is cleared in a `finally` block when the reply completes or an error occurs.
 
 ### 5. Embed-Based Replies (Medium effort — Medium impact)
 
@@ -100,9 +100,9 @@ Sessions older than 7 days accumulate in Postgres with no cleanup. The `SESSION_
 
 ## Priority Matrix
 
-| Priority | Items                                    | Rationale                           |
-|----------|------------------------------------------|-------------------------------------|
-| P0       | #4 Typing indicator, #12 MCP reconnect   | Highest impact, lowest effort       |
-| P1       | #2 Buttons, #10 Retry                     | Strong UX and reliability wins      |
-| P2       | #6 Streaming, #7 Abort, #8 Rate limit    | Requires more refactoring           |
+| Priority | Items                                              | Rationale                       |
+| -------- | -------------------------------------------------- | ------------------------------- |
+| P0       | #4 Typing indicator, #12 MCP reconnect             | Highest impact, lowest effort   |
+| P1       | #2 Buttons, #10 Retry                              | Strong UX and reliability wins  |
+| P2       | #6 Streaming, #7 Abort, #8 Rate limit              | Requires more refactoring       |
 | P3       | #3 `/sources`, #5 Embeds, #9 Health, #11 Cleanup | Nice-to-have, incremental value |
