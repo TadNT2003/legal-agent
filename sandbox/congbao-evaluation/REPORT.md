@@ -170,6 +170,56 @@ than on `laws/`, based on a small spot-check — worth a larger dedicated sample
 trusting `pdf_inspector`-generated tables unconditionally, same caveat the prior
 evaluation already raised.
 
+### These caveats argue for a targeted VLM fallback, not a wholesale VLM pipeline
+
+It would be a natural but wrong reading of the above to conclude congbao needs the
+same VLM pipeline (currently under evaluation via docling — `sandbox/extract-tool-
+resilience`, `sandbox/text-extract-evaluation`) that vanban.chinhphu.vn's
+`DOCUMENT_TEXT_EXTRACTOR` is waiting on. It doesn't, at least not as the default path.
+Running every congbao document through a VLM would throw away the exact thing that
+makes congbao worth having over vanban.chinhphu.vn as a source: vanban needs OCR/VLM
+on **100%** of documents, every time, because it has no server-rendered text and no
+digital-PDF path at all (see `docs/plan/congbao-source-evaluation.md`'s comparison
+table). Congbao needing it on ~5% of pages, concentrated in an identifiable minority
+of documents, is a fundamentally different cost profile — and it's the one place
+pdf-inspector's own `pages_needing_ocr` field already seems designed to support: route
+only what needs it, not everything.
+
+The shape this argues for is a **tiered pipeline, not a swap**:
+
+1. **DOCX/DOC parsing first, when available** (~2017-onward per the source-evaluation
+   doc's bisection) — cleaner than any PDF path, VLM included, and matches
+   `document-node.parser.ts`'s Chương/Điều/Khoản/Điểm structure more directly than
+   reconstructed PDF line breaks would.
+2. **pdf-inspector as the default for the PDF-only era and any DOCX-parse failures** —
+   fast, reliable (0 crashes across 200 documents here), and correct on the large
+   majority of content (77.5% of documents needed nothing further at all).
+3. **VLM invoked only when routed there**, by two independent signals, not one:
+   - pdf-inspector's own `pages_needing_ocr` (the scanned-page case), and
+   - a corruption detector run over pdf-inspector's *own output*, since the
+     font-encoding defect doesn't reliably self-report via `has_encoding_issues` —
+     `analyze_eval02.py`'s approach is a reasonable starting point, not a finished
+     tool.
+
+Tables are the one area this report can't yet resolve either way — the false-positive
+rate on this corpus looks meaningfully better than on `laws/`, but n=10 is too small
+to commit to a threshold. Worth a dedicated, larger sample before deciding whether
+`has_table` should also trigger a VLM re-check, independent of the OCR/corruption
+routing above.
+
+### The relations graph, not extraction cost, may be the bigger differentiator vs. vanban.chinhphu.vn
+
+Independent of all of the above, congbao has something vanban.chinhphu.vn cannot
+supply by any extraction-tool improvement: a real, populated relationship graph
+("Lược đồ" — confirmed live, e.g. a Nghị định correctly linking to the later decree
+that superseded it; see `docs/plan/congbao-source-evaluation.md`). vanban.chinhphu.vn
+produces **zero `document_reference` rows, ever, by design** — that gap is structural,
+not a tooling gap, and no amount of better OCR/VLM on vanban's side closes it. Combined
+with the OCR-cost asymmetry above (congbao: ~5% of pages; vanban: 100% of documents),
+congbao looks like a strict upgrade over vanban.chinhphu.vn as the supplementary
+source on both dimensions this project actually needs — full text *and* relations —
+not just the one this report measured.
+
 ## Files
 
 - `samples/*.pdf`, `samples/manifest.json` — the 200-document sample from Eval-01

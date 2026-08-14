@@ -177,6 +177,60 @@ này so với `laws/`, dựa trên một lần kiểm tra mẫu nhỏ — đáng
 chuyên biệt hơn trước khi tin tưởng vô điều kiện vào các bảng do `pdf_inspector` tạo ra,
 cùng một lưu ý mà đánh giá trước đã nêu ra.
 
+### Những lưu ý này ủng hộ một VLM dự phòng có mục tiêu, chứ không phải một pipeline VLM toàn diện
+
+Sẽ là một cách hiểu tự nhiên nhưng sai nếu kết luận rằng congbao cần cùng một pipeline
+VLM (hiện đang được đánh giá qua docling — `sandbox/extract-tool-resilience`,
+`sandbox/text-extract-evaluation`) mà `DOCUMENT_TEXT_EXTRACTOR` của vanban.chinhphu.vn
+đang chờ đợi. Không phải vậy, ít nhất là không phải như đường xử lý mặc định. Cho mọi
+tài liệu congbao chạy qua VLM sẽ vứt bỏ chính điều khiến congbao đáng giá hơn
+vanban.chinhphu.vn với tư cách một nguồn dữ liệu: vanban cần OCR/VLM cho **100%** tài
+liệu, mọi lúc, vì nó không có văn bản dựng sẵn trên server và cũng không có đường xử lý
+PDF số hóa nào cả (xem bảng so sánh trong
+`docs/plan/congbao-source-evaluation.md`). Việc congbao cần OCR/VLM cho ~5% số trang,
+tập trung ở một thiểu số tài liệu có thể xác định được, là một cấu trúc chi phí hoàn
+toàn khác — và đây cũng chính là chỗ mà trường `pages_needing_ocr` của bản thân
+pdf-inspector dường như đã được thiết kế để phục vụ: chỉ định tuyến những gì thật sự cần,
+không phải mọi thứ.
+
+Hình dạng hợp lý cho việc này là một **pipeline nhiều tầng, không phải một phép đổi chỗ**:
+
+1. **Ưu tiên phân tích DOCX/DOC khi có sẵn** (khoảng từ 2017 trở đi, theo kết quả chia
+   đôi khoảng thời gian trong tài liệu khảo sát nguồn) — sạch hơn bất kỳ đường xử lý PDF
+   nào, kể cả VLM, và bám sát cấu trúc Chương/Điều/Khoản/Điểm của
+   `document-node.parser.ts` trực tiếp hơn so với việc dựng lại từ các dòng ngắt trong
+   PDF.
+2. **pdf-inspector làm mặc định cho giai đoạn chỉ-có-PDF và mọi trường hợp phân tích
+   DOCX thất bại** — nhanh, đáng tin cậy (0 crash trên 200 tài liệu ở đây), và đúng trên
+   phần lớn nội dung (77,5% tài liệu không cần thêm bước nào khác).
+3. **Chỉ gọi đến VLM khi được định tuyến tới đó**, bởi hai tín hiệu độc lập, không phải
+   một:
+   - trường `pages_needing_ocr` của chính pdf-inspector (trường hợp trang bị scan), và
+   - một công cụ rà soát lỗi hỏng chạy trên *chính đầu ra* của pdf-inspector, vì lỗi mã
+     hóa font không tự báo cáo một cách đáng tin cậy qua `has_encoding_issues` — cách
+     tiếp cận của `analyze_eval02.py` là một điểm khởi đầu hợp lý, chưa phải một công cụ
+     hoàn chỉnh.
+
+Bảng biểu là điểm duy nhất báo cáo này chưa thể kết luận dứt khoát theo hướng nào — tỷ
+lệ báo động giả trên kho ngữ liệu này có vẻ tốt hơn hẳn so với `laws/`, nhưng n=10 là quá
+nhỏ để chốt một ngưỡng cụ thể. Đáng để lấy một mẫu chuyên biệt, lớn hơn trước khi quyết
+định liệu `has_table` có nên cũng kích hoạt một lượt kiểm tra lại bằng VLM hay không, độc
+lập với việc định tuyến OCR/lỗi hỏng ở trên.
+
+### Đồ thị quan hệ, chứ không phải chi phí trích xuất, mới có thể là điểm khác biệt lớn hơn so với vanban.chinhphu.vn
+
+Độc lập với tất cả những điều trên, congbao có một thứ mà vanban.chinhphu.vn không thể
+có được dù cải thiện công cụ trích xuất đến đâu: một đồ thị quan hệ có thật, đã được điền
+dữ liệu ("Lược đồ" — đã xác nhận trực tiếp, ví dụ một Nghị định liên kết đúng tới nghị
+định sau này đã thay thế nó; xem `docs/plan/congbao-source-evaluation.md`).
+vanban.chinhphu.vn tạo ra **0 dòng `document_reference`, mãi mãi, do thiết kế** — khoảng
+trống này mang tính cấu trúc, không phải khoảng trống về công cụ, và không có mức độ cải
+thiện OCR/VLM nào ở phía vanban có thể lấp đầy nó. Kết hợp với sự bất đối xứng về chi phí
+OCR ở trên (congbao: ~5% số trang; vanban: 100% số tài liệu), congbao trông giống như một
+sự nâng cấp chắc chắn so với vanban.chinhphu.vn với tư cách nguồn bổ sung, trên cả hai
+khía cạnh mà dự án thực sự cần — cả toàn văn *lẫn* quan hệ — chứ không chỉ khía cạnh mà
+báo cáo này đo lường.
+
 ## Files
 
 - `samples/*.pdf`, `samples/manifest.json` — bộ mẫu 200 tài liệu từ Eval-01
