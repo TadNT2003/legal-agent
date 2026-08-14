@@ -1,8 +1,8 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import type { McpToolCaller } from './agentService.js';
 import { AgentService } from './agentService.js';
 import type { ProgressEvent } from './agentService.js';
 
@@ -54,8 +54,8 @@ function asOpenAi(mock: MockOpenAi): OpenAI {
   return mock as unknown as OpenAI;
 }
 
-function buildMockMcpClient(): Client {
-  return { callTool: jest.fn() } as unknown as Client;
+function buildMockToolCaller(): jest.MockedFunction<McpToolCaller> {
+  return jest.fn();
 }
 
 function textResult(payload: unknown): CallToolResult {
@@ -98,11 +98,11 @@ const NO_HISTORY: ChatCompletionMessageParam[] = [];
 describe('AgentService', () => {
   it('seeds the system prompt on a fresh (empty-history) call', async () => {
     const openai = buildMockOpenAi([finalResponse('Xin chào')]);
-    const mcpClient = buildMockMcpClient();
+    const callTool = buildMockToolCaller();
     const service = new AgentService(
       asOpenAi(openai),
       'test-model',
-      mcpClient,
+      callTool,
       NO_TOOLS,
       SYSTEM_PROMPT,
     );
@@ -132,11 +132,11 @@ describe('AgentService', () => {
       return Promise.resolve(finalResponse('Điều 6 nói về ...'));
     });
     const openai: MockOpenAi = { chat: { completions: { create } } };
-    const mcpClient = buildMockMcpClient();
+    const callTool = buildMockToolCaller();
     const service = new AgentService(
       asOpenAi(openai),
       'test-model',
-      mcpClient,
+      callTool,
       NO_TOOLS,
       SYSTEM_PROMPT,
     );
@@ -166,26 +166,21 @@ describe('AgentService', () => {
       toolCallResponse('get_document', { documentId: 'doc-1' }),
       finalResponse('Điều 5 nói về vốn điều lệ, theo 59/2020/QH14.'),
     ]);
-    const mcpClient = buildMockMcpClient();
-    jest
-      .mocked(mcpClient.callTool)
-      .mockResolvedValue(
-        textResult({ id: 'doc-1', citationId: '59/2020/QH14' }),
-      );
+    const callTool = buildMockToolCaller();
+    callTool.mockResolvedValue(
+      textResult({ id: 'doc-1', citationId: '59/2020/QH14' }),
+    );
     const service = new AgentService(
       asOpenAi(openai),
       'test-model',
-      mcpClient,
+      callTool,
       NO_TOOLS,
       SYSTEM_PROMPT,
     );
 
     const result = await service.chat(NO_HISTORY, 'what does doc-1 say?');
 
-    expect(jest.mocked(mcpClient.callTool)).toHaveBeenCalledWith({
-      name: 'get_document',
-      arguments: { documentId: 'doc-1' },
-    });
+    expect(callTool).toHaveBeenCalledWith('get_document', { documentId: 'doc-1' });
     expect(result.reply).toBe('Điều 5 nói về vốn điều lệ, theo 59/2020/QH14.');
     expect(openai.chat.completions.create).toHaveBeenCalledTimes(2);
 
@@ -207,14 +202,12 @@ describe('AgentService', () => {
     const openai = buildMockOpenAi(
       Array.from({ length: 10 }, () => infiniteToolCall),
     );
-    const mcpClient = buildMockMcpClient();
-    jest
-      .mocked(mcpClient.callTool)
-      .mockResolvedValue(textResult({ id: 'doc-1' }));
+    const callTool = buildMockToolCaller();
+    callTool.mockResolvedValue(textResult({ id: 'doc-1' }));
     const service = new AgentService(
       asOpenAi(openai),
       'test-model',
-      mcpClient,
+      callTool,
       NO_TOOLS,
       SYSTEM_PROMPT,
     );
@@ -229,14 +222,12 @@ describe('AgentService', () => {
       toolCallResponse('get_document', { documentId: 'missing' }),
       finalResponse('Không tìm thấy văn bản.'),
     ]);
-    const mcpClient = buildMockMcpClient();
-    jest
-      .mocked(mcpClient.callTool)
-      .mockRejectedValue(new Error('404 not found'));
+    const callTool = buildMockToolCaller();
+    callTool.mockRejectedValue(new Error('404 not found'));
     const service = new AgentService(
       asOpenAi(openai),
       'test-model',
-      mcpClient,
+      callTool,
       NO_TOOLS,
       SYSTEM_PROMPT,
     );
@@ -262,12 +253,12 @@ describe('AgentService', () => {
       toolCallResponse('search_documents', { keyword: 'test' }),
       finalResponse('Found document.'),
     ]);
-    const mcpClient = buildMockMcpClient();
-    jest.mocked(mcpClient.callTool).mockResolvedValue(textResult({ id: 'doc-1' }));
+    const callTool = buildMockToolCaller();
+    callTool.mockResolvedValue(textResult({ id: 'doc-1' }));
     const service = new AgentService(
       asOpenAi(openai),
       'test-model',
-      mcpClient,
+      callTool,
       NO_TOOLS,
       SYSTEM_PROMPT,
     );
@@ -288,15 +279,15 @@ describe('AgentService', () => {
       toolCallResponse('get_document', { documentId: 'missing' }),
       finalResponse('Không tìm thấy văn bản.'),
     ]);
-    const mcpClient = buildMockMcpClient();
-    jest.mocked(mcpClient.callTool).mockResolvedValue({
+    const callTool = buildMockToolCaller();
+    callTool.mockResolvedValue({
       content: [{ type: 'text', text: 'Document not found' }],
       isError: true,
     });
     const service = new AgentService(
       asOpenAi(openai),
       'test-model',
-      mcpClient,
+      callTool,
       NO_TOOLS,
       SYSTEM_PROMPT,
     );

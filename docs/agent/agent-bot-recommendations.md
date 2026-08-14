@@ -90,11 +90,19 @@ Sessions older than 7 days accumulate in Postgres with no cleanup. The `SESSION_
 
 **Implementation:** On startup (or on a `setInterval`), run `DELETE FROM agent_sessions WHERE updated_at < cutoff`, which cascades to `agent_reply_targets` via the foreign key.
 
-### 12. MCP Client Reconnection (Medium effort — High impact)
+### 12. ✅ MCP Client Reconnection — DONE (2026-08-14)
 
 `createMcpClient()` connects once at startup with no reconnection logic. If the MCP server restarts, the transport becomes a dead connection and all subsequent tool calls fail silently or with generic errors.
 
-**Implementation:** Add a periodic heartbeat (e.g., `listTools` every 60s). On failure, reconnect the transport and retry. Alternatively, wrap `callMcpTool` in a try-reconnect pattern: on connection error, re-create the client transport, then retry the tool call once.
+**Status: Implemented.** Added `ReconnectingMcpClient` wrapper class (`mcp/client.ts`) with two reconnection mechanisms:
+
+1. **Try-reconnect on tool call**: Each `callTool()` wraps the underlying MCP client call in a try-catch. On connection-level errors (ECONNREFUSED, ECONNRESET, fetch failed, etc.), it re-creates the transport, reconnects, and retries the tool call once with a 2s backoff. Non-connection errors pass through unchanged.
+
+2. **Periodic heartbeat**: A `listTools()` call runs every 60s. On failure, it triggers a proactive reconnect before any user request is impacted.
+
+The `AgentService` constructor now takes an `McpToolCaller` function instead of a raw `Client`, decoupling it from the transport layer. Graceful shutdown (SIGTERM/SIGINT) stops the heartbeat and closes the transport cleanly.
+
+**Files changed:** `mcp/client.ts`, `mcp/client.spec.ts`, `agent/agentService.ts`, `agent/agentService.spec.ts`, `commands/splashCommands.ts`, `bot.ts`, `index.ts`.
 
 ---
 

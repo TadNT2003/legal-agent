@@ -1,4 +1,3 @@
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type {
   ChatInputCommandInteraction,
   Interaction,
@@ -10,7 +9,7 @@ import {
   Events,
   Collection,
 } from 'discord.js';
-import { callMcpTool } from '../mcp/tools.js';
+import type { ReconnectingMcpClient } from '../mcp/client.js';
 import { createLogger } from '../tools/logging.js';
 
 const logger = createLogger('splash-commands');
@@ -123,10 +122,10 @@ const commandBuilders = new Collection<string, SlashCommandBuilder>(
 type CmdHandler = (
   interaction: ChatInputCommandInteraction,
   client: DiscordClient,
-  mcpClient: Client,
+  mcpClient: ReconnectingMcpClient,
 ) => Promise<void>;
 
-let mcpClientRef: Client | undefined;
+let mcpClientRef: ReconnectingMcpClient | undefined;
 
 const handlers = new Collection<string, CmdHandler>([
   ['help', helpHandler],
@@ -137,7 +136,7 @@ const handlers = new Collection<string, CmdHandler>([
 
 export function registerSlashCommands(
   client: DiscordClient,
-  mcpClient: Client,
+  mcpClient: ReconnectingMcpClient,
 ): void {
   mcpClientRef = mcpClient;
 
@@ -191,7 +190,7 @@ export function getCommandBuilders(): Collection<string, SlashCommandBuilder> {
 async function helpHandler(
   interaction: ChatInputCommandInteraction,
   _client: DiscordClient,
-  _mcp: Client,
+  _mcp: ReconnectingMcpClient,
 ): Promise<void> {
   const embed = new EmbedBuilder()
     .setTitle('📖 Trợ Lý Pháp Luật — Hướng Dẫn Sử Dụng')
@@ -237,7 +236,7 @@ async function helpHandler(
 async function aboutHandler(
   interaction: ChatInputCommandInteraction,
   _client: DiscordClient,
-  _mcp: Client,
+  _mcp: ReconnectingMcpClient,
 ): Promise<void> {
   const embed = new EmbedBuilder()
     .setTitle('ℹ️ Về Trợ Lý Pháp Luật')
@@ -277,7 +276,7 @@ async function aboutHandler(
 async function statusHandler(
   interaction: ChatInputCommandInteraction,
   client: DiscordClient,
-  mcp: Client,
+  mcp: ReconnectingMcpClient,
 ): Promise<void> {
   const uptime = getUptimeString(client.uptime);
   const guildCount = client.guilds.cache.size;
@@ -335,7 +334,7 @@ async function statusHandler(
 async function searchHandler(
   interaction: ChatInputCommandInteraction,
   _client: DiscordClient,
-  mcp: Client,
+  mcp: ReconnectingMcpClient,
 ): Promise<void> {
   const keyword = interaction.options.getString('keyword', true);
   const searchScope = interaction.options.getString('phạm-vi', false);
@@ -365,7 +364,12 @@ async function searchHandler(
   await interaction.deferReply({ ephemeral: true });
 
   try {
-    const rawResult = await callMcpTool(mcp, 'search_documents', JSON.stringify(toolArgs));
+    const result = await mcp.callTool('search_documents', toolArgs);
+    const block = result.content?.[0];
+    const rawResult =
+      block && block.type === 'text'
+        ? block.text
+        : JSON.stringify(result);
     const data = JSON.parse(rawResult) as SearchResponse;
 
     const documents = data.documents ?? data.results ?? [];

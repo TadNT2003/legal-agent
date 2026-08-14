@@ -1,11 +1,10 @@
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type OpenAI from 'openai';
 import type {
   ChatCompletionCreateParamsNonStreaming,
   ChatCompletionMessageParam,
   ChatCompletionToolMessageParam,
 } from 'openai/resources/chat/completions';
-import { callMcpTool } from '../mcp/tools.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { createLogger } from '../tools/logging.js';
 
 const MAX_TOOL_ROUNDS = 5;
@@ -45,11 +44,21 @@ export interface ProgressEvent {
 
 export type ProgressCallback = (event: ProgressEvent) => void;
 
+/**
+ * Async function that calls an MCP tool by name and arguments.
+ * This abstraction allows the AgentService to work with both the raw
+ * MCP Client and the ReconnectingMcpClient wrapper.
+ */
+export type McpToolCaller = (
+  name: string,
+  args: Record<string, unknown>,
+) => Promise<CallToolResult>;
+
 export class AgentService {
   constructor(
     private readonly openai: OpenAI,
     private readonly model: string,
-    private readonly mcpClient: Client,
+    private readonly callTool: McpToolCaller,
     private readonly tools: OpenAI.Chat.Completions.ChatCompletionTool[],
     private readonly systemPrompt: string,
   ) {}
@@ -134,7 +143,15 @@ for (const toolCall of message.tool_calls) {
   ): Promise<ChatCompletionToolMessageParam> {
     const { name, arguments: rawArgs } = toolCall.function;
     try {
-      const content = await callMcpTool(this.mcpClient, name, rawArgs);
+      const result = await this.callTool(name, JSON.parse(rawArgs || '{}') as Record<string, unknown>);
+      const block = result.content?.[0];
+      const content =
+        block && block.type === 'text'
+          ? block.text
+          : JSON.stringify(result);
+      if (result.isError) {
+        throw new Error(content);
+      }
       return {
         role: 'tool',
         tool_call_id: toolCall.id,
