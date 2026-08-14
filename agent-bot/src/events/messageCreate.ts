@@ -77,7 +77,7 @@ async function handleMessage(
 
     const replyTargetId = message.reference?.messageId;
     const existing = replyTargetId
-      ? sessionStore.getByReplyTarget(replyTargetId)
+      ? await sessionStore.getByReplyTarget(replyTargetId)
       : undefined;
     // Fallback: session not tracked (e.g. process restarted since) — still
     // answer, just without prior context, instead of ignoring the message.

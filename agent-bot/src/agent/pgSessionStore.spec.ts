@@ -16,6 +16,7 @@ function createMockDb(): {
   selectResult: Array<{ id: string; messages: unknown; updatedAt: Date }>;
   rtResult: Array<{ discordMessageId: string; sessionId: string }>;
   getByIdResult: Array<{ id: string; messages: unknown }>;
+  limitResults: Array<unknown>;
   getByIdError: { current: Error | null };
 } {
   const selectResult: Array<{
@@ -25,10 +26,13 @@ function createMockDb(): {
   }> = [];
   const rtResult: Array<{ discordMessageId: string; sessionId: string }> = [];
   const getByIdResult: Array<{ id: string; messages: unknown }> = [];
+  const limitResults: Array<unknown> = [];
   const getByIdError: { current: Error | null } = { current: null };
 
   const insertPromise = makePromiseLike();
   const updatePromise = makePromiseLike();
+
+  let limitCallIndex = 0;
 
   const db = {
     select: jest.fn().mockReturnValue({
@@ -39,11 +43,15 @@ function createMockDb(): {
               void Promise.resolve(selectResult).then(onFulfilled);
             },
           }),
-          limit: jest.fn().mockImplementation(() =>
-            getByIdError.current
-              ? Promise.reject(getByIdError.current)
-              : Promise.resolve(getByIdResult),
-          ),
+          limit: jest.fn().mockImplementation(() => {
+            const result = limitResults[limitCallIndex++] ?? (
+              getByIdError.current
+                ? Promise.reject(getByIdError.current)
+                : getByIdResult
+            );
+            if (result instanceof Promise) return result;
+            return Promise.resolve(result);
+          }),
         }),
         orderBy: jest.fn().mockReturnValue({
           then: (onFulfilled: (val: unknown) => void) => {
@@ -78,7 +86,7 @@ function createMockDb(): {
     }),
   } as unknown as jest.Mocked<NodePgDatabase<typeof schema>>;
 
-  return { db, selectResult, rtResult, getByIdResult, getByIdError };
+  return { db, selectResult, rtResult, getByIdResult, limitResults, getByIdError };
 }
 
 describe('PgSessionStore', () => {
@@ -99,14 +107,15 @@ describe('PgSessionStore', () => {
     expect(a.id).toBeDefined();
   });
 
-  it('a message not linked to any session resolves to undefined', () => {
-    expect(store.getByReplyTarget('unknown-message-id')).toBeUndefined();
+  it('a message not linked to any session resolves to undefined', async () => {
+    expect(await store.getByReplyTarget('unknown-message-id')).toBeUndefined();
   });
 
-  it('linking a reply target makes the session resolvable by that message id', () => {
+  it('linking a reply target makes the session resolvable by that message id', async () => {
     const session = store.createSession();
     store.linkReplyTarget('bot-msg-1', session);
-    expect(store.getByReplyTarget('bot-msg-1')).toBe(session);
+    const resolved = await store.getByReplyTarget('bot-msg-1');
+    expect(resolved).toBe(session);
   });
 
   it('update() persists the new message history on the session object', async () => {
@@ -120,17 +129,17 @@ describe('PgSessionStore', () => {
     ];
     await store.update(session, msgs);
 
-    const resolved = store.getByReplyTarget('bot-msg-1');
+    const resolved = await store.getByReplyTarget('bot-msg-1');
     expect(resolved?.messages).toEqual(msgs);
   });
 
-  it('multiple reply targets can resolve to the same session', () => {
+  it('multiple reply targets can resolve to the same session', async () => {
     const session = store.createSession();
     store.linkReplyTarget('bot-msg-chunk-1', session);
     store.linkReplyTarget('bot-msg-chunk-2', session);
 
-    expect(store.getByReplyTarget('bot-msg-chunk-1')).toBe(session);
-    expect(store.getByReplyTarget('bot-msg-chunk-2')).toBe(session);
+    expect(await store.getByReplyTarget('bot-msg-chunk-1')).toBe(session);
+    expect(await store.getByReplyTarget('bot-msg-chunk-2')).toBe(session);
   });
 
   it('createSession accepts optional discord user and channel ids', () => {
@@ -152,8 +161,8 @@ describe('PgSessionStore', () => {
     ];
     await store.update(older1, msgs);
 
-    expect(store.getByReplyTarget('older1-msg')).toBe(older1);
-    expect(store.getByReplyTarget('newer-msg')).toBe(newer);
+    expect(await store.getByReplyTarget('older1-msg')).toBe(older1);
+    expect(await store.getByReplyTarget('newer-msg')).toBe(newer);
   });
 
   it('loadActiveSessions loads recent sessions from DB', async () => {
@@ -180,16 +189,47 @@ describe('PgSessionStore', () => {
     const count = await store.loadActiveSessions();
     expect(count).toBe(2);
 
-    const resolved = store.getByReplyTarget('bot-msg-1');
+    const resolved = await store.getByReplyTarget('bot-msg-1');
     expect(resolved).toBeDefined();
   });
 
-  it('linkReplyTarget calls db.insert for persistence', () => {
+  it('getByReplyTarget falls through to DB when cache is empty', async () => {
+    mockDb.limitResults.push([{ sessionId: 'db-sess-1' }]);
+    mockDb.limitResults.push([{
+      id: 'db-sess-1',
+      messages: [{ role: 'user', content: 'from db' }],
+    }]);
+
+    const resolved = await store.getByReplyTarget('db-bot-msg');
+
+    expect(resolved).toEqual({
+      id: 'db-sess-1',
+      messages: [{ role: 'user', content: 'from db' }],
+    });
+    // Subsequent calls should hit the now-warmed cache, no more DB calls.
+    const cached = await store.getByReplyTarget('db-bot-msg');
+    expect(cached).toBe(resolved);
+  });
+
+  it('getByReplyTarget returns undefined when reply target is not in DB', async () => {
+    mockDb.limitResults.push([]);
+    const resolved = await store.getByReplyTarget('nowhere-msg');
+    expect(resolved).toBeUndefined();
+  });
+
+  it('getByReplyTarget returns undefined when DB lookup fails', async () => {
+    mockDb.limitResults.push(Promise.reject(new Error('connection refused')));
+
+    const resolved = await store.getByReplyTarget('fail-msg');
+    expect(resolved).toBeUndefined();
+  });
+
+  it('linkReplyTarget calls db.insert for persistence', async () => {
     const session = store.createSession('user-a', 'chan-a');
     store.linkReplyTarget('msg-99', session);
 
     expect(session.id).toBeDefined();
-    expect(store.getByReplyTarget('msg-99')).toBe(session);
+    expect(await store.getByReplyTarget('msg-99')).toBe(session);
   });
 
   describe('getById', () => {

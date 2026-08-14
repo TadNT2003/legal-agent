@@ -147,12 +147,37 @@ export class PgSessionStore {
     return session;
   }
 
-  getByReplyTarget(discordMessageId: string): Session | undefined {
+  async getByReplyTarget(discordMessageId: string): Promise<Session | undefined> {
     const cachedSessionId = this.sessionIdByReplyTarget.get(discordMessageId);
     if (cachedSessionId) {
-      return this.sessions.get(cachedSessionId);
+      const cached = this.sessions.get(cachedSessionId);
+      if (cached) return cached;
     }
-    return undefined;
+
+    // Cache miss — look up in Postgres via reply_targets join
+    try {
+      const rows = await this.db
+        .select({
+          sessionId: replyTargets.sessionId,
+        })
+        .from(replyTargets)
+        .where(eq(replyTargets.discordMessageId, discordMessageId))
+        .limit(1);
+
+      if (rows.length === 0) return undefined;
+
+      const sessionId = rows[0].sessionId;
+      this.sessionIdByReplyTarget.set(discordMessageId, sessionId);
+
+      const session = await this.getById(sessionId);
+      if (session) {
+        evictOldest(this.sessionIdByReplyTarget, MAX_CACHE * 4);
+      }
+      return session;
+    } catch (err) {
+      logger.error(`Failed to look up reply target ${discordMessageId}`, err);
+      return undefined;
+    }
   }
 
   /** Records the outcome of a turn. Persists to DB and refreshes cache recency. */
