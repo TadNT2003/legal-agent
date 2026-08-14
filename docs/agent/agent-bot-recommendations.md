@@ -14,17 +14,23 @@ A structured search command with optional fields: `keyword`, `documentType`, `is
 
 **Status: Implemented.** See `agent-bot/src/commands/splashCommands.ts` (`searchHandler`). The command calls MCP `search_documents` directly (no LLM involved), returns results as an ephemeral embed. Options include `keyword` (required), `phạm-vi` (scope), `loai-van-ban` (doc types), `co-quan` (issuing bodies), `hieu-luc` (validity), and `so-ket-qua` (max results, default 5).
 
-### 2. Interactive Follow-Up Buttons (Medium effort — High impact)
+### 2. ✅ Interactive Follow-Up Buttons — DONE (2026-08-14)
 
 After the agent replies, attach Discord `ButtonComponent` components:
 
-- **"Tra cứu thêm"** — Prompt the user for a follow-up keyword, continuing the same session.
-- **"Chi tiết"** — Show raw citations and source links.
-- **"Kết thúc"** — Close the session.
+- **"Tra c\u1ee9u th\u00eam"** — Prompt the user for a follow-up keyword, continuing the same session.
+- **"Chi ti\u1ebft"** — Show raw citations and source links extracted from tool call history.
+- **"K\u1ebft th\u00fac"** — Close the session.
 
 This turns a flat text reply into a navigable conversation without requiring users to know how to phrase follow-ups.
 
-**Implementation:** Use `ActionRowBuilder` + `ButtonBuilder` with `ComponentType.Button`. Listen on `Events.InteractionCreate` for `isButton()`.
+**Status: Implemented.** New file `events/buttonInteractions.ts` with `registerButtonInteractions()` and `createFollowUpRow()`. The `messageCreate.ts` reply loop now attaches the button row (with session ID encoded in custom IDs) to the last reply chunk. Button handlers look up the session via `PgSessionStore.getById()` and:
+
+- **follow_up**: Replies ephemeral, guiding user to type follow-up question.
+- **details**: Extracts citation info from tool call results in session messages, formats as an embed.
+- **end_session**: Confirms session ended; user must @mention or DM to start new session.
+
+**Files changed:** `events/buttonInteractions.ts` (new), `events/messageCreate.ts`, `bot.ts`.
 
 ### 3. `/sources` Command (Low effort — Medium impact)
 
@@ -78,11 +84,13 @@ The `/api/health` route only returns a timestamp. Add MCP connectivity status, D
 
 **Implementation:** In `routes/health.ts`, accept injected health checks: ping MCP with `listTools`, run `SELECT 1` on DB, read `sessionStore` size.
 
-### 10. MCP Tool Call Retry Policy (Low effort — Medium impact)
+### 10. ✅ MCP Tool Call Retry Policy — DONE (2026-08-14)
 
 When `callMcpTool` fails, it returns a JSON error string to the LLM which may then waste rounds retrying. Add a 1-retry with backoff at the transport level before surfacing the error to the agent loop.
 
-**Implementation:** In `mcp/tools.ts`, wrap `client.callTool()` in a try-catch with one retry after a short delay (e.g., 500ms). Distinguish transient errors (network, timeout) from permanent ones.
+**Status: Implemented.** The `callMcpTool` function in `mcp/tools.ts` now wraps the MCP client call in a try-catch. On transient transport errors (ECONNREFUSED, ECONNRESET, ETIMEDOUT, fetch failed, network), it waits 500ms and retries once. Non-transient errors (MCP-level `isError`, tool-not-found, etc.) pass through immediately without retry. Unit tests cover: retry on success, retry on double-fail, no retry for MCP errors, no retry for non-transient runtime errors.
+
+**Files changed:** `mcp/tools.ts`, `mcp/tools.spec.ts`.
 
 ### 11. Session Cleanup (Low effort — Medium impact)
 
@@ -97,7 +105,6 @@ Sessions older than 7 days accumulate in Postgres with no cleanup. The `SESSION_
 **Status: Implemented.** Added `ReconnectingMcpClient` wrapper class (`mcp/client.ts`) with two reconnection mechanisms:
 
 1. **Try-reconnect on tool call**: Each `callTool()` wraps the underlying MCP client call in a try-catch. On connection-level errors (ECONNREFUSED, ECONNRESET, fetch failed, etc.), it re-creates the transport, reconnects, and retries the tool call once with a 2s backoff. Non-connection errors pass through unchanged.
-
 2. **Periodic heartbeat**: A `listTools()` call runs every 60s. On failure, it triggers a proactive reconnect before any user request is impacted.
 
 The `AgentService` constructor now takes an `McpToolCaller` function instead of a raw `Client`, decoupling it from the transport layer. Graceful shutdown (SIGTERM/SIGINT) stops the heartbeat and closes the transport cleanly.
@@ -110,7 +117,7 @@ The `AgentService` constructor now takes an `McpToolCaller` function instead of 
 
 | Priority | Items                                              | Rationale                       |
 | -------- | -------------------------------------------------- | ------------------------------- |
-| P0       | #4 Typing indicator, #12 MCP reconnect             | Highest impact, lowest effort   |
-| P1       | #2 Buttons, #10 Retry                              | Strong UX and reliability wins  |
+| P0       | #4 Typing indicator, #12 MCP reconnect (both done)  | Highest impact, lowest effort   |
+| P1       | #2 Buttons, #10 Retry (both done)                  | Strong UX and reliability wins  |
 | P2       | #6 Streaming, #7 Abort, #8 Rate limit              | Requires more refactoring       |
 | P3       | #3 `/sources`, #5 Embeds, #9 Health, #11 Cleanup | Nice-to-have, incremental value |

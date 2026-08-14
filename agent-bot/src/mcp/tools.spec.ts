@@ -97,6 +97,68 @@ describe('callMcpTool', () => {
       callMcpTool(client, 'get_document', '{"documentId":"missing"}'),
     ).rejects.toThrow('Document not found');
   });
+
+  it('retries once on transient network error and returns result on success', async () => {
+    const client = buildMockClient();
+    const networkError = new Error('fetch failed');
+
+    jest.mocked(client.callTool)
+      .mockRejectedValueOnce(networkError)
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: '{"ok":true}' }],
+      });
+
+    const text = await callMcpTool(
+      client,
+      'search_documents',
+      JSON.stringify({ keyword: 'x' }),
+    );
+
+    expect(jest.mocked(client.callTool)).toHaveBeenCalledTimes(2);
+    expect(text).toBe('{"ok":true}');
+  });
+
+  it('throws on second attempt if retry also fails with transient error', async () => {
+    const client = buildMockClient();
+    const networkError = new Error('ECONNREFUSED');
+
+    jest.mocked(client.callTool)
+      .mockRejectedValueOnce(networkError)
+      .mockRejectedValueOnce(new Error('ECONNRESET'));
+
+    await expect(
+      callMcpTool(client, 'search_documents', '{}'),
+    ).rejects.toThrow('ECONNRESET');
+
+    expect(jest.mocked(client.callTool)).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry on non-transient errors (MCP isError)', async () => {
+    const client = buildMockClient();
+    jest.mocked(client.callTool).mockResolvedValue({
+      content: [{ type: 'text', text: 'Invalid arguments' }],
+      isError: true,
+    });
+
+    await expect(
+      callMcpTool(client, 'search_documents', '{}'),
+    ).rejects.toThrow('Invalid arguments');
+
+    expect(jest.mocked(client.callTool)).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry on non-transient runtime errors', async () => {
+    const client = buildMockClient();
+    jest.mocked(client.callTool).mockRejectedValueOnce(
+      new Error('tool not found')
+    );
+
+    await expect(
+      callMcpTool(client, 'unknown_tool', '{}'),
+    ).rejects.toThrow('tool not found');
+
+    expect(jest.mocked(client.callTool)).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('fetchPromptText', () => {

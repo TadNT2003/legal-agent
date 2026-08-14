@@ -5,6 +5,7 @@ import type { PgSessionStore } from './agent/pgSessionStore.js';
 import type { ReconnectingMcpClient } from './mcp/client.js';
 import { config } from './config.js';
 import { registerMessageCreateEvent } from './events/messageCreate.js';
+import { registerButtonInteractions } from './events/buttonInteractions.js';
 import { registerReadyEvent } from './events/ready.js';
 import {
   getCommandBuilders,
@@ -31,6 +32,7 @@ export function createBot(
 
   registerReadyEvent(client);
   registerMessageCreateEvent(client, agentService, sessionStore);
+  registerButtonInteractions(client, agentService, sessionStore);
   registerSlashCommands(client, mcpClient);
 
   client.once('ready', () => {

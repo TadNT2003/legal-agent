@@ -3,6 +3,7 @@ import { ChannelType, Events } from 'discord.js';
 import type { AgentService, ProgressEvent } from '../agent/agentService.js';
 import type { Session } from '../agent/sessionStore.js';
 import type { PgSessionStore } from '../agent/pgSessionStore.js';
+import { createFollowUpRow } from './buttonInteractions.js';
 import { createLogger } from '../tools/logging.js';
 
 const logger = createLogger('discord-message');
@@ -104,8 +105,12 @@ async function handleMessage(
     clearInterval(typingInterval);
   }
 
-  for (const chunk of splitMessage(reply)) {
-    const sent = await message.reply(chunk);
+  const replyChunks = splitMessage(reply);
+  for (let i = 0; i < replyChunks.length; i++) {
+    const isLast = i === replyChunks.length - 1;
+    const sent = isLast
+      ? await message.reply({ content: replyChunks[i], components: [createFollowUpRow(session.id).toJSON()] })
+      : await message.reply(replyChunks[i]);
     sessionStore.linkReplyTarget(sent.id, session);
   }
 }
