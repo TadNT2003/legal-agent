@@ -17,6 +17,14 @@ export const opensearchConfig = registerAs('opensearch', () => ({
   node: process.env.OPENSEARCH_NODE,
   username: process.env.OPENSEARCH_USERNAME,
   password: process.env.OPENSEARCH_PASSWORD,
+  // Secure by default (verify the cert); the compose cluster's self-signed
+  // cert means local dev must opt out explicitly via .env, not the other way.
+  rejectUnauthorized:
+    (process.env.OPENSEARCH_REJECT_UNAUTHORIZED ?? 'true') !== 'false',
+  requestTimeoutMs: parseInt(
+    process.env.OPENSEARCH_REQUEST_TIMEOUT_MS ?? '30000',
+    10,
+  ),
 }));
 
 export const neo4jConfig = registerAs('neo4j', () => ({

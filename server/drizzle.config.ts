@@ -7,8 +7,8 @@ dotenv.config();
 // postgresConfig — drizzle-kit runs as a standalone CLI outside Nest's DI, so
 // it can't consume that ConfigModule-registered factory directly.
 export default defineConfig({
-  schema: './src/law-index/persistence/schema/index.ts',
-  out: './src/law-index/persistence/migrations',
+  schema: './src/persistence/schema/index.ts',
+  out: './src/persistence/migrations',
   dialect: 'postgresql',
   dbCredentials: {
     host: process.env.POSTGRES_HOST ?? 'localhost',

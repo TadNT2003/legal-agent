@@ -33,29 +33,29 @@ Copy `.env.example` to `.env` and fill in real values — see the file for what 
 
 ## Law document downloads
 
-`src/law/` scrapes [vanban.chinhphu.vn](https://vanban.chinhphu.vn/) — the only source this module ever fetches documents from — and files results into `LAWS_DOWNLOAD_DIR` (defaults to the repo-root `../laws/`, see [laws/README.md](../laws/README.md) for the 14-tier folder layout). Every download updates `laws/manifest.json` and `laws/download-log.csv` in place, matching their existing schema. Internally it's split into `src/law/download/` (fetching from vanban.chinhphu.vn), `src/law/catalog/` (browsing/serving what's already downloaded), and `src/law/utils/` (the manifest read-write layer and other plumbing shared by both).
+This workflow scrapes [vanban.chinhphu.vn](https://vanban.chinhphu.vn/) — the only source this workflow ever fetches documents from — and files results into `LAWS_DOWNLOAD_DIR` (defaults to the repo-root `../laws/`, see [laws/README.md](../laws/README.md) for the 14-tier folder layout). Every download updates `laws/manifest.json` and `laws/download-log.csv` in place, matching their existing schema. It's split into three top-level modules: `src/download/` (fetching from vanban.chinhphu.vn), `src/catalog/` (browsing/serving what's already downloaded), and `src/utils/` (the manifest read-write layer and other plumbing shared between them) — formerly nested under one `src/law/` umbrella module, now fully flattened.
 
 Document type + issuing body (read off vanban.chinhphu.vn's own detail page) are mapped to one of the 14 tiers by `law-tier-classifier.ts`. When a document doesn't fit a recognized tier (e.g. "Văn bản hợp nhất", which isn't one of the 14 Điều 4 categories), the API returns a clear error instead of guessing — pass `subdirOverride` to force a location. Every Bộ luật/luật document lands in one flat `02-luat-nghi-quyet-quoc-hoi/luat-bo-luat/` folder regardless of validity status or amendment-vs-base-law distinction — the dataset is a text corpus for retrieval, not a "current law" database, so there's no supersession/validity routing to speak of.
 
-Downloading, all under `/laws/downloads`:
+Downloading, all under `/downloads`:
 
-- `POST /laws/downloads/url` — download one document from its `vanban.chinhphu.vn` detail page URL.
+- `POST /downloads/url` — download one document from its `vanban.chinhphu.vn` detail page URL.
 
   ```json
   { "url": "https://vanban.chinhphu.vn/?pageid=27160&docid=219000" }
   ```
 
-- `GET /laws/downloads/status?url=...` — check whether a `vanban.chinhphu.vn` document URL (same shape as above) is already downloaded, without fetching or writing any file. Fetches only the detail page, classifies it the same way a real download would, and reports per-file `downloaded: true/false` — so it exactly predicts what `POST /laws/downloads/url` would do.
+- `GET /downloads/status?url=...` — check whether a `vanban.chinhphu.vn` document URL (same shape as above) is already downloaded, without fetching or writing any file. Fetches only the detail page, classifies it the same way a real download would, and reports per-file `downloaded: true/false` — so it exactly predicts what `POST /downloads/url` would do.
 
-- `POST /laws/downloads/batch` — download a list of documents (same shape, up to 100 per call).
+- `POST /downloads/batch` — download a list of documents (same shape, up to 100 per call).
 
   ```json
   { "documents": [{ "url": "https://vanban.chinhphu.vn/?pageid=27160&docid=219000" }] }
   ```
 
-- `GET /laws/downloads/search` — search documents via the "TÌM KIẾM VĂN BẢN" filter form (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and return matching document detail URLs without downloading.
+- `GET /downloads/search` — search documents via the "TÌM KIẾM VĂN BẢN" filter form (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and return matching document detail URLs without downloading.
 
-- `POST /laws/downloads/search` — replays the "TÌM KIẾM VĂN BẢN" filter form at `vanban.chinhphu.vn/?pageid=41852&mode=0` (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and downloads matches, paginating as needed up to `maxResults`.
+- `POST /downloads/search` — replays the "TÌM KIẾM VĂN BẢN" filter form at `vanban.chinhphu.vn/?pageid=41852&mode=0` (keyword, Lĩnh vực, Cơ quan ban hành, Năm ban hành) and downloads matches, paginating as needed up to `maxResults`.
 
   ```json
   { "keyword": "đất đai", "year": "2024", "maxResults": 20, "dryRun": true }
@@ -67,30 +67,31 @@ Downloading, all under `/laws/downloads`:
 
 Downloads are sequential with a small delay between requests to `vanban.chinhphu.vn` — this is a shared government server, not a CDN.
 
-## Law index (vbpl.vn -> Postgres)
+## Crawl (vbpl.vn + vanban.chinhphu.vn -> Postgres)
 
-`src/law-index/` is a separate, independent workflow from the download module above — see [../CLAUDE.md](../CLAUDE.md) for why the two are deliberately kept decoupled. Where `src/law/` builds a raw-file corpus on disk from vanban.chinhphu.vn, `src/law-index/` scrapes [vbpl.vn](https://vbpl.vn/) ("Cơ sở dữ liệu quốc gia về pháp luật", Bộ Tư pháp) and writes structured rows into Postgres — the actual ingestion path for the RAG/chatbot system. Scoped to **Trung ương only** (tiers 1–9, Điều 4 Luật 64/2025/QH15) — central-issued documents have nationwide effect; local (tiers 10–14) documents don't and aren't in scope.
+`src/crawl/` is a separate, independent workflow from the download/catalog/utils modules above — see [../CLAUDE.md](../CLAUDE.md) for why the two are deliberately kept decoupled. Where those build a raw-file corpus on disk from vanban.chinhphu.vn, `src/crawl/` writes structured rows into Postgres — the actual ingestion path for the RAG/chatbot system. Its primary source is [vbpl.vn](https://vbpl.vn/) ("Cơ sở dữ liệu quốc gia về pháp luật", Bộ Tư pháp), scoped to **Trung ương only** (tiers 1–9, Điều 4 Luật 64/2025/QH15) — central-issued documents have nationwide effect; local (tiers 10–14) documents don't and aren't in scope. vanban.chinhphu.vn is also indexed here as a **supplementary** source — see its own bullet below for exactly what that does and doesn't cover.
 
-vbpl.vn is a Next.js SPA whose document data (attributes, full text, relationship diagram) is rendered client-side, not present in the raw HTML — this module drives a real headless browser (Playwright) rather than a plain HTTP client. Run `npm run playwright:install` once after `npm install` to fetch the Chromium binary.
+vbpl.vn is a Next.js SPA whose document data (attributes, full text, relationship diagram) is rendered client-side, not present in the raw HTML — this module drives a real headless browser (Playwright) rather than a plain HTTP client for that source. Run `npm run playwright:install` once after `npm install` to fetch the Chromium binary.
 
 Setup:
 
 ```bash
 npm run playwright:install   # one-time, downloads Chromium
-npm run db:generate          # generate a migration from src/law-index/persistence/schema/
+npm run db:generate          # generate a migration from src/persistence/schema/
 npm run db:migrate           # apply it (needs postgres up — docker compose up -d postgres)
 ```
 
-Endpoints, under `/laws/index`:
+Endpoints:
 
-- `POST /laws/index/crawl/url` — scrape and upsert one document from its vbpl.vn detail page URL.
-- `POST /laws/index/crawl/all` — crawl the trung-ương sitemap block and sync every document found. Pass `limit` for a smoke test — an unbounded crawl is one very long-running request (no resumable cursor/job-queue yet).
-- `GET /laws/index/crawl/search` — targeted/filtered search against vbpl.vn/van-ban/trung-uong (keyword, Nhóm văn bản / Cơ quan ban hành / Hình thức văn bản checkboxes, Tình trạng hiệu lực, date ranges). Read-only, hits the live site — returns matches with a `sourceUrl` usable as `crawl/url`'s `url`, doesn't sync anything itself.
-- `GET /laws/index/search` — same filter shape, but queries already-synced rows in Postgres instead of scraping vbpl.vn. Only a subset of the filters is actually honored against local data: keyword (title or citation), `documentTypes`, `issuingBodies`, `validityStatus`, and the issued/effective date ranges. `documentGroups`, `searchScope`, `exactPhrase`, and `expiredFrom`/`expiredTo` are accepted (same DTO) but silently ignored — there's no persisted document-group or expiry-date field to filter on yet — and an unrecognized `validityStatus` is also silently ignored (matches everything) rather than erroring. `expiryDate` in the response is always `null` for the same reason.
+- `POST /crawl/url` — scrape and upsert one document from its vbpl.vn detail page URL. Full pipeline: attributes, full text, document_node tree, and document_reference relations resolved from vbpl.vn's own "Lược đồ" tab.
+- `POST /crawl/chinhphu/url` — scrape and upsert one document from its vanban.chinhphu.vn detail page URL — a **supplementary** source alongside vbpl.vn, never overwriting a document already indexed under the same citation from another source. **Known, permanent limitation:** vanban.chinhphu.vn has no curated relationship graph the way vbpl.vn does, so documents synced through this endpoint get **zero document_reference rows**, in either direction, ever — not just until some feature ships. It also has no server-rendered full text (only downloadable PDF/DOC/RTF attachments), so today every synced document is metadata-only (`indexScope: 'metadata_only'`, no document_node tree) until a document-processing/OCR tool is wired into `DOCUMENT_TEXT_EXTRACTOR` — see `src/crawl/document-text-extractor.ts`.
+- `POST /crawl/all` — crawl the trung-ương sitemap block and sync every vbpl.vn document found. Pass `limit` for a smoke test — an unbounded crawl is one very long-running request (no resumable cursor/job-queue yet).
+- `GET /crawl/search` — targeted/filtered search against vbpl.vn/van-ban/trung-uong (keyword, Nhóm văn bản / Cơ quan ban hành / Hình thức văn bản checkboxes, Tình trạng hiệu lực, date ranges). Read-only, hits the live site — returns matches with a `sourceUrl` usable as `POST /crawl/url`'s `url`. If vbpl.vn returns zero matches for these filters (or rejects an unrecognized issuing-body value), automatically falls back to a read-only search against vanban.chinhphu.vn using the subset of filters it can express (keyword, one issuing body, one issuing year — see `src/crawl/fallback-search.service.ts`), returning a `{ source, result }` envelope so the caller knows which site actually answered. Either way, this endpoint itself only searches, it never syncs anything.
+- `GET /retrieve` — same filter shape as `GET /crawl/search`, but queries already-synced rows in Postgres instead of scraping vbpl.vn. Only a subset of the filters is actually honored against local data: keyword (title or citation), `documentTypes`, `issuingBodies`, `validityStatus`, and the issued/effective date ranges. `documentGroups`, `searchScope`, `exactPhrase`, and `expiredFrom`/`expiredTo` are accepted (same DTO) but silently ignored — there's no persisted document-group or expiry-date field to filter on yet — and an unrecognized `validityStatus` is also silently ignored (matches everything) rather than erroring. `expiryDate` in the response is always `null` for the same reason.
 
   Array-valued filters (`documentTypes`, `issuingBodies`, `documentGroups`) work as either a single query param (`?documentTypes=Luật`) or a repeated one for multiple values (`?documentTypes=Luật&documentTypes=Bộ+luật`) — both endpoints being `@Query()`-bound now (not `@Body()`), a lone occurrence would otherwise arrive as a bare string and fail `IsArray()` validation; the DTO coerces it into a one-element array first.
 
-Document-level only for now — the Điều/Khoản/Điểm hierarchy (`document_node`) and everything downstream of Postgres (OpenSearch/ChromaDB/Neo4j projectors, CDC) are later, separately-planned phases.
+Document-level only for now — the Điều/Khoản/Điểm hierarchy (`document_node`) and everything downstream of Postgres (OpenSearch/ChromaDB/Neo4j projectors, CDC) are later, separately-planned phases (except where noted above, vanban.chinhphu.vn is metadata-only regardless of that timeline).
 
 Browsing what's already downloaded (reads `laws/manifest.json` and the filesystem — never touches `vanban.chinhphu.vn`):
 

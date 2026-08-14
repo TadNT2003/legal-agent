@@ -1,0 +1,8 @@
+# Document samples (copies of already-gitignored laws/ data, or fresh downloads)
+samples/
+
+# Conversion outputs
+outputs/
+
+*.pyc
+__pycache__/

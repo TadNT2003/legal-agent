@@ -1,25 +1,45 @@
 // Legal Agent — Database Schema (Postgres, source of truth)
-// Last revised: 28/07/2026
+// Last revised: 11/08/2026
 //
 // Notes:
-//   - Status: PROPOSAL, not yet implemented — no migrations exist for this schema yet.
-//   - OpenSearch, Neo4j, and the vector store (Qdrant / ChromaDB / ClickHouse — still under
-//     evaluation, see DATABASE_DESIGN.md §4) are NOT modeled here. They are derived read views
-//     projected from this schema via a proposed CDC pipeline (see README.md#cdc-pipeline-proposed).
-//     The Neo4j relationship taxonomy (MODIFIES/CITES/IMPLEMENTS/CONSOLIDATES) is designed to be
-//     a close 1:1 translation of document_reference rows — see DATABASE_DESIGN.md §2.
-//   - Modeled for the Vietnamese legal system specifically, per Luật Ban hành văn bản quy phạm
-//     pháp luật số 64/2025/QH15 and its implementing Nghị định 78/2025/NĐ-CP — document_type
-//     and document_node's hierarchy are not a generic/Western template.
+//   - Status: `issuing_body`, `document`, `document_node`, `document_reference`,
+//     `agent_sessions`, and `agent_reply_targets` are IMPLEMENTED — migrations
+//     exist under server/src/law-index/persistence/migrations/ (law index) and
+//     agent-bot/src/db/migrations/ (agent bot). `document_sync_state` (and
+//     the CDC pipeline that would populate it) remains PROPOSAL ONLY — see
+//     README.md#cdc-pipeline-proposed.
+//   - This file mirrors server/src/law-index/persistence/schema/*.schema.ts,
+//     which is the authoritative definition where the two disagree. It is a
+//     *revision* of the original proposal, not a subset/superset of it —
+//     cross-checking that proposal against vbpl.vn's real UI found real gaps
+//     (missing `document` columns, a `reference_type`/`change_type` taxonomy
+//     too coarse for vbpl.vn's actual relation categories, a `node_type`
+//     missing `phu_luc`, ...) and this file was revised accordingly. Each
+//     deviation from the original proposal is called out inline below; see
+//     the schema files' own comments for further detail.
+//   - OpenSearch, Neo4j, and the vector store (Qdrant / ChromaDB / ClickHouse —
+//     still under evaluation, see docs/database-design.md §4) are NOT modeled
+//     here and remain proposal-only — no projector code exists yet. The
+//     Neo4j relationship taxonomy (MODIFIES/CITES/IMPLEMENTS/CONSOLIDATES) is
+//     designed to be a close 1:1 translation of document_reference rows —
+//     see docs/database-design.md §2.
+//   - Modeled for the Vietnamese legal system specifically, per Luật Ban hành
+//     văn bản quy phạm pháp luật số 64/2025/QH15 and its implementing Nghị
+//     định 78/2025/NĐ-CP — `document_node`'s hierarchy is not a generic/
+//     Western template.
 //   - All date fields are calendar dates (no time component) unless noted otherwise.
 //   - Fields marked "ro" are immutable after record creation.
-//   - Fields marked "auto-computed" are maintained by application/CDC logic, not direct writes.
+//   - Fields marked "auto-computed" are maintained by application logic, not direct writes.
 
 // ============================================================
 // Enums
 // ============================================================
 
-Enum document_type {
+// Reference only — Điều 4, Luật 64/2025/QH15's 14-tier authority hierarchy
+// that issuing_body.authority_rank's ordering is derived from. NOT the type
+// of document.document_type (see the document table below) — vbpl.vn's raw
+// "Loại văn bản" text is stored there instead of this enum for now.
+Enum document_type_tier {
   hien_phap                   [note: '(1) Hiến pháp — Constitution']
   bo_luat                     [note: '(2) Bộ luật — Code, e.g. Bộ luật Dân sự']
   luat                        [note: '(2) Luật — Law']
@@ -57,8 +77,16 @@ Enum node_type {
   dieu       [note: 'Điều — Article; the only mandatory level, numbered from 1']
   khoan      [note: 'Khoản — Clause; optional under Điều']
   diem       [note: 'Điểm — Point; optional under Khoản']
+  phu_luc    [note: 'Phụ lục — Appendix. Not in the original proposal — added because vbpl.vn documents commonly attach one or more appendices. Always a root-level sibling of the document\'s top-level Chương/Điều nodes, never nested under one; see content_class below for how its content is gated for downstream indexing.']
 }
-// Order and optionality per Điều 63 khoản 1, Nghị định 78/2025/NĐ-CP.
+// Order and optionality of phan..diem per Điều 63 khoản 1, Nghị định 78/2025/NĐ-CP.
+
+Enum content_class {
+  normative [note: 'flows into OpenSearch/ChromaDB/Neo4j once those projectors exist — danh mục/bảng/repeal-replacement lists']
+  template  [note: 'stops at Postgres, audit only — blank biểu mẫu forms']
+}
+// Only meaningful when node_type = phu_luc; null for every other node_type.
+// Not in the original proposal.
 
 Enum validity_status {
   con_hieu_luc            [note: 'còn hiệu lực — in force']
@@ -68,32 +96,56 @@ Enum validity_status {
   ngung_hieu_luc          [note: 'ngưng hiệu lực — temporarily suspended, per Điều 56']
 }
 
-Enum reference_type {
-  cites                [note: 'informational reference only — does not change target validity']
-  amends               [note: 'requires change_type; same-issuing-authority rule applies — Điều 8.1']
-  repeals              [note: 'bãi bỏ — Điều 8.2']
-  supersedes_partially [note: 'target partially replaced, rest remains in force']
-  consolidated_by      [note: 'points from an original document to its văn bản hợp nhất — Điều 65.1']
-  implements           [note: 'quy định chi tiết / hướng dẫn thi hành — deterministic from Căn cứ preamble or the parent\'s own điều khoản thi hành list, e.g. Điều 71.5 of Luật 64/2025/QH15']
-  corrects             [note: 'đính chính — technical correction only (typo/format/legal-basis error); explicitly does NOT change legal content — Điều 9, Nghị định 78/2025/NĐ-CP']
-  defines_term         [note: 'giải thích từ ngữ reference']
+Enum index_scope {
+  full
+  metadata_only [note: 'designed for tier-4 Lệnh/Quyết định CTN-style short administrative notices with no real Điều/Khoản subdivision — see docs/database-design.md §1a. No per-document_type gating logic exists yet; every scraped document currently defaults to full.']
 }
+// Not in the original proposal.
+
+Enum reference_type {
+  cites        [note: 'informational reference only — does not change target validity']
+  amends       [note: 'requires change_type; same-issuing-authority rule applies — Điều 8.1']
+  repeals      [note: 'bãi bỏ — Điều 8.2']
+  corrects     [note: 'đính chính — technical correction only (typo/format/legal-basis error); explicitly does NOT change legal content — Điều 9, Nghị định 78/2025/NĐ-CP']
+  implements   [note: 'quy định chi tiết / hướng dẫn thi hành — deterministic from Căn cứ preamble or the parent\'s own điều khoản thi hành list, e.g. Điều 71.5 of Luật 64/2025/QH15']
+  guides       [note: 'added post-proposal — vbpl.vn tracks "hướng dẫn" as its own distinct relation category, separate from implements']
+  has_basis    [note: 'added post-proposal — the "Căn cứ ban hành" legal-basis relationship, tracked as its own relation category on vbpl.vn']
+  explains     [note: 'added post-proposal — distinct relation category from defines_term']
+  promulgates  [note: 'added post-proposal — the "công bố" relationship (e.g. a Lệnh của Chủ tịch nước promulgating a Luật); left as an explicitly undecided open question in the original proposal (database-design.md §1a), resolved once vbpl.vn\'s own relation taxonomy was cross-checked']
+  defines_term [note: 'giải thích từ ngữ reference — not sourced from vbpl.vn\'s Lược đồ tab today, kept for a future LLM-based definition-extraction use case']
+}
+// Extended and pruned vs. the original 8-value proposal: `supersedes_partially`
+// and `consolidated_by` were dropped as redundant with
+// document.is_consolidated / document.consolidates_document_id; `guides`,
+// `has_basis`, `explains`, and `promulgates` were added — vbpl.vn tracks each
+// as its own distinct relation category rather than collapsing them into
+// `implements`/nothing the way the original proposal did.
 
 Enum change_type {
-  replace   [note: 'sửa đổi']
-  add       [note: 'bổ sung']
-  repeal    [note: 'bãi bỏ']
-  suspend   [note: 'tạm ngưng hiệu lực — Điều 56; may be self-initiated by the issuing body or imposed via đình chỉ thi hành from an oversight authority']
+  replace           [note: 'sửa đổi']
+  suspend_execution [note: 'đình chỉ thi hành — Điều 3.1; imposed by a superior oversight authority']
+  suspend_effect    [note: 'tạm ngưng hiệu lực — Điều 56; may be self-initiated by the issuing body']
 }
+// Only 3 values vs. the original proposal's 4 (replace/add/repeal/suspend),
+// and not a subset: `repeal` was dropped as redundant with the standalone
+// `repeals` reference_type above; `add` was dropped as not distinguishable
+// from a generic `amends` at document-level granularity (only knowable once
+// per-node amendment diffing exists). The original single `suspend` was
+// split into suspend_execution/suspend_effect — two legally distinct
+// concepts vbpl.vn itself tracks as separate relation categories.
 
 Enum extraction_method {
   deterministic  [note: 'regex/parser over citation and Căn cứ grammar — Điều 62/68, Nghị định 78/2025/NĐ-CP']
   llm            [note: 'NER/relation extraction — LLMGraphTransformer or GraphRAG; used only where deterministic parsing cannot resolve the reference']
 }
 
+// PROPOSAL ONLY below this line — no code or migration exists yet for
+// document_sync_state or the CDC pipeline that would populate it. Kept here
+// as forward design reference; see README.md#cdc-pipeline-proposed.
+
 Enum sync_target {
   opensearch    [note: 'BM25 / lexical index']
-  vector_store  [note: 'semantic index — engine (Qdrant/ChromaDB/ClickHouse) still under evaluation, see DATABASE_DESIGN.md §4']
+  vector_store  [note: 'semantic index — engine (Qdrant/ChromaDB/ClickHouse) still under evaluation, see docs/database-design.md §4']
   neo4j         [note: 'knowledge graph']
 }
 
@@ -111,11 +163,11 @@ Enum sync_status {
 Table issuing_body {
   // Identification
   id      uuid    [pk, not null, note: 'ro']
-  name    varchar [not null, note: 'e.g. Quốc hội, Chính phủ, Bộ Tài chính']
+  name    varchar [not null, unique, note: 'unique constraint not in the original proposal']
   name_en varchar [note: 'English name, optional']
 
   // Hierarchy
-  authority_rank int           [not null, note: 'lower = higher legal authority; drives precedence resolution per Điều 58.3 — see document_type enum for the canonical (1)-(14) ordering it is derived from']
+  authority_rank int           [not null, note: 'lower = higher legal authority; drives precedence resolution per Điều 58.3 — see document_type_tier enum for the canonical (1)-(14) ordering it is derived from']
   scope          issuing_scope [not null, default: 'national']
   parent_body_id uuid          [ref: > issuing_body.id, note: 'nullable — e.g. a department under a ministry']
 
@@ -128,25 +180,32 @@ Table issuing_body {
 
 Table document {
   // Identification
-  id            uuid          [pk, not null, note: 'ro']
-  citation_id   varchar       [unique, not null, note: 'ro — e.g. "45/2019/QH14", "78/2025/NĐ-CP"; format per Điều 7 khoản 3, Luật 64/2025/QH15']
-  title         varchar       [not null]
-  document_type document_type [not null]
+  id            uuid    [pk, not null, note: 'ro']
+  citation_id   varchar [unique, not null, note: 'ro — e.g. "45/2019/QH14", "78/2025/NĐ-CP"; format per Điều 7 khoản 3, Luật 64/2025/QH15']
+  title         varchar [not null]
+  document_type varchar [not null, note: 'DEVIATES from the original proposal, which modeled this as the document_type_tier enum. Stores vbpl.vn\'s raw "Loại văn bản" text instead (e.g. "Thông tư") — the trung-ương/địa-phương scope filter already comes from the page\'s own breadcrumb, so tier classification isn\'t load-bearing for scope filtering the way it is in the vanban.chinhphu.vn download module. A real classifier is a revisit item now that document_node exists and OpenSearch/ChromaDB chunking needs tier-specific rules.']
 
   // Issuance
-  issuing_body_id        uuid [not null, ref: > issuing_body.id]
-  enacted_date           date [not null, note: 'ngày thông qua / ký ban hành']
-  effective_date         date [note: 'nullable until published — Điều 53: no earlier than 45 days (central) / 10 days (local) after enacted_date, unless issued via rút gọn/đặc biệt procedure']
-  gazette_published_date date [note: 'ngày đăng công báo điện tử']
+  issuing_body_id         uuid [not null, ref: > issuing_body.id]
+  industry                varchar [note: 'Ngành — not in the original proposal; vbpl.vn exposes this on every document\'s attributes tab with no existing column to hold it']
+  field                   varchar [note: 'Lĩnh vực — not in the original proposal, same rationale as industry']
+  signer_name              varchar [note: 'Người ký — not in the original proposal, same rationale as industry']
+  signer_title              varchar [note: 'Chức danh — not in the original proposal, same rationale as industry']
+  enacted_date            date [not null, note: 'ngày thông qua / ký ban hành']
+  effective_date          date [note: 'nullable until published — Điều 53: no earlier than 45 days (central) / 10 days (local) after enacted_date, unless issued via rút gọn/đặc biệt procedure']
+  expiry_date             date [note: 'Ngày hết hiệu lực — not in the original proposal. vbpl.vn exposed it all along and vbpl.parser.ts parsed it into expiryDateRaw (which is hashed into content_version), but there was no column to hold it, so the value was discarded on every scrape and the validity interval had a start with no end. Null is the intended value rather than a gap: a document still in force has no closing end, which is what makes `expiry_date IS NULL OR expiry_date > :as_of` the correct point-in-time filter — same convention as document_node.valid_to. Confirmed live that vbpl.vn supplies no date for het_hieu_luc_mot_phan or ngung_hieu_luc documents either (both remain in force as a whole), so only full expiry closes the interval; null alongside a het_hieu_luc status is therefore the one combination that does signal missing data, and is worth flagging at ingest.']
+  gazette_published_date  date [note: 'ngày đăng công báo điện tử. Column exists but nothing writes it — vbpl.vn does not render a công báo date on its attributes tab, so this stays null for every row scraped by law-index. Read back by the retrieve endpoints only. Either drop it or source it elsewhere; do not mistake it for a field with data.']
 
   // Lifecycle
-  status                    validity_status [note: 'nullable, not not-null as originally designed — vbpl.vn omits the "Tình trạng hiệu lực" attribute entirely on some very-recently-issued documents (confirmed live, e.g. Luật Trí tuệ nhân tạo số 134/2025/QH15); an upstream data gap rather than a scrape failure, so the row is still persisted with status = null instead of being rejected']
+  status                    validity_status [note: 'nullable — vbpl.vn omits the "Tình trạng hiệu lực" attribute entirely on some very-recently-issued documents (confirmed live, e.g. Luật Trí tuệ nhân tạo số 134/2025/QH15); an upstream data gap rather than a scrape failure, so the row is still persisted with status = null instead of being rejected']
+  index_scope               index_scope [not null, default: 'full', note: 'not in the original proposal — see index_scope enum above']
   is_consolidated           boolean [not null, default: false, note: 'true if this row is a văn bản hợp nhất (Điều 65.1) rather than an original enactment']
-  consolidates_document_id  uuid    [ref: > document.id, note: 'nullable — set only when is_consolidated = true; points to the original document this row consolidates']
+  consolidates_document_id  uuid    [ref: > document.id, note: 'nullable — set only when is_consolidated = true; points to the original document this row consolidates. Single FK, lossy for a hợp nhất document that merges more than one source (rare but real) — the full raw title list from vbpl.vn\'s "Văn bản hợp nhất" section is kept in raw_source for audit even when only the first resolved match ends up here; a proper many-to-many representation is a follow-up.']
 
   // Content
-  raw_source      jsonb   [note: 'original ingested text/XML, kept for audit and re-parse']
-  content_version varchar [not null, note: 'auto-computed — content hash; bumped on any change; drives CDC']
+  raw_source              jsonb   [note: 'original ingested text/XML, kept for audit and re-parse. Shape: { fullText, scrapedAt, sourceUrl, consolidatesRawTitles, consolidatedIntoRawTitles }.']
+  original_document_urls  varchar[] [not null, default: '{}', note: 'not in the original proposal — direct download URLs for vbpl.vn\'s "Văn bản gốc" tab (the scanned original file(s) vbpl.vn itself renders via its PDF viewer for every document). Constructed from the vbpl.vn internal document id plus each file\'s name, not scraped as a literal href. Empty array, not null, when vbpl.vn reports zero files.']
+  content_version          varchar [not null, note: 'auto-computed — SHA-256 of fullText + key attribute fields; bumped on any change. Drives cheap re-scrape idempotency today (skip the write if unchanged) and will drive CDC once that pipeline exists.']
 
   // Management Metadata
   created_at timestamp [not null]
@@ -159,30 +218,31 @@ Table document_node {
   // Identification
   id          uuid [pk, not null, note: 'ro']
   document_id uuid [not null, ref: > document.id, note: 'ro']
-  parent_id   uuid [ref: > document_node.id, note: 'ro — null for a document\'s top-level nodes; self-referencing adjacency list, the source of truth for the tree (path below is derived from this)']
+  parent_id   uuid [ref: > document_node.id, note: 'ro — null for a document\'s top-level nodes (including every phu_luc — see node_type above); self-referencing adjacency list, the source of truth for the tree (path below is derived from this)']
 
   // Structure
-  node_type node_type [not null]
-  path      ltree      [not null, note: 'auto-computed materialized path mirroring parent_id, e.g. chuong2.muc1.dieu5.khoan2 — kept only for fast ancestor/descendant queries; parent_id wins on any disagreement']
-  ordinal   varchar    [not null, note: 'sibling order key; alphanumeric — an inserted amendment appends a letter (e.g. "5a") rather than renumbering siblings, per Điều 69.4, Nghị định 78/2025/NĐ-CP']
-  label     varchar    [not null, note: 'e.g. "Điều 5" — always present regardless of node_type']
-  heading   varchar    [note: 'required for phan/chuong/muc/tieu_muc/dieu per Điều 63.3; null for khoan/diem']
+  node_type     node_type     [not null]
+  content_class content_class [note: 'not in the original proposal — only meaningful when node_type = phu_luc, null otherwise; see content_class enum above']
+  path          ltree         [not null, note: 'auto-computed materialized path mirroring parent_id, e.g. chuong2.muc1.dieu5.khoan2 — kept only for fast ancestor/descendant queries (GiST-indexed); parent_id wins on any disagreement. No native ltree column type in drizzle-orm 0.45.2 — implemented via a customType escape hatch, and the GiST index (gist_ltree_ops opclass) is hand-added in the migration SQL since drizzle-orm can\'t express that opclass through its index builder.']
+  ordinal       varchar       [not null, note: 'sibling order key; alphanumeric — an inserted amendment appends a letter (e.g. "5a") rather than renumbering siblings, per Điều 69.4, Nghị định 78/2025/NĐ-CP. DEVIATES from docs/database-design.md\'s narrative design, which proposed a separate ordinal_suffix column — the letter suffix is embedded directly in this single field instead (no ordinal_suffix column exists).']
+  label         varchar       [not null, note: 'e.g. "Điều 5" — always present regardless of node_type']
+  heading       varchar       [note: 'required for phan/chuong/muc/tieu_muc/dieu per Điều 63.3; null for khoan/diem']
 
   // Content
   text_content varchar [note: 'null for pure container nodes (e.g. a Chương that only holds a heading); real prose for leaf/atomic nodes']
-  content_hash varchar [note: 'auto-computed — drives downstream re-chunk/re-embed/re-index diffing']
+  content_hash varchar [not null, note: 'auto-computed — drives downstream re-chunk/re-embed/re-index diffing once a projector exists to consume it']
 
   // Lifecycle
-  status                 validity_status [not null]
-  valid_from              date [not null]
-  valid_to                date [note: 'null = still current']
+  status                 validity_status [note: 'DEVIATES from the original proposal, which had this not-null. Nullable here, mirroring document.status\'s own nullability precedent: no per-node amendment/validity diffing exists yet (needs the CDC pipeline), so every node\'s status is simply inherited from its parent document at build time, and a document with unknown status can\'t populate a not-null child column either.']
+  valid_from              date [not null, note: 'inherited from the parent document (effective_date, falling back to enacted_date) at build time — real per-node valid_from tracking is future work, same CDC dependency as status above']
+  valid_to                date [note: 'null = still current. Always null this pass — no amendment history exists to close a row out yet.']
   superseded_by_node_id   uuid [ref: > document_node.id, note: 'nullable — set when a later amendment closes this row out']
 
   indexes {
-    path [type: gist, note: 'ltree GiST index — enables path <@ / @> ancestor-descendant queries without recursion']
+    path [type: gist, note: 'ltree GiST index (gist_ltree_ops) — enables path <@ / @> ancestor-descendant queries without recursion. Hand-added in migration SQL, not expressible via drizzle-orm\'s index builder.']
   }
 
-  Note: 'One row per structural unit at ANY level (Phần/Chương/Mục/Tiểu mục/Điều/Khoản/Điểm) — not a fixed one-row-per-Điều model. Only Điều is mandatory; every other level is optional (Điều 63.1, Nghị định 78/2025/NĐ-CP). The atomic/citable unit consumed downstream (ChromaDB chunking, Neo4j :Provision) is Khoản, or the Điều itself when that Điều has no Khoản children.'
+  Note: 'One row per structural unit at ANY level (Phần/Chương/Mục/Tiểu mục/Điều/Khoản/Điểm/Phụ lục) — not a fixed one-row-per-Điều model. Only Điều is mandatory; every other level is optional (Điều 63.1, Nghị định 78/2025/NĐ-CP). A phu_luc node is always root-level and, once opened, does not itself get parsed into further structural children — its whole body is flat text_content on that one row. Built by document-node.repository.ts::syncNodes() as a full delete-and-reinsert per document, gated by document.content_version the same way document-level writes are.'
 }
 
 // ============================================================
@@ -195,24 +255,56 @@ Table document_reference {
 
   // Source — a reference may originate from a whole document or one specific node
   source_document_id uuid [ref: > document.id,      note: 'nullable — set for document-level references, e.g. this Luật replacing that Luật in its điều khoản thi hành']
-  source_node_id      uuid [ref: > document_node.id, note: 'nullable — set for node-level references, e.g. one Khoản amending another']
+  source_node_id      uuid [ref: > document_node.id, note: 'nullable — set for node-level references, e.g. one Khoản amending another. Schema-only: no logic populates this yet — citation-to-specific-node resolution (parsing "khoản 2 Điều 5 của ..." out of relation raw text down to an exact document_node row, not just the whole document) is a separate, larger feature than the document_node tree itself.']
 
   // Target — same nullable-pair pattern
   target_document_id uuid [ref: > document.id,      note: 'nullable']
-  target_node_id      uuid [ref: > document_node.id, note: 'nullable']
+  target_node_id      uuid [ref: > document_node.id, note: 'nullable — same schema-only caveat as source_node_id']
 
   // Classification
   reference_type    reference_type    [not null]
   change_type        change_type       [note: 'set only when reference_type = amends; null otherwise']
   raw_citation_text  varchar           [not null, note: 'the literal citation text as written in the source, following the viện dẫn grammar in Điều 68, Nghị định 78/2025/NĐ-CP']
-  extraction_method  extraction_method [not null]
+  extraction_method  extraction_method [not null, default: 'deterministic']
   confidence         float             [note: 'null for deterministic extraction; set (0.0-1.0) for llm-extracted references']
 
-  Note: 'Explicit citation/relationship, one row per reference. Citations and amendments are extractable deterministically — Điều 8.3 mandates the amending document name the target explicitly. LLM extraction is reserved for implicit relationships. Designed to map close to 1:1 onto the Neo4j relationship taxonomy — see DATABASE_DESIGN.md §2.'
+  // Management Metadata
+  created_at timestamp [not null, note: 'not in the original proposal']
+
+  Note: 'Explicit citation/relationship, one row per reference. Citations and amendments are extractable deterministically — Điều 8.3 mandates the amending document name the target explicitly. LLM extraction is reserved for implicit relationships. Designed to map close to 1:1 onto the Neo4j relationship taxonomy — see docs/database-design.md §2. Deliberately no DB-level unique index for dedup: a partial unique index (source/target/type/change_type WHERE target IS NULL, and its mirror) hit a real Postgres footgun on a live re-scrape — standard unique indexes never treat two NULLs as equal, so rows with a null change_type (the common case, since only `amends` ever sets one) never actually conflicted, and duplicates piled up on every re-sync. The proper fix needs `NULLS NOT DISTINCT`, which the installed drizzle-orm version can\'t express for a partial index — deduping is done at the application layer instead (document.repository.ts\'s insertReferenceIfNotExists).'
 }
 
 // ============================================================
-// CDC Sync State
+// Agent Bot — Session State
+// ============================================================
+// Lives in the same `legal_agent` database as the server tables. Schema
+// defined in agent-bot/src/schema/session.schema.ts; migration under
+// agent-bot/src/db/migrations/. The agent-bot uses an in-memory LRU cache
+// (max 500 entries, 7-day staleness threshold) pre-warmed from this table on
+// startup; the DB is the authoritative source of truth across process restarts.
+
+Table agent_sessions {
+  id               uuid       [pk, not null, note: 'auto-generated UUID for the session']
+  discord_user_id  varchar    [note: 'nullable — set when the session originates from a Discord DM or guild channel']
+  discord_channel_id varchar  [note: 'nullable — set for guild-channel sessions; null for DMs and HTTP-only sessions']
+  messages         jsonb      [not null, default: '[]', note: 'chat completion message history — array of { role, content, ... } objects']
+  created_at       timestamp  [not null, note: 'session creation time']
+  updated_at       timestamp  [not null, note: 'last message added; drives 7-day staleness filter on startup']
+
+  Note: 'One row per conversation session. Created lazily on first message. Persisted to DB on every turn. The in-memory cache in PgSessionStore is warm-only; DB is the source of truth.'
+}
+
+Table agent_reply_targets {
+  id                uuid    [pk, not null, note: 'auto-generated UUID']
+  session_id        uuid    [not null, ref: > agent_sessions.id, note: 'cascade delete — a reply target is meaningless without its session']
+  discord_message_id varchar [not null, unique, note: 'the Discord message ID that started or continued this session; unique index prevents duplicate links']
+  created_at        timestamp [not null, note: 'when the reply target was linked']
+
+  Note: 'Maps a Discord message ID to its agent session, enabling the bot to continue a conversation in the correct context when a user replies to a specific bot message. Populated by PgSessionStore.linkReplyTarget() with onConflictDoNothing.'
+}
+
+// ============================================================
+// CDC Sync State — PROPOSAL ONLY, not yet implemented
 // ============================================================
 
 Table document_sync_state {
@@ -230,5 +322,5 @@ Table document_sync_state {
     (document_id, target) [pk]
   }
 
-  Note: 'Per-target CDC sync tracking — the ground truth for "is this document actually in sync," and the input to the reconciliation job. Proposed design, not yet implemented — see README.md#cdc-pipeline-proposed.'
+  Note: 'Per-target CDC sync tracking — the ground truth for "is this document actually in sync," and the input to the reconciliation job. PROPOSAL ONLY — no migration or code exists for this table yet; see README.md#cdc-pipeline-proposed.'
 }
