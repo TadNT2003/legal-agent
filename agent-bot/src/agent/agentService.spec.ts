@@ -1,8 +1,11 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type OpenAI from 'openai';
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
-import type { McpToolCaller } from './agentService.js';
+import type {
+  ChatCompletionChunk,
+  ChatCompletionMessageParam,
+} from 'openai/resources/chat/completions';
+import type { McpToolCaller, StreamEvent } from './agentService.js';
 import { AgentService } from './agentService.js';
 import type { ProgressEvent } from './agentService.js';
 
@@ -28,16 +31,21 @@ interface CreateCallArgs {
     tool_call_id?: string;
   }>;
   tools: unknown[];
+  stream?: boolean;
 }
 
 type CreateMock = jest.Mock<
   (args: CreateCallArgs) => Promise<MockChatCompletion>
 >;
 
+type CreateMockAny = jest.Mock<
+  (args: CreateCallArgs) => Promise<unknown>
+>;
+
 interface MockOpenAi {
   chat: {
     completions: {
-      create: CreateMock;
+      create: CreateMock | CreateMockAny;
     };
   };
 }
@@ -94,6 +102,7 @@ function finalResponse(content: string): MockChatCompletion {
 const NO_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
 const SYSTEM_PROMPT = 'test system prompt';
 const NO_HISTORY: ChatCompletionMessageParam[] = [];
+const MAX_TOOL_ROUNDS_MINUS_ONE = 4;
 
 describe('AgentService', () => {
   it('seeds the system prompt on a fresh (empty-history) call', async () => {
@@ -304,4 +313,176 @@ describe('AgentService', () => {
     };
     expect(parsed.error).toContain('Document not found');
   });
+
+  it('chatStream: streams token deltas through tool rounds to final answer', async () => {
+    const events: StreamEvent[] = [];
+    const onStream = (event: StreamEvent) => events.push(event);
+
+    const toolCall = toolCallResponse('search_documents', { keyword: 'test' });
+
+    const finalStream = makeStreamResponse(['Điều ', '5 ', 'nói ', 'về ', 'vốn ', 'điều ', 'lệ.']);
+
+    const create: CreateMockAny = jest.fn();
+    create.mockResolvedValueOnce(toolCall);
+    for (let i = 1; i < MAX_TOOL_ROUNDS_MINUS_ONE; i++) {
+      create.mockResolvedValueOnce(toolCall);
+    }
+    create.mockResolvedValueOnce(finalStream);
+    const openai: MockOpenAi = { chat: { completions: { create } } };
+    const callTool = buildMockToolCaller();
+    callTool.mockResolvedValue(textResult({ id: 'doc-1' }));
+    const service = new AgentService(
+      asOpenAi(openai),
+      'test-model',
+      callTool,
+      NO_TOOLS,
+      SYSTEM_PROMPT,
+    );
+
+    const result = await service.chatStream(NO_HISTORY, 'search', onStream);
+
+    expect(result.reply).toBe('Điều 5 nói về vốn điều lệ.');
+    const tokenEvents = events.filter((e) => e.type === 'token');
+    expect(tokenEvents).toHaveLength(7);
+    expect(tokenEvents[0]).toEqual({ type: 'token', text: 'Điều ' });
+    expect(tokenEvents[6]).toEqual({ type: 'token', text: 'lệ.' });
+    const doneEvent = events.find((e) => e.type === 'done');
+    expect(doneEvent).toBeTruthy();
+    expect(doneEvent).toHaveProperty('reply', 'Điều 5 nói về vốn điều lệ.');
+  });
+
+  it('chatStream: executes tool rounds non-streaming and streams only final answer', async () => {
+    const events: StreamEvent[] = [];
+    const onStream = (event: StreamEvent) => events.push(event);
+
+    const finalStream = makeStreamResponse(['Kết quả: ', 'tìm thấy ', '3 ', 'văn bản.']);
+
+    const create: CreateMockAny = jest.fn();
+    const toolResp = toolCallResponse('search_documents', { keyword: 'test' });
+    for (let i = 0; i < MAX_TOOL_ROUNDS_MINUS_ONE; i++) {
+      create.mockResolvedValueOnce(toolResp);
+    }
+    create.mockResolvedValueOnce(finalStream);
+    const openai: MockOpenAi = { chat: { completions: { create } } };
+    const callTool = buildMockToolCaller();
+    callTool.mockResolvedValue(textResult({ id: 'doc-1' }));
+    const service = new AgentService(
+      asOpenAi(openai),
+      'test-model',
+      callTool,
+      NO_TOOLS,
+      SYSTEM_PROMPT,
+    );
+
+    const result = await service.chatStream(NO_HISTORY, 'search test', onStream);
+
+    expect(result.reply).toBe('Kết quả: tìm thấy 3 văn bản.');
+    expect(create).toHaveBeenCalledTimes(MAX_TOOL_ROUNDS_MINUS_ONE + 1);
+    const firstCall = create.mock.calls[0][0];
+    expect(firstCall.stream).toBeUndefined();
+    const lastCall = create.mock.calls[MAX_TOOL_ROUNDS_MINUS_ONE][0];
+    expect(lastCall.stream).toBe(true);
+    expect(events).toContainEqual({ type: 'round_start', round: 0 });
+    expect(events).toContainEqual({ type: 'tool', round: 0, toolName: 'search_documents' });
+    const tokenEvents = events.filter((e) => e.type === 'token');
+    expect(tokenEvents).toHaveLength(4);
+  });
+
+  it('chatStream: returns non-streaming answer immediately when model responds without tool calls', async () => {
+    const events: StreamEvent[] = [];
+    const onStream = (event: StreamEvent) => events.push(event);
+
+    const create: CreateMockAny = jest.fn();
+    create.mockResolvedValueOnce(finalResponse('Direct answer.'));
+    const openai: MockOpenAi = { chat: { completions: { create } } };
+    const callTool = buildMockToolCaller();
+    const service = new AgentService(
+      asOpenAi(openai),
+      'test-model',
+      callTool,
+      NO_TOOLS,
+      SYSTEM_PROMPT,
+    );
+
+    const result = await service.chatStream(NO_HISTORY, 'quick', onStream);
+
+    expect(result.reply).toBe('Direct answer.');
+    expect(events).toContainEqual({ type: 'round_start', round: 0 });
+    expect(events).toContainEqual({ type: 'done', reply: 'Direct answer.', messages: expect.any(Array) });
+  });
+
+  it('chatStream: falls back to streaming final answer on last round', async () => {
+    const events: StreamEvent[] = [];
+    const onStream = (event: StreamEvent) => events.push(event);
+
+    const infiniteToolCall = toolCallResponse('get_document', { documentId: 'doc-1' });
+
+    const fallbackStream = makeStreamResponse(['Xin lỗi.']);
+
+    const create: CreateMockAny = jest.fn();
+    for (let i = 0; i < MAX_TOOL_ROUNDS_MINUS_ONE; i++) {
+      create.mockResolvedValueOnce(infiniteToolCall);
+    }
+    create.mockResolvedValueOnce(fallbackStream);
+    const openai: MockOpenAi = { chat: { completions: { create } } };
+    const callTool = buildMockToolCaller();
+    callTool.mockResolvedValue(textResult({ id: 'doc-1' }));
+    const service = new AgentService(
+      asOpenAi(openai),
+      'test-model',
+      callTool,
+      NO_TOOLS,
+      SYSTEM_PROMPT,
+    );
+
+    const result = await service.chatStream(NO_HISTORY, 'loop forever', onStream);
+
+    expect(result.reply).toBe('Xin lỗi.');
+    const roundStarts = events.filter((e) => e.type === 'round_start');
+    expect(roundStarts).toHaveLength(MAX_TOOL_ROUNDS_MINUS_ONE + 1);
+  });
 });
+
+function makeStreamResponse(tokens: string[]): AsyncIterable<ChatCompletionChunk> {
+  const chunks: ChatCompletionChunk[] = [];
+  for (const token of tokens) {
+    chunks.push({
+      id: 'chatcmpl-test',
+      object: 'chat.completion.chunk',
+      created: 1234567890,
+      model: 'test-model',
+      choices: [
+        {
+          index: 0,
+          delta: {
+            role: 'assistant' as const,
+            content: token,
+          },
+          finish_reason: null,
+        },
+      ],
+    });
+  }
+  chunks.push({
+    id: 'chatcmpl-test',
+    object: 'chat.completion.chunk',
+    created: 1234567890,
+    model: 'test-model',
+    choices: [
+      {
+        index: 0,
+        delta: {},
+        finish_reason: 'stop',
+      },
+    ],
+  });
+
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of chunks) {
+        await Promise.resolve();
+        yield chunk;
+      }
+    },
+  };
+}

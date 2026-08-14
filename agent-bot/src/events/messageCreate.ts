@@ -1,6 +1,9 @@
 import type { Client, DMChannel, Message } from 'discord.js';
 import { ChannelType, Events } from 'discord.js';
-import type { AgentService, ProgressEvent } from '../agent/agentService.js';
+import type {
+  AgentService,
+  StreamEvent,
+} from '../agent/agentService.js';
 import type { Session } from '../agent/sessionStore.js';
 import type { PgSessionStore } from '../agent/pgSessionStore.js';
 import { createFollowUpRow } from './buttonInteractions.js';
@@ -9,6 +12,8 @@ import { createLogger } from '../tools/logging.js';
 const logger = createLogger('discord-message');
 const DISCORD_MESSAGE_LIMIT = 2000;
 const TRIGGER_KEYWORD = 'harpae';
+const STREAM_EDIT_INTERVAL_MS = 1500;
+const STREAM_EDIT_MIN_CHARS = 80;
 
 /**
  * Skeleton PoC bot: responds on DM, @mention, the bare word "harpae"
@@ -89,30 +94,35 @@ async function handleMessage(
   }
 
   const typingInterval = startTypingInterval(message.channel);
+  const initialMsg = await message.reply('⏳ Đang tra cứu...');
 
-  let reply: string;
+  let streamAccumulator = '';
+  let streamLastEdit = 0;
+  const streamEditState = {
+    get accumulated() { return streamAccumulator; },
+    set accumulated(v: string) { streamAccumulator = v; },
+    get lastEdit() { return streamLastEdit; },
+    set lastEdit(v: number) { streamLastEdit = v; },
+  };
+
+  let result;
   try {
-    const result = await agentService.chat(session.messages, question, (event) => {
-      handleProgressEvent(event, message.channel);
+    result = await agentService.chatStream(session.messages, question, (event) => {
+      handleStreamEvent(event, message.channel, initialMsg, streamEditState);
     });
-    reply = result.reply;
     await sessionStore.update(session, result.messages);
   } catch (error) {
-    logger.error('AgentService.chat failed', error);
-    reply =
-      'Xin lỗi, đã có lỗi xảy ra khi xử lý câu hỏi. Vui lòng thử lại sau.';
+    logger.error('AgentService.chatStream failed', error);
+    result = {
+      reply: 'Xin lỗi, đã có lỗi xảy ra khi xử lý câu hỏi. Vui lòng thử lại sau.',
+      messages: session.messages,
+    };
+    await initialMsg.edit('Xin lỗi, đã có lỗi xảy ra khi xử lý câu hỏi. Vui lòng thử lại sau.');
   } finally {
     clearInterval(typingInterval);
   }
 
-  const replyChunks = splitMessage(reply);
-  for (let i = 0; i < replyChunks.length; i++) {
-    const isLast = i === replyChunks.length - 1;
-    const sent = isLast
-      ? await message.reply({ content: replyChunks[i], components: [createFollowUpRow(session.id).toJSON()] })
-      : await message.reply(replyChunks[i]);
-    sessionStore.linkReplyTarget(sent.id, session);
-  }
+  await sendStreamingReply(initialMsg, result.reply, session, message, sessionStore);
 }
 
 /** True if `message` is a reply, and the replied-to message was authored by the bot. */
@@ -157,14 +167,81 @@ function startTypingInterval(channel: Message['channel']): ReturnType<typeof set
   }, TYPING_INTERVAL_MS);
 }
 
-function handleProgressEvent(
-  event: ProgressEvent,
+interface StreamEditState {
+  accumulated: string;
+  lastEdit: number;
+}
+
+function handleStreamEvent(
+  event: StreamEvent,
   channel: Message['channel'],
+  initialMsg: Message,
+  state: StreamEditState,
 ): void {
-  if (event.phase === 'final_answer') {
-    return;
+  if (event.type === 'token') {
+    state.accumulated += event.text;
+    const now = Date.now();
+    if (now - state.lastEdit >= STREAM_EDIT_INTERVAL_MS &&
+        state.accumulated.length >= STREAM_EDIT_MIN_CHARS) {
+      state.lastEdit = now;
+      void attemptEditReply(initialMsg, state.accumulated);
+    }
+    void sendTyping(channel);
+  } else if (event.type === 'round_start' || event.type === 'tool') {
+    void sendTyping(channel);
   }
-  void sendTyping(channel);
+}
+
+async function attemptEditReply(msg: Message, content: string): Promise<void> {
+  try {
+    if (content.length <= DISCORD_MESSAGE_LIMIT) {
+      await msg.edit(content);
+    } else {
+      await msg.edit(content.slice(0, DISCORD_MESSAGE_LIMIT));
+    }
+  } catch {
+    // Message may no longer be editable; ignore.
+  }
+}
+
+async function sendStreamingReply(
+  initialMsg: Message,
+  reply: string,
+  session: Session,
+  originalMessage: Message,
+  store: PgSessionStore,
+): Promise<void> {
+  if (reply.length <= DISCORD_MESSAGE_LIMIT) {
+    try {
+      await initialMsg.edit({
+        content: reply || '(no answer)',
+        components: [createFollowUpRow(session.id).toJSON()],
+      });
+      store.linkReplyTarget(initialMsg.id, session);
+    } catch {
+      await originalMessage.reply({
+        content: reply || '(no answer)',
+        components: [createFollowUpRow(session.id).toJSON()],
+      });
+    }
+  } else {
+    const chunks = splitMessage(reply);
+    try {
+      await initialMsg.edit({
+        content: chunks[0],
+      });
+      store.linkReplyTarget(initialMsg.id, session);
+    } catch {
+      await originalMessage.reply(chunks[0]);
+    }
+    for (let i = 1; i < chunks.length; i++) {
+      const isLast = i === chunks.length - 1;
+      const sent = isLast
+        ? await originalMessage.reply({ content: chunks[i], components: [createFollowUpRow(session.id).toJSON()] })
+        : await originalMessage.reply(chunks[i]);
+      store.linkReplyTarget(sent.id, session);
+    }
+  }
 }
 
 function splitMessage(text: string): string[] {

@@ -54,7 +54,7 @@ Format agent answers as Discord embeds instead of plain text chunks. Use the emb
 
 ## Internal Operations
 
-### 6. Streaming Responses (High effort — Very High impact)
+### 6. ✅ Streaming Responses — DONE (2026-08-14)
 
 Currently the user waits 40s+ for the full reply. Use the OpenAI streaming API + Discord's edit-message pattern to show progressive output:
 
@@ -64,7 +64,11 @@ Currently the user waits 40s+ for the full reply. Use the OpenAI streaming API +
 
 This is the single biggest UX win for perceived latency.
 
-**Implementation:** Switch `agentService.ts` to use `openai.chat.completions.create({ stream: true })`. Accumulate delta content, emit events. In `messageCreate.ts`, send an initial message, then `message.edit()` on each chunk.
+**Status: Implemented.** New `AgentService.chatStream()` method (`agentService.ts`) that uses the OpenAI streaming API for the final answer round. Tool-calling rounds execute non-streaming (as before), and only the last round uses `stream: true`. Token deltas are emitted as `StreamTokenEvent` objects via a `StreamCallback` function.
+
+The Discord handler (`messageCreate.ts`) now uses `chatStream` instead of `chat`. It sends an initial "⏳ Đang tra cứu..." message, then edits the message incrementally every 1.5s (after 80 chars accumulated) as tokens arrive. When streaming completes, the final reply is set with the follow-up button row attached. If the reply exceeds the Discord 2000-char limit, it splits into multiple messages with the first reusing the initial message edit.
+
+**Files changed:** `agent/agentService.ts`, `agent/agentService.spec.ts`, `events/messageCreate.ts`.
 
 ### 7. Request Cancellation / Abort Handling (Medium effort — Medium impact)
 
@@ -117,7 +121,8 @@ The `AgentService` constructor now takes an `McpToolCaller` function instead of 
 
 | Priority | Items                                              | Rationale                       |
 | -------- | -------------------------------------------------- | ------------------------------- |
-| P0       | #4 Typing indicator, #12 MCP reconnect (both done)  | Highest impact, lowest effort   |
+| P0       | #4 Typing, #12 MCP reconnect (both done)           | Highest impact, lowest effort   |
 | P1       | #2 Buttons, #10 Retry (both done)                  | Strong UX and reliability wins  |
-| P2       | #6 Streaming, #7 Abort, #8 Rate limit              | Requires more refactoring       |
+| P1.5     | #6 Streaming (done)                                | Biggest perceived-latency win   |
+| P2       | #7 Abort, #8 Rate limit                            | Requires more refactoring       |
 | P3       | #3 `/sources`, #5 Embeds, #9 Health, #11 Cleanup | Nice-to-have, incremental value |

@@ -1,5 +1,6 @@
 import type OpenAI from 'openai';
 import type {
+  ChatCompletionAssistantMessageParam,
   ChatCompletionCreateParamsNonStreaming,
   ChatCompletionMessageParam,
   ChatCompletionToolMessageParam,
@@ -43,6 +44,36 @@ export interface ProgressEvent {
 }
 
 export type ProgressCallback = (event: ProgressEvent) => void;
+
+export interface StreamTokenEvent {
+  type: 'token';
+  text: string;
+}
+
+export interface StreamToolEvent {
+  type: 'tool';
+  round: number;
+  toolName: string;
+}
+
+export interface StreamRoundStartEvent {
+  type: 'round_start';
+  round: number;
+}
+
+export interface StreamDoneEvent {
+  type: 'done';
+  reply: string;
+  messages: ChatCompletionMessageParam[];
+}
+
+export type StreamEvent =
+  | StreamTokenEvent
+  | StreamToolEvent
+  | StreamRoundStartEvent
+  | StreamDoneEvent;
+
+export type StreamCallback = (event: StreamEvent) => void;
 
 /**
  * Async function that calls an MCP tool by name and arguments.
@@ -136,6 +167,150 @@ for (const toolCall of message.tool_calls) {
         'Xin lỗi, tôi chưa thể hoàn thành câu trả lời sau nhiều bước tra cứu. Vui lòng thử hỏi cụ thể hơn.',
       messages,
     };
+  }
+
+  /**
+   * Streaming variant of {@link chat}. Tool-calling rounds execute normally
+   * (non-streaming), but the final answer round uses the OpenAI streaming
+   * API. Token deltas are emitted via `onStream` as `StreamTokenEvent`
+   * events, and intermediate progress as `StreamToolEvent` /
+   * `StreamRoundStartEvent`. A `StreamDoneEvent` with the accumulated reply
+   * and messages is emitted when the stream completes.
+   *
+   * The returned `ChatResult` is identical to what `chat()` would return, so
+   * callers can still persist the full message history.
+   */
+  async chatStream(
+    history: ChatCompletionMessageParam[],
+    userMessage: string,
+    onStream: StreamCallback,
+  ): Promise<ChatResult> {
+    const messages: ChatCompletionMessageParam[] =
+      history.length > 0
+        ? [...history, { role: 'user', content: userMessage }]
+        : [
+            { role: 'system', content: this.systemPrompt },
+            { role: 'user', content: userMessage },
+          ];
+
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      onStream({ type: 'round_start', round });
+
+      if (round === MAX_TOOL_ROUNDS - 1) {
+        return await this.finalAnswerStream(messages, onStream);
+      }
+
+      const response = await this.openai.chat.completions.create({
+        model: this.model,
+        messages,
+        tools: this.tools,
+        reasoning_effort: REASONING_EFFORT_NONE,
+      });
+
+      const choice = response.choices[0];
+      const message = choice.message;
+      messages.push(message);
+
+      if (!message.tool_calls || message.tool_calls.length === 0) {
+        logger.log(
+          `Round ${round}: final answer (${(message.content ?? '').length} chars)`,
+        );
+        const reply = message.content ?? '';
+        onStream({ type: 'done', reply, messages });
+        return { reply, messages };
+      }
+
+      logger.log(
+        `Round ${round}: ${message.tool_calls.length} tool call(s) -> ${message.tool_calls
+          .map((tc) => (tc.type === 'function' ? tc.function.name : tc.type))
+          .join(', ')}`,
+      );
+
+      for (const toolCall of message.tool_calls) {
+        if (toolCall.type !== 'function') continue;
+        onStream({ type: 'tool', round, toolName: toolCall.function.name });
+        logger.log(
+          `  ${toolCall.function.name}(${toolCall.function.arguments})`,
+        );
+        const toolMessage = await this.runTool(toolCall);
+        const preview =
+          typeof toolMessage.content === 'string'
+            ? toolMessage.content
+            : JSON.stringify(toolMessage.content);
+        logger.log(`  -> ${preview.slice(0, 300)}`);
+        messages.push(toolMessage);
+      }
+    }
+
+    const fallbackReply =
+      'Xin lỗi, tôi chưa thể hoàn thành câu trả lời sau nhiều bước tra cứu. Vui lòng thử hỏi cụ thể hơn.';
+    onStream({ type: 'done', reply: fallbackReply, messages });
+    return { reply: fallbackReply, messages };
+  }
+
+  private async finalAnswerStream(
+    messages: ChatCompletionMessageParam[],
+    onStream: StreamCallback,
+  ): Promise<ChatResult> {
+    const stream = await this.openai.chat.completions.create({
+      model: this.model,
+      messages,
+      tools: this.tools,
+      reasoning_effort: REASONING_EFFORT_NONE,
+      stream: true,
+    });
+
+    let reply = '';
+    let toolCalls: OpenAI.ChatCompletionAssistantMessageParam['tool_calls'] =
+      undefined;
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta;
+      if (!delta) continue;
+
+      if (delta.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          if (tc.function?.name) {
+            if (!toolCalls) toolCalls = [];
+            const existing = toolCalls.find(
+              (t) => t.id === tc.id,
+            );
+            if (existing && existing.type === 'function') {
+              existing.function.name += tc.function.name;
+            } else {
+              toolCalls.push({
+                id: tc.id || '',
+                type: 'function',
+                function: { name: tc.function.name, arguments: '' },
+              });
+            }
+          }
+          if (tc.function?.arguments) {
+            if (!toolCalls) toolCalls = [];
+            const existing = toolCalls?.find((t) => t.id === tc.id);
+            if (existing && existing.type === 'function') {
+              existing.function.arguments += tc.function.arguments;
+            }
+          }
+        }
+      }
+
+      if (delta.content) {
+        reply += delta.content;
+        onStream({ type: 'token', text: delta.content });
+      }
+    }
+
+    const assistantMsg: ChatCompletionAssistantMessageParam = {
+      role: 'assistant',
+      content: reply || null,
+      ...(toolCalls ? { tool_calls: toolCalls } : {}),
+    };
+    messages.push(assistantMsg);
+
+    logger.log(`Streaming final answer (${reply.length} chars)`);
+    onStream({ type: 'done', reply, messages });
+    return { reply, messages };
   }
 
   private async runTool(
