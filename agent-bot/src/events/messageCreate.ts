@@ -8,12 +8,19 @@ import type { Session } from '../agent/sessionStore.js';
 import type { PgSessionStore } from '../agent/pgSessionStore.js';
 import { createFollowUpRow } from './buttonInteractions.js';
 import { createLogger } from '../tools/logging.js';
+import { createRateLimiter } from '../utils/rateLimiter.js';
 
 const logger = createLogger('discord-message');
 const DISCORD_MESSAGE_LIMIT = 2000;
 const TRIGGER_KEYWORD = 'harpae';
 const STREAM_EDIT_INTERVAL_MS = 1500;
 const STREAM_EDIT_MIN_CHARS = 80;
+
+const activeRequests = new Map<string, AbortController>();
+const rateLimiter = createRateLimiter({
+  maxRequests: 10,
+  windowMs: 60_000,
+});
 
 /**
  * Skeleton PoC bot: responds on DM, @mention, the bare word "harpae"
@@ -67,6 +74,21 @@ async function handleMessage(
 
   const userId = resolveUserId(message);
   const channelId = resolveChannelId(message);
+  const requestKey = message.author.id;
+
+  const rateResult = rateLimiter.check(requestKey);
+  if (!rateResult.allowed) {
+    const waitSeconds = Math.ceil((rateResult.resetAt - Date.now()) / 1000);
+    await message.reply(`⚠️ Bạn gửi quá nhiều yêu cầu. Vui lòng thử lại sau ${waitSeconds} giây.`);
+    return;
+  }
+
+  if (activeRequests.has(requestKey)) {
+    activeRequests.get(requestKey)?.abort();
+  }
+
+  const controller = new AbortController();
+  activeRequests.set(requestKey, controller);
 
   let session: Session;
   if (startsNewSession) {
@@ -109,9 +131,15 @@ async function handleMessage(
   try {
     result = await agentService.chatStream(session.messages, question, (event) => {
       handleStreamEvent(event, message.channel, initialMsg, streamEditState);
-    });
+    }, controller.signal);
     await sessionStore.update(session, result.messages);
   } catch (error) {
+    if (controller.signal.aborted) {
+      await initialMsg.edit('⛔ Yêu cầu đã bị hủy.');
+      clearInterval(typingInterval);
+      activeRequests.delete(requestKey);
+      return;
+    }
     logger.error('AgentService.chatStream failed', error);
     result = {
       reply: 'Xin lỗi, đã có lỗi xảy ra khi xử lý câu hỏi. Vui lòng thử lại sau.',
@@ -120,6 +148,7 @@ async function handleMessage(
     await initialMsg.edit('Xin lỗi, đã có lỗi xảy ra khi xử lý câu hỏi. Vui lòng thử lại sau.');
   } finally {
     clearInterval(typingInterval);
+    activeRequests.delete(requestKey);
   }
 
   await sendStreamingReply(initialMsg, result.reply, session, message, sessionStore);

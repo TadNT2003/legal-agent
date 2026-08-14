@@ -94,19 +94,22 @@ export class AgentService {
     private readonly systemPrompt: string,
   ) {}
 
-  /**
-   * `history` is the prior conversation's accumulated messages (empty for a
-   * fresh session) — the system prompt is seeded only when history is empty,
-   * since it's already present at the start of any non-empty history.
-   *
-   * `onProgress` is an optional callback invoked at key points in the
-   * tool-calling loop (round start, tool call, final answer). Useful for
-   * driving persistent typing indicators or progress displays.
-   */
+/**
+    * `history` is the prior conversation's accumulated messages (empty for a
+    * fresh session) — the system prompt is seeded only when history is empty,
+    * since it's already present at the start of any non-empty history.
+    *
+    * `onProgress` is an optional callback invoked at key points in the
+    * tool-calling loop (round start, tool call, final answer). Useful for
+    * driving persistent typing indicators or progress displays.
+    *
+    * `signal` is an optional AbortSignal that can cancel the request mid-execution.
+    */
   async chat(
     history: ChatCompletionMessageParam[],
     userMessage: string,
     onProgress?: ProgressCallback,
+    signal?: AbortSignal,
   ): Promise<ChatResult> {
     const messages: ChatCompletionMessageParam[] =
       history.length > 0
@@ -116,14 +119,20 @@ export class AgentService {
             { role: 'user', content: userMessage },
           ];
 
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      if (signal?.aborted) throw new Error('Request cancelled by user');
       onProgress?.({ phase: 'round_start', round });
-      const response = await this.openai.chat.completions.create({
-        model: this.model,
-        messages,
-        tools: this.tools,
-        reasoning_effort: REASONING_EFFORT_NONE,
-      });
+      const response = await this.openai.chat.completions.create(
+        {
+          model: this.model,
+          messages,
+          tools: this.tools,
+          reasoning_effort: REASONING_EFFORT_NONE,
+        },
+        { signal },
+      );
+
+      if (signal?.aborted) throw new Error('Request cancelled by user');
 
       const choice = response.choices[0];
       const message = choice.message;
@@ -143,7 +152,8 @@ export class AgentService {
           .join(', ')}`,
       );
 
-for (const toolCall of message.tool_calls) {
+      for (const toolCall of message.tool_calls) {
+          if (signal?.aborted) throw new Error('Request cancelled by user');
           if (toolCall.type !== 'function') continue;
           onProgress?.({ phase: 'tool_call', round, toolName: toolCall.function.name });
           logger.log(
@@ -169,21 +179,24 @@ for (const toolCall of message.tool_calls) {
     };
   }
 
-  /**
-   * Streaming variant of {@link chat}. Tool-calling rounds execute normally
-   * (non-streaming), but the final answer round uses the OpenAI streaming
-   * API. Token deltas are emitted via `onStream` as `StreamTokenEvent`
-   * events, and intermediate progress as `StreamToolEvent` /
-   * `StreamRoundStartEvent`. A `StreamDoneEvent` with the accumulated reply
-   * and messages is emitted when the stream completes.
-   *
-   * The returned `ChatResult` is identical to what `chat()` would return, so
-   * callers can still persist the full message history.
-   */
+/**
+    * Streaming variant of {@link chat}. Tool-calling rounds execute normally
+    * (non-streaming), but the final answer round uses the OpenAI streaming
+    * API. Token deltas are emitted via `onStream` as `StreamTokenEvent`
+    * events, and intermediate progress as `StreamToolEvent` /
+    * `StreamRoundStartEvent`. A `StreamDoneEvent` with the accumulated reply
+    * and messages is emitted when the stream completes.
+    *
+    * The returned `ChatResult` is identical to what `chat()` would return, so
+    * callers can still persist the full message history.
+    *
+    * `signal` is an optional AbortSignal that can cancel the request mid-execution.
+    */
   async chatStream(
     history: ChatCompletionMessageParam[],
     userMessage: string,
     onStream: StreamCallback,
+    signal?: AbortSignal,
   ): Promise<ChatResult> {
     const messages: ChatCompletionMessageParam[] =
       history.length > 0
@@ -194,18 +207,24 @@ for (const toolCall of message.tool_calls) {
           ];
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      if (signal?.aborted) throw new Error('Request cancelled by user');
       onStream({ type: 'round_start', round });
 
       if (round === MAX_TOOL_ROUNDS - 1) {
-        return await this.finalAnswerStream(messages, onStream);
+        return await this.finalAnswerStream(messages, onStream, signal);
       }
 
-      const response = await this.openai.chat.completions.create({
-        model: this.model,
-        messages,
-        tools: this.tools,
-        reasoning_effort: REASONING_EFFORT_NONE,
-      });
+      const response = await this.openai.chat.completions.create(
+        {
+          model: this.model,
+          messages,
+          tools: this.tools,
+          reasoning_effort: REASONING_EFFORT_NONE,
+        },
+        { signal },
+      );
+
+      if (signal?.aborted) throw new Error('Request cancelled by user');
 
       const choice = response.choices[0];
       const message = choice.message;
@@ -227,6 +246,7 @@ for (const toolCall of message.tool_calls) {
       );
 
       for (const toolCall of message.tool_calls) {
+        if (signal?.aborted) throw new Error('Request cancelled by user');
         if (toolCall.type !== 'function') continue;
         onStream({ type: 'tool', round, toolName: toolCall.function.name });
         logger.log(
@@ -251,20 +271,26 @@ for (const toolCall of message.tool_calls) {
   private async finalAnswerStream(
     messages: ChatCompletionMessageParam[],
     onStream: StreamCallback,
+    signal?: AbortSignal,
   ): Promise<ChatResult> {
-    const stream = await this.openai.chat.completions.create({
-      model: this.model,
-      messages,
-      tools: this.tools,
-      reasoning_effort: REASONING_EFFORT_NONE,
-      stream: true,
-    });
+    if (signal?.aborted) throw new Error('Request cancelled by user');
+    const stream = await this.openai.chat.completions.create(
+      {
+        model: this.model,
+        messages,
+        tools: this.tools,
+        reasoning_effort: REASONING_EFFORT_NONE,
+        stream: true,
+      },
+      { signal },
+    );
 
     let reply = '';
     let toolCalls: OpenAI.ChatCompletionAssistantMessageParam['tool_calls'] =
       undefined;
 
     for await (const chunk of stream) {
+      if (signal?.aborted) break;
       const delta = chunk.choices[0]?.delta;
       if (!delta) continue;
 

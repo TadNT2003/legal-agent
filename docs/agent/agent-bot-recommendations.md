@@ -70,17 +70,21 @@ The Discord handler (`messageCreate.ts`) now uses `chatStream` instead of `chat`
 
 **Files changed:** `agent/agentService.ts`, `agent/agentService.spec.ts`, `events/messageCreate.ts`.
 
-### 7. Request Cancellation / Abort Handling (Medium effort — Medium impact)
+### 7. ✅ Request Cancellation / Abort Handling — DONE (2026-08-14)
 
 If a user deletes their message or sends a new one while the agent is working, there's no cancellation. The old request continues consuming LLM tokens and time.
 
-**Implementation:** Maintain a `Map<userId, AbortController>` in `messageCreate.ts`. On new message, call `abort()` on the previous controller for that user. Pass the `signal` to `openai.chat.completions.create()`.
+**Status: Implemented.** A `Map<string, AbortController>` (`activeRequests`) is maintained in `messageCreate.ts`, keyed by `message.author.id`. On a new message from the same user, the previous controller is aborted. The `AbortSignal` is passed through to `AgentService.chat()` and `AgentService.chatStream()`, which propagate it to all OpenAI `chat.completions.create()` calls (both streaming and non-streaming) and check `signal.aborted` between rounds and tool calls. When aborted, Discord receives a "⛔ Yêu cầu đã bị hủy." (Request cancelled) message. The AbortController is cleaned up in a `finally` block.
 
-### 8. Rate Limiting (Low effort — Medium impact)
+**Files changed:** `events/messageCreate.ts`, `agent/agentService.ts`.
+
+### 8. ✅ Rate Limiting — DONE (2026-08-14)
 
 Neither the HTTP endpoint nor the Discord handler has rate limiting. A simple token-bucket per user ID prevents abuse and protects the MCP/LLM backend.
 
-**Implementation:** Add a small in-memory rate limiter (e.g., `sliding-window` counter per user ID, max N requests per minute). Reject with a polite message if exceeded. Apply to both `messageCreate.ts` and `routes/chat.ts`.
+**Status: Implemented.** A `RateLimiter` class (`utils/rateLimiter.ts`) uses a sliding-window counter per key, with configurable `maxRequests` and `windowMs`. Both the Discord handler (`messageCreate.ts`, keyed by `message.author.id`) and the HTTP chat route (`routes/chat.ts`, keyed by client IP from `x-forwarded-for` or `req.socket.remoteAddress`) enforce a limit of 10 requests per 60 seconds. When exceeded, Discord replies with a Vietnamese "⚠️ Bạn gửi quá nhiều yêu cầu..." message, and the HTTP endpoint returns a 429 status with a retry-after message. Each user's window auto-cleans after expiration via `setTimeout`.
+
+**Files changed:** `utils/rateLimiter.ts` (new), `utils/rateLimiter.spec.ts` (new), `events/messageCreate.ts`, `routes/chat.ts`.
 
 ### 9. Enriched Health Endpoint (Low effort — Low impact)
 
@@ -124,5 +128,5 @@ The `AgentService` constructor now takes an `McpToolCaller` function instead of 
 | P0       | #4 Typing, #12 MCP reconnect (both done)           | Highest impact, lowest effort   |
 | P1       | #2 Buttons, #10 Retry (both done)                  | Strong UX and reliability wins  |
 | P1.5     | #6 Streaming (done)                                | Biggest perceived-latency win   |
-| P2       | #7 Abort, #8 Rate limit                            | Requires more refactoring       |
+| P2       | #7 Abort, #8 Rate limit (both done)                | Implemented with minimal refactoring |
 | P3       | #3 `/sources`, #5 Embeds, #9 Health, #11 Cleanup | Nice-to-have, incremental value |
