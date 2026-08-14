@@ -174,6 +174,26 @@ const ANNEX_RESTART_PATTERN =
 // of the text.
 const FOOTER_START_PATTERN = /^(Nơi\s+nhận\s*:?|(TM|KT|Q)\.\s|THAY\s+MẶT\b)/iu;
 
+// A signature block doesn't always open with Nơi nhận:/TM./KT./THAY MẶT —
+// some documents (chiefly Nghị quyết signed directly by a standalone head
+// of a body, no "thừa lệnh/thừa ủy quyền" chain) go straight from the
+// substantive text to the signer's own standalone title line, e.g.
+// "CHỦ TỊCH QUỐC HỘI" immediately followed by the name on the next line,
+// no TM./KT./THAY MẶT prefix anywhere. Confirmed live (extract-tool-
+// resilience VLM evaluation, 128/2020/QH14: "CHỦ TỊCH QUỐC HỘI" /
+// "Nguyễn Thị Kim Ngân" immediately after the last Điều's real content) —
+// only that one exact title is directly confirmed; the sibling head-of-body
+// titles below are a reasonable but UNCONFIRMED extrapolation (same
+// best-effort/recalibrate-against-real-data posture as the rest of this
+// file), included because they're the other standard top-level signers a
+// Nghị quyết/Nghị định/Quyết định/Luật can plausibly close with. Anchored
+// to match the WHOLE line (not just a prefix), same reasoning as
+// ANNEX_RESTART_PATTERN above — "Chủ tịch Quốc hội" appearing mid-sentence
+// in real body text is lowercase/mixed-case and won't match this all-caps,
+// standalone-line pattern.
+const SIGNATURE_TITLE_PATTERN =
+  /^(CHỦ\s+TỊCH(\s+NƯỚC|\s+QUỐC\s+HỘI|\s+ỦY\s+BAN[\p{Lu}\s]*)?|PHÓ\s+CHỦ\s+TỊCH(\s+NƯỚC|\s+QUỐC\s+HỘI)?|THỦ\s+TƯỚNG(\s+CHÍNH\s+PHỦ)?|PHÓ\s+THỦ\s+TƯỚNG(\s+CHÍNH\s+PHỦ)?|(BỘ|TỔNG)\s+TRƯỞNG[\p{Lu}\s]*|TỔNG\s+THƯ\s+KÝ[\p{Lu}\s]*)\s*$/u;
+
 // §12b (docs/monitoring/law-index-flagged-documents.md): embedded data
 // tables (land-use-planning statistics, tax-bracket schedules, tariff
 // schedules, station registries, ...) get flattened to plain text by the
@@ -689,7 +709,7 @@ export function parseDocumentBody(fullText: string): ParsedDocumentNode[] {
       continue; // dropped — signature/routing block, see FOOTER_START_PATTERN
     }
 
-    if (FOOTER_START_PATTERN.test(line)) {
+    if (FOOTER_START_PATTERN.test(line) || SIGNATURE_TITLE_PATTERN.test(line)) {
       inFooter = true;
       inTable = false;
       quoteDepth = 0;

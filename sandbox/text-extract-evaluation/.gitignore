@@ -1,0 +1,11 @@
+# Local venv
+.venv-mineru/
+
+# Document samples
+samples*/
+
+# MD outputs
+output*/
+
+*.pyc
+__pycache__/
