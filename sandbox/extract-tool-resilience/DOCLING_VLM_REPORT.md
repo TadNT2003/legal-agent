@@ -2,40 +2,44 @@
 
 Scope: **docling only, VLM pipeline**, exploratory and supplementary to
 `DOCLING_REPORT.md` (the EasyOCR-based evaluation on the same 50-doc/909-page
-sample). Not a completed, apples-to-apples replacement for that report — this
-is a partial run (27/50 documents) documenting a different pipeline
-architecture that emerged through active investigation, including two real
-bugs found and fixed along the way (one in docling's own table export, one in
-this project's production parser). Where `DOCLING_REPORT.md` tested
-`docling + EasyOCR(vi)`, this report tests `docling`'s separate `VlmPipeline`
-against a self-hosted model, with a materially different downstream design:
-instead of asking the model to produce structure-aware Markdown/HTML, it's
-asked to transcribe plain text and hand structure-recovery to the project's
-existing production parser.
+sample). Not a strict apples-to-apples replacement for that report — this
+documents a different pipeline architecture that emerged through active
+investigation, including three real bugs found and fixed or newly identified
+along the way (one in docling's own table export, two in this project's
+production parser). Where `DOCLING_REPORT.md` tested `docling + EasyOCR(vi)`,
+this report tests `docling`'s separate `VlmPipeline` against a self-hosted
+model, with a materially different downstream design: instead of asking the
+model to produce structure-aware Markdown/HTML, it's asked to transcribe
+plain text and hand structure-recovery to the project's existing production
+parser. 47 of the 50 sample documents completed with the final configuration.
 
 ## Executive summary
 
 **The core hypothesis — plain-text transcription plus the existing
 `document-node.parser.ts` parser, no structural tagging required — is
-validated with real evidence, not just a proof of concept.** 27 of 50
-documents completed with a stable, tuned configuration; all 27 parsed through
-the real production parser with zero errors, recovering 137 Điều, 454 Khoản,
-213 Điểm, 51 Phụ lục, and genuine multi-level Chương/Phần hierarchy where
-present. Getting here required working through several real, non-obvious
-failure modes — a cloud model silently dropping pages to content filtering, a
-reasoning model's hidden "thinking" tokens, a table-format bug in docling's
-own export layer, and two page-transcription bugs — each diagnosed with
-direct evidence rather than assumed fixed.
+validated with real evidence, not just a proof of concept.** 47 of 50
+documents completed with a stable, tuned configuration; all 47 parsed through
+the real production parser with zero exceptions, recovering 331 Điều, 1,115
+Khoản, 554 Điểm, 144 Phụ lục, and genuine multi-level Chương/Phần/Mục
+hierarchy where present. Getting here required working through several real,
+non-obvious failure modes — a cloud model silently dropping pages to content
+filtering, a reasoning model's hidden "thinking" tokens, a table-format bug
+in docling's own export layer, two page-transcription bugs, and — found only
+once the full sample ran — a second, more consequential gap in the
+production parser itself, where "zero exceptions" did not mean "zero silent
+content loss." Each finding is diagnosed with direct evidence rather than
+assumed fixed.
 
 | Finding | Result |
 | --- | --- |
-| Structural reconstruction (final config) | 27/27 parsed, 0 errors, 0 empty trees |
-| Aggregate structure recovered | 137 Điều, 454 Khoản, 213 Điểm, 51 Phụ lục, 4 Chương, 1 Phần |
+| Structural reconstruction (final config) | 47/47 parsed, 0 exceptions — but see the parser-coverage gap below; exception-free is not the same as content-complete |
+| Aggregate structure recovered | 331 Điều, 1,115 Khoản, 554 Điểm, 144 Phụ lục, 20 Chương, 1 Phần, 9 Mục |
 | Cloud VLM (Gemini via gateway) | Rejected — silently dropped 5/9 pages to content filtering, undetectable without item-level provenance checks |
 | Local VLM (reasoning model) | Viable once `reasoning_effort: "none"` is set; needs a large `max_tokens` budget regardless |
 | Table format | Native Markdown pipe-tables can't represent merged cells; HTML with real `colspan`/`rowspan` works, but only via `table.export_to_html()` — docling's own `export_to_markdown()` has a bug that corrupts spanning tables |
 | Architecture | Whole-document single-request → reverted to true per-page once plain text (no tags) removed the reason for batching pages together |
-| **Open risk** | 2/50 documents still fail outright (300s gateway timeout on individual dense pages); citation-number hallucination found once, not re-verified at this config; table *content* correctness not verified at scale |
+| **New parser-coverage gap** | A real Nghị quyết with no `Điều` wrapper at all (substantive content directly under `"QUYẾT NGHỊ:"` as bare numbered items) has its entire body — 319 lines — silently dropped; the parser has no fallback for this valid, real structural variant |
+| **Open risk** | 3/50 documents fail outright (300s+ gateway/network timeouts on individual dense pages, not fully deterministic per document); citation-number hallucination found once, not re-verified at this config; table *content* correctness not verified at scale |
 
 ## Setup
 
@@ -244,6 +248,41 @@ flagged as such in the code comment) — not independently confirmed yet.
 Added a regression test using the real document's content; all 47 existing
 parser tests still pass (`npm test -- document-node.parser`).
 
+### A second, bigger parser gap: "zero exceptions" is not "zero silent loss"
+
+Running the full 47-document batch surfaced a more consequential version of
+the same lesson. Two documents produced trees with **zero `Điều` nodes**,
+which looked identical in the aggregate summary — worth checking both rather
+than assuming either was fine:
+
+- `61-2020-QH14` (sampled as `luat-dau-tu-2.pdf`) — not a bug. The sampled
+  PDF genuinely *is* just Luật Đầu tư's Phụ lục I (a list of substances
+  banned from investment activity), confirmed by its own first line:
+  `"PHỤ LỤC (Ban hành kèm theo Luật Đầu tư số 61/2020/QH14)"`. Zero Điều is
+  the correct answer for this specific source file.
+- `263-2025-QH15` — a real, previously-unknown parser gap. This Nghị quyết's
+  entire substantive content sits directly under `"QUYẾT NGHỊ:"` as bare
+  numbered items with no `Điều` wrapper at all — `"1. Quốc hội ghi nhận,
+  đánh giá cao nỗ lực của Chính phủ..."`, later subdividing into
+  `"2.1. Lĩnh vực tài chính"`, etc. `KHOAN_PATTERN` only gets checked while
+  the parser is already inside an open `Điều`/`Khoản`/`Điểm` container; since
+  this document never opens one, every one of these lines falls through to
+  the final "no container open, nowhere to attach" case and is silently
+  dropped — **319 of the document's 565 transcribed lines never made it into
+  the tree**, with no exception raised and no signal in the summary output
+  beyond "0 Điều" needing a second look.
+
+This is the same category of issue as the `SIGNATURE_TITLE_PATTERN` gap
+above — a valid, real Vietnamese legal-document structure the parser has no
+coverage for — but bigger in consequence: that one dropped a low-value
+signature block, this one drops an entire resolution's operative content.
+Not fixed as part of this report (out of scope for this pass); flagged here
+because the aggregate "0 parse errors" number would otherwise read as a
+cleaner result than it actually is — a parser that never throws is not the
+same guarantee as a parser that never silently loses content, which is
+exactly the failure shape this whole evaluation series has been built to
+catch rather than take on faith.
+
 ### Scale-test infrastructure: a logging bug, a hard gateway ceiling, and reverting to per-page
 
 Building the checkpointed 50-document harness surfaced two more real,
@@ -283,20 +322,19 @@ to avoid silently reusing mismatched partial data.
 
 ## Metrics
 
-**Scale test (partial — stopped at 27/50 by request, not a completion
-failure):** 909 total pages in the sample; 27 documents completed and fed
-through the real `parseDocumentBody()` parser.
+**Scale test (final state):** 909 total pages in the sample; 47 of 50
+documents completed and fed through the real `parseDocumentBody()` parser.
 
 | | Result |
 | --- | --- |
-| Documents parsed | 27/27 — 0 parse errors, 0 empty-tree results |
-| Điều | 137 |
-| Khoản | 454 |
-| Điểm | 213 (present in 15/27 docs — first evidence at scale this level actually works) |
-| Phụ lục | 51 (present in 19/27 docs — confirms the footer-pattern fix holds beyond the one document that motivated it) |
-| Chương / Phần | 4 / 1 (2/27 docs have real chapter-structured hierarchy, not just the flat Nghị-quyết shape) |
-| Speed | Typically 23-50s/page; one outlier document averaged ~132s/page (likely dense tables, unconfirmed) |
-| Hard failures | 2/50 documents (both "phê chuẩn quyết toán ngân sách" — budget settlement approvals), failing even at true per-page granularity on individual pages exceeding the 300s ceiling — same table-density risk factor `DOCLING_REPORT.md` found independently |
+| Documents parsed | 47/47 attempted — 0 exceptions, 0 empty-tree results (2 of the 47 have zero `Điều` for reasons documented above — one correctly, one a real parser gap) |
+| Điều | 331 |
+| Khoản | 1,115 |
+| Điểm | 554 (present in 25/47 docs) |
+| Phụ lục | 144 (present in 38/47 docs — confirms the footer-pattern fix holds at full scale, not just the one document that motivated it) |
+| Chương / Phần / Mục | 20 / 1 / 9 (7/47 docs have real chapter-structured hierarchy, not just the flat Nghị-quyết shape) |
+| Speed | Typically 23-50s/page for most documents; several outliers in the 170-225s/page range, and the 163-page document (`74/2022/QH15`) completed in full at ~37s/page average (6,026s total) — no size-related failure |
+| Hard failures | **3/50 documents**: `37-2017-QH14`, `21-2026-QH16`, `132-2024-QH15` — all titled "phê chuẩn quyết toán ngân sách" / "bổ sung dự toán ngân sách" (budget settlement/supplement approvals), failing even at true per-page granularity on individual pages exceeding the gateway's 300s ceiling or the client's own 600s read timeout. Not fully deterministic: a 4th document in this same category (`22-2021-QH15`) failed on its first attempt but succeeded on a later retry with the identical configuration — this is a probabilistic risk correlated with content (almost certainly table density, matching `DOCLING_REPORT.md`'s independent finding), not a fixed blocklist of documents |
 
 ## Known open risks — not yet verified at this configuration
 
@@ -307,65 +345,83 @@ through the real `parseDocumentBody()` parser.
   a document that is actually `128/2020/QH14` throughout. This is a
   model-reliability issue orthogonal to every format/architecture fix in this
   report — it has not been specifically retested against the final per-page
-  plain-text configuration or the 27-document batch.
+  plain-text configuration or any document in the 47-document batch.
 - **Table content correctness has not been verified at scale.** Table
   *structure* (real `colspan`/`rowspan`) was validated directly on one
-  document. The 27-document parser run only confirms Điều/Khoản/Điểm/Phụ lục
+  document. The 47-document parser run only confirms Điều/Khoản/Điểm/Phụ lục
   structure, since the parser doesn't inspect table content at all — a table
   embedded inside a Phụ lục node's text is invisible to this validation
   either way.
-- **23/50 documents untested at the final configuration** — some of the
-  larger/more complex remaining documents haven't run through the current
-  per-page setup yet.
-- **The 2 persistent failures are unresolved**, not just unlucky — same
-  documents failed under every chunk size tried (25, 6, and now individual
-  pages), pointing at genuinely slow-to-transcribe content rather than a
-  batching artifact.
+- **The parser silently drops non-`Điều`-structured resolution bodies.**
+  Confirmed on one real document (`263-2025-QH15`, see Findings) — a Nghị
+  quyết whose substantive content is bare numbered items directly under
+  `"QUYẾT NGHỊ:"`, no `Điều` wrapper. Unknown how many documents in the
+  broader corpus use this shape; not something this report's sample size can
+  answer, since it only showed up once in 50 documents.
+- **3/50 documents fail outright, and the failure isn't fully deterministic**
+  — the same three failed consistently, but a fourth document
+  (`22-2021-QH15`) failed once and then succeeded on retry with no
+  configuration change, meaning the true failure rate could be somewhat
+  higher than 3/50 measures on any single pass. Points at genuinely
+  slow-to-transcribe content (most likely table density) rather than a fixed,
+  reproducible blocklist.
 
 ## Verdict
 
 The core architectural bet — trust the existing, already-calibrated
 production parser to recover structure from plain text, rather than asking a
 per-page-independent VLM to correctly and consistently tag that structure
-itself — is validated by real evidence: 27/27 clean parses, rich and varied
-recovered structure, and two genuine bugs (one in docling's own export layer,
-one in the production parser) found and fixed along the way rather than
-worked around. Diacritics have been clean everywhere spot-checked, a real
-contrast to the severe table-density-correlated diacritic collapse
-`DOCLING_REPORT.md` found with EasyOCR.
+itself — is validated by real evidence at real scale: 47/47 attempted
+documents parsed without exception, rich and varied recovered structure
+(331 Điều, 1,115 Khoản, 554 Điểm, 144 Phụ lục, real Chương/Phần/Mục hierarchy
+in 7 documents), and three genuine bugs (one in docling's own export layer,
+two in the production parser) found and either fixed or precisely documented
+along the way rather than worked around or missed. Diacritics have been
+clean everywhere spot-checked, a real contrast to the severe
+table-density-correlated diacritic collapse `DOCLING_REPORT.md` found with
+EasyOCR.
 
-That said, "pretty good" is the right level of confidence, not "done."
-Two real risks — citation-number hallucination and table-content fidelity —
-were identified during this investigation but not closed out against the
-final configuration, and both matter specifically for a legal-document
-corpus where an exact number or a specific tax bracket being wrong is a
-different, worse kind of error than a formatting glitch. The 4% (2/50) hard
-failure rate on table-dense documents also isn't solved, only routed around
-for the 27 documents that didn't hit it — and it echoes, rather than departs
-from, the same table-density risk this project's OCR evaluations keep
-finding regardless of which tool or pipeline is used.
+That said, "pretty good" is the right level of confidence, not "done" — and
+running the full sample sharpened rather than resolved that qualifier.
+Three real risks — citation-number hallucination, table-content fidelity,
+and now a confirmed (if so far singly-observed) parser gap for
+non-`Điều`-structured resolutions — were identified during this
+investigation but not closed out. All three matter specifically for a
+legal-document corpus where an exact number, a specific tax bracket, or an
+entire resolution's operative text being silently missing is a different,
+worse kind of error than a formatting glitch — and unlike a crash, none of
+the three would show up in an aggregate "0 errors" summary without someone
+specifically going looking, which is exactly what happened with the
+zero-`Điều` check in this pass. The 6% (3/50) hard failure rate on
+table-dense documents also isn't solved, only characterized more precisely —
+it echoes, rather than departs from, the same table-density risk this
+project's OCR evaluations keep finding regardless of which tool or pipeline
+is used.
 
 ## Recommendation
 
 Before treating this configuration as a candidate to replace or supplement
 `docling + EasyOCR(vi)` in the actual pipeline:
 
-1. **Verify citation-number accuracy specifically**, across the 27 completed
-   documents at minimum — grep each document's known self-citation against
-   its transcribed text, the same way the hallucination was originally
-   caught, since nothing else in this report's testing would catch a
+1. **Verify citation-number accuracy specifically**, across all 47 completed
+   documents — grep each document's known self-citation against its
+   transcribed text, the same way the hallucination was originally caught,
+   since nothing else in this report's testing would catch a
    confidently-wrong number.
-2. **Spot-check table content**, not just structure, on a sample of the 19
+2. **Spot-check table content**, not just structure, on a sample of the 38
    documents that produced Phụ lục nodes — the parser's blindness to table
    content means a garbled number inside a `<table>` would pass every check
    run so far.
-3. **Finish the remaining 23 documents** with the final per-page
-   configuration to get a complete picture comparable in scale to
-   `DOCLING_REPORT.md`.
-4. **Root-cause the 2 persistent failures** directly — render their
-   individual pages and check for the same table-density signal
-   (`detect_table_gridlines.py`, already built for `DOCLING_REPORT.md`)
-   before assuming there's no fix short of raising the gateway's timeout.
+3. **Decide how to handle the non-`Điều`-structured resolution gap** — either
+   extend `document-node.parser.ts` with a fallback for bare-numbered
+   `"QUYẾT NGHỊ:"` bodies, or at minimum survey how common this shape is in
+   the broader vbpl.vn corpus before assuming a single-document sample means
+   it's rare.
+4. **Root-cause the 3 persistent failures (and the 4th intermittent one)**
+   directly — render their individual pages and check for the same
+   table-density signal (`detect_table_gridlines.py`, already built for
+   `DOCLING_REPORT.md`) before assuming there's no fix short of raising the
+   gateway's timeout.
 
 ## Files
 
@@ -383,11 +439,12 @@ Before treating this configuration as a candidate to replace or supplement
   harness (final configuration)
 - `scripts/run_parser_scale_test.ts` — batch-runs the real parser across all
   completed transcripts
-- `outputs/VLM/*.txt` — per-document plain-text transcripts (27/50)
+- `outputs/VLM/*.txt` — per-document plain-text transcripts (47/50)
 - `outputs/VLM/*_parsed.json` — per-document parsed Điều/Khoản/Điểm/Phụ lục
   trees
 - `outputs/VLM/_parser_summary.json` — aggregate node counts per document
 - `server/src/law-index/crawl/document-node.parser.ts` — production parser,
-  now with `SIGNATURE_TITLE_PATTERN`
+  now with `SIGNATURE_TITLE_PATTERN` (the non-`Điều`-structured resolution
+  gap found in this pass is not yet fixed here)
 - `server/src/law-index/crawl/document-node.parser.spec.ts` — now with a
   regression test for the signature-block fix

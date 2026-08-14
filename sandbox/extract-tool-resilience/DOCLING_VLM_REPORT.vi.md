@@ -2,41 +2,45 @@
 
 Phạm vi: **chỉ docling, pipeline VLM**, mang tính thăm dò và bổ sung cho
 `DOCLING_REPORT.md` (đánh giá dựa trên EasyOCR trên cùng mẫu 50 tài liệu/909
-trang). Đây không phải là một bản thay thế hoàn chỉnh, so sánh ngang hàng với
-báo cáo đó — đây là một lần chạy chưa hoàn tất (27/50 tài liệu), ghi lại một
-kiến trúc pipeline khác đã hình thành qua quá trình thử nghiệm chủ động, bao
-gồm hai lỗi thật sự được tìm ra và sửa dọc đường (một lỗi trong chính phần
-xuất bảng của docling, một lỗi trong parser sản xuất của dự án). Trong khi
-`DOCLING_REPORT.md` kiểm chứng `docling + EasyOCR(vi)`, báo cáo này kiểm
-chứng pipeline `VlmPipeline` riêng của docling với một mô hình tự triển khai
-(self-hosted), với một thiết kế đầu ra khác biệt đáng kể: thay vì yêu cầu mô
-hình tạo ra Markdown/HTML có cấu trúc, nó được yêu cầu phiên âm thành văn bản
-thuần và giao việc khôi phục cấu trúc cho parser sản xuất sẵn có của dự án.
+trang). Đây không phải là một bản thay thế hoàn toàn ngang hàng với báo cáo
+đó — đây ghi lại một kiến trúc pipeline khác đã hình thành qua quá trình thử
+nghiệm chủ động, bao gồm ba lỗi thật sự được tìm ra và sửa hoặc mới được xác
+định dọc đường (một lỗi trong chính phần xuất bảng của docling, hai lỗi trong
+parser sản xuất của dự án). Trong khi `DOCLING_REPORT.md` kiểm chứng
+`docling + EasyOCR(vi)`, báo cáo này kiểm chứng pipeline `VlmPipeline` riêng
+của docling với một mô hình tự triển khai (self-hosted), với một thiết kế đầu
+ra khác biệt đáng kể: thay vì yêu cầu mô hình tạo ra Markdown/HTML có cấu
+trúc, nó được yêu cầu phiên âm thành văn bản thuần và giao việc khôi phục cấu
+trúc cho parser sản xuất sẵn có của dự án. 47 trong số 50 tài liệu mẫu đã
+hoàn tất với cấu hình cuối cùng.
 
 ## Tóm tắt điều hành
 
 **Giả thuyết cốt lõi — phiên âm văn bản thuần cộng với parser sản xuất sẵn có
 `document-node.parser.ts`, không cần gắn thẻ cấu trúc nào — đã được kiểm
 chứng bằng bằng chứng thật, không chỉ là một bằng chứng khái niệm (proof of
-concept).** 27 trong số 50 tài liệu đã hoàn tất với một cấu hình đã được tinh
-chỉnh ổn định; cả 27 tài liệu đều được phân tích qua parser sản xuất thật
-không có lỗi nào, khôi phục được 137 Điều, 454 Khoản, 213 Điểm, 51 Phụ lục, và
-cấu trúc phân cấp Chương/Phần nhiều tầng thật sự ở những nơi có. Để đạt được
-điều này cần phải xử lý qua một số lỗi thật, không hiển nhiên — một mô hình
-cloud âm thầm bỏ qua các trang do bộ lọc nội dung, các token "suy nghĩ" ẩn của
-một mô hình reasoning, một lỗi định dạng bảng trong chính tầng xuất của
-docling, và hai lỗi phiên âm trang — mỗi lỗi đều được chẩn đoán bằng bằng
-chứng trực tiếp thay vì mặc định coi là đã sửa.
+concept).** 47 trong số 50 tài liệu đã hoàn tất với một cấu hình đã được tinh
+chỉnh ổn định; cả 47 tài liệu đều được phân tích qua parser sản xuất thật
+không có ngoại lệ nào, khôi phục được 331 Điều, 1.115 Khoản, 554 Điểm, 144
+Phụ lục, và cấu trúc phân cấp Chương/Phần/Mục nhiều tầng thật sự ở những nơi
+có. Để đạt được điều này cần phải xử lý qua một số lỗi thật, không hiển
+nhiên — một mô hình cloud âm thầm bỏ qua các trang do bộ lọc nội dung, các
+token "suy nghĩ" ẩn của một mô hình reasoning, một lỗi định dạng bảng trong
+chính tầng xuất của docling, hai lỗi phiên âm trang — và, chỉ khi chạy toàn
+bộ mẫu, một khoảng trống thứ hai, hệ trọng hơn trong chính parser sản xuất,
+nơi "0 ngoại lệ" không có nghĩa là "0 mất nội dung âm thầm". Mỗi phát hiện
+đều được chẩn đoán bằng bằng chứng trực tiếp thay vì mặc định coi là đã sửa.
 
-| Phát hiện                                     | Kết quả                                                                                                                                                                                                                                                                                    |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Khôi phục cấu trúc (cấu hình cuối cùng) | 27/27 phân tích thành công, 0 lỗi, 0 cây rỗng                                                                                                                                                                                                                                         |
-| Cấu trúc tổng hợp khôi phục được       | 137 Điều, 454 Khoản, 213 Điểm, 51 Phụ lục, 4 Chương, 1 Phần                                                                                                                                                                                                                        |
-| VLM cloud (Gemini qua gateway)                  | Bị loại bỏ — âm thầm bỏ qua 5/9 trang do bộ lọc nội dung, không thể phát hiện nếu không kiểm tra provenance ở cấp từng phần tử                                                                                                                                         |
-| VLM cục bộ (mô hình reasoning)              | Khả thi khi đặt`reasoning_effort: "none"`; vẫn cần ngân sách `max_tokens` lớn dù có tắt reasoning                                                                                                                                                                             |
-| Định dạng bảng                              | Pipe-table Markdown gốc không thể biểu diễn ô hợp nhất; HTML với`colspan`/`rowspan` thật hoạt động, nhưng chỉ khi dùng `table.export_to_html()` — `export_to_markdown()` của chính docling có lỗi làm hỏng các bảng có ô hợp nhất                       |
-| Kiến trúc                                     | Một yêu cầu duy nhất cho toàn bộ tài liệu → quay lại xử lý từng trang thật sự khi văn bản thuần (không thẻ) loại bỏ lý do cần gộp nhiều trang lại                                                                                                                 |
-| **Rủi ro còn mở**                      | 2/50 tài liệu vẫn thất bại hoàn toàn (gateway timeout 300 giây trên từng trang dày đặc); phát hiện một lần hiện tượng bịa số hiệu văn bản, chưa kiểm chứng lại ở cấu hình cuối; độ chính xác nội dung bảng chưa được kiểm chứng ở quy mô lớn |
+| Phát hiện | Kết quả |
+| --- | --- |
+| Khôi phục cấu trúc (cấu hình cuối cùng) | 47/47 phân tích thành công, 0 ngoại lệ — nhưng xem khoảng trống parser bên dưới; không ngoại lệ không đồng nghĩa với nội dung đầy đủ |
+| Cấu trúc tổng hợp khôi phục được | 331 Điều, 1.115 Khoản, 554 Điểm, 144 Phụ lục, 20 Chương, 1 Phần, 9 Mục |
+| VLM cloud (Gemini qua gateway) | Bị loại bỏ — âm thầm bỏ qua 5/9 trang do bộ lọc nội dung, không thể phát hiện nếu không kiểm tra provenance ở cấp từng phần tử |
+| VLM cục bộ (mô hình reasoning) | Khả thi khi đặt `reasoning_effort: "none"`; vẫn cần ngân sách `max_tokens` lớn dù có tắt reasoning |
+| Định dạng bảng | Pipe-table Markdown gốc không thể biểu diễn ô hợp nhất; HTML với `colspan`/`rowspan` thật hoạt động, nhưng chỉ khi dùng `table.export_to_html()` — `export_to_markdown()` của chính docling có lỗi làm hỏng các bảng có ô hợp nhất |
+| Kiến trúc | Một yêu cầu duy nhất cho toàn bộ tài liệu → quay lại xử lý từng trang thật sự khi văn bản thuần (không thẻ) loại bỏ lý do cần gộp nhiều trang lại |
+| **Khoảng trống parser mới** | Một Nghị quyết thật không có bao bọc `Điều` nào cả (nội dung thực chất nằm trực tiếp dưới `"QUYẾT NGHỊ:"` dưới dạng các mục đánh số trần) bị mất toàn bộ thân bài — 319 dòng — một cách âm thầm; parser không có cơ chế dự phòng cho biến thể cấu trúc hợp lệ, có thật này |
+| **Rủi ro còn mở** | 3/50 tài liệu thất bại hoàn toàn (gateway/network timeout 300+ giây trên từng trang dày đặc, không hoàn toàn xác định với từng tài liệu); phát hiện một lần hiện tượng bịa số hiệu văn bản, chưa kiểm chứng lại ở cấu hình cuối; độ chính xác nội dung bảng chưa được kiểm chứng ở quy mô lớn |
 
 ## Thiết lập
 
@@ -250,6 +254,42 @@ trong chú thích mã nguồn) — chưa được xác nhận độc lập. Đã
 hồi quy dùng nội dung tài liệu thật; toàn bộ 47 bài test parser hiện có vẫn
 pass (`npm test -- document-node.parser`).
 
+### Khoảng trống thứ hai, lớn hơn của parser: "0 ngoại lệ" không phải là "0 mất nội dung âm thầm"
+
+Chạy toàn bộ lô 47 tài liệu đã phát hiện một phiên bản hệ trọng hơn của cùng
+bài học đó. Hai tài liệu tạo ra cây kết quả với **0 node Điều**, trông giống
+hệt nhau trong bảng tổng hợp — đáng để kiểm tra cả hai thay vì mặc định coi
+một trong hai là ổn:
+
+- `61-2020-QH14` (lấy mẫu dưới tên `luat-dau-tu-2.pdf`) — không phải lỗi.
+  File PDF được lấy mẫu thực sự chỉ là Phụ lục I của Luật Đầu tư (danh mục
+  chất bị cấm đầu tư kinh doanh), xác nhận bằng chính dòng đầu tiên của nó:
+  `"PHỤ LỤC (Ban hành kèm theo Luật Đầu tư số 61/2020/QH14)"`. 0 Điều là câu
+  trả lời đúng cho đúng file nguồn cụ thể này.
+- `263-2025-QH15` — một khoảng trống parser thật sự, trước đây chưa từng
+  biết đến. Toàn bộ nội dung thực chất của Nghị quyết này nằm trực tiếp dưới
+  `"QUYẾT NGHỊ:"` dưới dạng các mục đánh số trần, không có bao bọc `Điều`
+  nào cả — `"1. Quốc hội ghi nhận, đánh giá cao nỗ lực của Chính phủ..."`,
+  sau đó chia nhỏ thành `"2.1. Lĩnh vực tài chính"`, v.v. `KHOAN_PATTERN`
+  chỉ được kiểm tra khi parser đang ở bên trong một container `Điều`/
+  `Khoản`/`Điểm` đã mở; vì tài liệu này không bao giờ mở một container nào,
+  mọi dòng trong số đó rơi vào trường hợp cuối cùng "không có container nào
+  mở, không có nơi để gắn vào" và bị âm thầm loại bỏ — **319 trong số 565
+  dòng đã phiên âm của tài liệu không bao giờ vào được cây kết quả**, không
+  có ngoại lệ nào được ném ra và không có tín hiệu nào trong đầu ra tổng hợp
+  ngoài việc "0 Điều" cần được xem xét kỹ hơn.
+
+Đây là cùng loại vấn đề với khoảng trống `SIGNATURE_TITLE_PATTERN` ở trên —
+một cấu trúc văn bản pháp lý Việt Nam hợp lệ, có thật mà parser không có cơ
+chế bao phủ — nhưng hệ trọng hơn về hậu quả: cái trước làm mất một khối chữ
+ký giá trị thấp, cái này làm mất toàn bộ nội dung thực chất của một nghị
+quyết. Chưa được sửa trong báo cáo này (ngoài phạm vi của lần này); được ghi
+chú ở đây vì con số "0 lỗi phân tích" tổng hợp nếu không sẽ đọc như một kết
+quả sạch hơn thực tế — một parser không bao giờ ném ngoại lệ không phải là
+cùng một đảm bảo với một parser không bao giờ âm thầm mất nội dung, và đây
+chính xác là kiểu lỗi mà toàn bộ chuỗi đánh giá này được xây dựng để bắt
+được thay vì tin tưởng một cách mặc định.
+
 ### Hạ tầng kiểm tra quy mô lớn: một lỗi ghi log, một trần cứng của gateway, và việc quay lại xử lý từng trang
 
 Việc xây dựng harness kiểm tra 50 tài liệu có checkpoint đã phát hiện thêm
@@ -288,20 +328,20 @@ tài liệu nào chưa có đầu ra cuối cùng hoàn chỉnh trước khi ti�
 
 ## Số liệu tổng hợp
 
-**Kiểm tra quy mô lớn (chưa hoàn tất — dừng ở 27/50 theo yêu cầu, không phải
-do thất bại):** tổng cộng 909 trang trong mẫu thử; 27 tài liệu đã hoàn tất và
-được đưa qua parser `parseDocumentBody()` thật.
+**Kiểm tra quy mô lớn (trạng thái cuối cùng):** tổng cộng 909 trang trong mẫu
+thử; 47 trong số 50 tài liệu đã hoàn tất và được đưa qua parser
+`parseDocumentBody()` thật.
 
-|                             | Kết quả                                                                                                                                                                                                                                                                     |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tài liệu đã phân tích | 27/27 — 0 lỗi phân tích, 0 kết quả cây rỗng                                                                                                                                                                                                                           |
-| Điều                      | 137                                                                                                                                                                                                                                                                           |
-| Khoản                      | 454                                                                                                                                                                                                                                                                           |
-| Điểm                      | 213 (có mặt trong 15/27 tài liệu — bằng chứng đầu tiên ở quy mô lớn rằng cấp này thực sự hoạt động)                                                                                                                                                      |
-| Phụ lục                   | 51 (có mặt trong 19/27 tài liệu — xác nhận cách sửa mẫu chân trang vẫn đứng vững ngoài tài liệu duy nhất đã thúc đẩy nó)                                                                                                                             |
-| Chương / Phần            | 4 / 1 (2/27 tài liệu có phân cấp chương thật sự, không chỉ hình dạng Nghị quyết phẳng)                                                                                                                                                                        |
-| Tốc độ                   | Thường 23-50 giây/trang; một tài liệu ngoại lệ trung bình ~132 giây/trang (khả năng do bảng dày đặc, chưa xác nhận)                                                                                                                                        |
-| Thất bại hoàn toàn      | 2/50 tài liệu (đều là "phê chuẩn quyết toán ngân sách"), thất bại ngay cả ở mức xử lý từng trang thật sự, do từng trang riêng lẻ vượt trần 300 giây — cùng yếu tố rủi ro mật độ bảng mà`DOCLING_REPORT.md` đã tìm thấy độc lập |
+| | Kết quả |
+| --- | --- |
+| Tài liệu đã phân tích | 47/47 đã thử — 0 ngoại lệ, 0 kết quả cây rỗng (2 trong số 47 có 0 node Điều vì lý do đã nêu ở trên — một đúng, một là khoảng trống parser thật sự) |
+| Điều | 331 |
+| Khoản | 1.115 |
+| Điểm | 554 (có mặt trong 25/47 tài liệu) |
+| Phụ lục | 144 (có mặt trong 38/47 tài liệu — xác nhận cách sửa mẫu chân trang vẫn đứng vững ở quy mô đầy đủ, không chỉ tài liệu duy nhất đã thúc đẩy nó) |
+| Chương / Phần / Mục | 20 / 1 / 9 (7/47 tài liệu có phân cấp chương thật sự, không chỉ hình dạng Nghị quyết phẳng) |
+| Tốc độ | Thường 23-50 giây/trang cho phần lớn tài liệu; một số ngoại lệ trong khoảng 170-225 giây/trang, và tài liệu 163 trang (`74/2022/QH15`) hoàn tất trọn vẹn với trung bình ~37 giây/trang (tổng 6.026 giây) — không có thất bại nào liên quan đến kích thước |
+| Thất bại hoàn toàn | **3/50 tài liệu**: `37-2017-QH14`, `21-2026-QH16`, `132-2024-QH15` — đều có tên "phê chuẩn quyết toán ngân sách" / "bổ sung dự toán ngân sách", thất bại ngay cả ở mức xử lý từng trang thật sự, do từng trang riêng lẻ vượt trần 300 giây của gateway hoặc timeout đọc 600 giây của client. Không hoàn toàn xác định: một tài liệu thứ 4 cùng loại (`22-2021-QH15`) thất bại ở lần thử đầu nhưng thành công ở lần thử lại sau đó với cùng một cấu hình — đây là một rủi ro có tính xác suất tương quan với nội dung (gần như chắc chắn là mật độ bảng, khớp với phát hiện độc lập của `DOCLING_REPORT.md`), không phải một danh sách cố định các tài liệu bị chặn |
 
 ## Rủi ro còn mở — chưa được kiểm chứng ở cấu hình này
 
@@ -311,43 +351,57 @@ do thất bại):** tổng cộng 909 trang trong mẫu thử; 27 tài liệu đ
   (`"118/2020/QH14"`, `"113/2020/QH14"`) trong 2 trong 3 chú thích bảng phụ
   lục trên một tài liệu thực chất là `128/2020/QH14` xuyên suốt. Đây là một
   vấn đề độ tin cậy của mô hình, độc lập với mọi cách sửa định dạng/kiến trúc
-  trong báo cáo này — chưa được kiểm tra lại cụ thể đối với cấu hình văn bản
-  thuần theo từng trang cuối cùng hay lô 27 tài liệu.
+  trong báo cáo này — chưa được kiểm tra lại cụ thể đối với bất kỳ tài liệu
+  nào trong lô 47 tài liệu ở cấu hình văn bản thuần theo từng trang cuối
+  cùng.
 - **Độ chính xác nội dung bảng chưa được kiểm chứng ở quy mô lớn.** *Cấu
   trúc* bảng (colspan/rowspan thật) đã được kiểm chứng trực tiếp trên một tài
-  liệu. Lần chạy parser 27 tài liệu chỉ xác nhận cấu trúc Điều/Khoản/Điểm/Phụ
+  liệu. Lần chạy parser 47 tài liệu chỉ xác nhận cấu trúc Điều/Khoản/Điểm/Phụ
   lục, vì parser không kiểm tra nội dung bảng chút nào — một bảng nhúng bên
   trong một node Phụ lục thì vô hình đối với việc kiểm chứng này dù thế nào.
-- **23/50 tài liệu chưa được kiểm tra ở cấu hình cuối cùng** — một số tài
-  liệu lớn hơn/phức tạp hơn còn lại chưa chạy qua thiết lập từng-trang hiện
-  tại.
-- **2 thất bại hoàn toàn còn tồn đọng chưa giải quyết**, không chỉ là xui
+- **Khoảng trống parser mới đối với văn bản Nghị quyết không cấu trúc theo
+  Điều.** `263-2025-QH15` mất thầm lặng 319/565 dòng nội dung thật vì toàn bộ
+  thân văn bản nằm dưới `"QUYẾT NGHỊ:"` dưới dạng các mục đánh số trần, không
+  có vỏ bọc `Điều` nào — `KHOAN_PATTERN` chỉ được kiểm tra khi đã ở trong một
+  container `Điều`/`Khoản`/`Điểm` đang mở. Đây là một khoảng trống parser thật
+  sự, nghiêm trọng hơn cách sửa mẫu chân trang đã tìm thấy trong phiên này vì
+  nó làm mất phần thân thực chất của một nghị quyết chứ không chỉ một khối
+  chữ ký — cố ý chưa được sửa trong phiên này (xem phần "Khoảng trống thứ hai,
+  lớn hơn của parser" ở trên).
+- **3/50 tài liệu thất bại hoàn toàn chưa giải quyết**, không chỉ là xui
   xẻo — cùng những tài liệu đó thất bại dưới mọi kích thước chunk đã thử (25,
   6, và giờ là từng trang riêng lẻ), cho thấy nội dung thực sự chậm để phiên
-  âm chứ không phải là hiện tượng do việc gộp batch.
+  âm chứ không phải là hiện tượng do việc gộp batch — cộng thêm một tài liệu
+  thứ 4 có hành vi không xác định (thất bại rồi thành công ở lần thử lại),
+  nghĩa là ngay cả danh sách 3 tài liệu này cũng không đảm bảo là đầy đủ và
+  ổn định.
 
 ## Kết luận
 
 Canh bạc kiến trúc cốt lõi — tin tưởng parser sản xuất sẵn có, đã được hiệu
 chỉnh, để khôi phục cấu trúc từ văn bản thuần, thay vì yêu cầu một VLM độc
 lập theo từng trang tự gắn thẻ cấu trúc đó một cách đúng đắn và nhất quán —
-đã được kiểm chứng bằng bằng chứng thật: 27/27 phân tích sạch, cấu trúc khôi
-phục phong phú và đa dạng, và hai lỗi thật sự (một trong chính tầng xuất của
-docling, một trong parser sản xuất) được tìm ra và sửa dọc đường thay vì bị
-lách qua. Dấu tiếng Việt sạch ở mọi nơi đã kiểm tra trực tiếp, một tương phản
-thật sự với hiện tượng sập dấu tương quan mật độ bảng nghiêm trọng mà
-`DOCLING_REPORT.md` đã tìm thấy với EasyOCR.
+đã được kiểm chứng bằng bằng chứng thật ở quy mô đầy đủ: 47/47 tài liệu đã
+thử phân tích không có ngoại lệ nào, cấu trúc khôi phục phong phú và đa dạng
+(331 Điều, 1.115 Khoản, 554 Điểm, 144 Phụ lục), và ba rủi ro thật sự (một
+trong chính tầng xuất của docling, một trong parser sản xuất — đã sửa — và
+một khoảng trống parser khác mới phát hiện — chưa sửa) được tìm ra và nêu rõ
+dọc đường thay vì bị lách qua. Dấu tiếng Việt sạch ở mọi nơi đã kiểm tra trực
+tiếp, một tương phản thật sự với hiện tượng sập dấu tương quan mật độ bảng
+nghiêm trọng mà `DOCLING_REPORT.md` đã tìm thấy với EasyOCR.
 
-Dù vậy, "khá tốt" là mức độ tin cậy phù hợp, không phải "đã xong." Hai rủi ro
-thật — hiện tượng bịa số hiệu văn bản và độ trung thực nội dung bảng — đã
+Dù vậy, "khá tốt" là mức độ tin cậy phù hợp, không phải "đã xong." Ba rủi ro
+thật — hiện tượng bịa số hiệu văn bản, độ trung thực nội dung bảng, và
+khoảng trống parser đối với văn bản Nghị quyết không cấu trúc theo Điều — đã
 được xác định trong quá trình tìm hiểu này nhưng chưa được khép lại đối với
-cấu hình cuối cùng, và cả hai đều quan trọng đặc biệt đối với một kho ngữ
-liệu pháp lý, nơi một con số cụ thể hoặc một mức thuế cụ thể bị sai là một
-loại lỗi khác, tệ hơn so với một trục trặc định dạng. Tỷ lệ thất bại hoàn
-toàn 4% (2/50) trên các tài liệu nhiều bảng cũng chưa được giải quyết, chỉ
-mới được né tránh cho 27 tài liệu không gặp phải nó — và nó lặp lại, chứ
-không đi chệch khỏi, cùng yếu tố rủi ro mật độ bảng mà các đánh giá OCR của
-dự án này liên tục tìm thấy bất kể công cụ hay pipeline nào được dùng.
+cấu hình cuối cùng, và cả ba đều quan trọng đặc biệt đối với một kho ngữ
+liệu pháp lý, nơi một con số cụ thể, một mức thuế cụ thể, hay toàn bộ nội
+dung một nghị quyết bị mất là một loại lỗi khác, tệ hơn so với một trục trặc
+định dạng. Tỷ lệ thất bại hoàn toàn 6% (3/50) trên các tài liệu nhiều bảng —
+với một tài liệu thứ 4 có hành vi không xác định — cũng chưa được giải
+quyết, và nó lặp lại, chứ không đi chệch khỏi, cùng yếu tố rủi ro mật độ bảng
+mà các đánh giá OCR của dự án này liên tục tìm thấy bất kể công cụ hay
+pipeline nào được dùng.
 
 ## Khuyến nghị
 
@@ -355,21 +409,25 @@ Trước khi coi cấu hình này là ứng viên để thay thế hoặc bổ s
 `docling + EasyOCR(vi)` trong pipeline thực tế:
 
 1. **Kiểm chứng độ chính xác số hiệu văn bản một cách cụ thể**, ít nhất trên
-   27 tài liệu đã hoàn tất — đối chiếu số tự trích dẫn đã biết của mỗi tài
-   liệu với văn bản đã phiên âm của nó, theo đúng cách hiện tượng bịa số ban
-   đầu đã bị phát hiện, vì không có kiểm tra nào khác trong báo cáo này sẽ
-   bắt được một con số sai một cách tự tin.
+   một mẫu trong số 47 tài liệu đã hoàn tất — đối chiếu số tự trích dẫn đã
+   biết của mỗi tài liệu với văn bản đã phiên âm của nó, theo đúng cách hiện
+   tượng bịa số ban đầu đã bị phát hiện, vì không có kiểm tra nào khác trong
+   báo cáo này sẽ bắt được một con số sai một cách tự tin.
 2. **Kiểm tra trực tiếp nội dung bảng**, không chỉ cấu trúc, trên một mẫu
-   trong số 19 tài liệu đã tạo ra node Phụ lục — vì parser không nhìn thấy
+   trong số 38 tài liệu đã tạo ra node Phụ lục — vì parser không nhìn thấy
    nội dung bảng nên một con số bị lỗi bên trong một `<table>` sẽ vượt qua
    mọi kiểm tra đã chạy cho đến nay.
-3. **Hoàn tất 23 tài liệu còn lại** với cấu hình từng-trang cuối cùng để có
-   một bức tranh đầy đủ, có thể so sánh về quy mô với `DOCLING_REPORT.md`.
-4. **Truy tìm nguyên nhân gốc của 2 thất bại còn tồn đọng** một cách trực
-   tiếp — render từng trang riêng lẻ của chúng và kiểm tra cùng tín hiệu mật
-   độ bảng (`detect_table_gridlines.py`, đã được xây dựng sẵn cho
-   `DOCLING_REPORT.md`) trước khi mặc định rằng không có cách sửa nào khác
-   ngoài việc tăng timeout của gateway.
+3. **Quyết định cách xử lý khoảng trống văn bản Nghị quyết không cấu trúc
+   theo Điều** (`263-2025-QH15`, xem "Khoảng trống thứ hai, lớn hơn của
+   parser" ở trên) — đây là mất nội dung âm thầm thật sự đối với một dạng
+   Nghị quyết có thật, không phải một trường hợp biên giả định, và cần được
+   sửa trong `document-node.parser.ts` trước khi cấu hình này được coi là
+   sẵn sàng cho sản xuất.
+4. **Truy tìm nguyên nhân gốc của 3 thất bại còn tồn đọng (và trường hợp thứ
+   4 không xác định)** một cách trực tiếp — render từng trang riêng lẻ của
+   chúng và kiểm tra cùng tín hiệu mật độ bảng (`detect_table_gridlines.py`,
+   đã được xây dựng sẵn cho `DOCLING_REPORT.md`) trước khi mặc định rằng
+   không có cách sửa nào khác ngoài việc tăng timeout của gateway.
 
 ## Files
 
@@ -387,12 +445,13 @@ Trước khi coi cấu hình này là ứng viên để thay thế hoặc bổ s
   từng trang (cấu hình cuối cùng)
 - `scripts/run_parser_scale_test.ts` — chạy hàng loạt parser thật qua mọi văn
   bản phiên âm đã hoàn tất
-- `outputs/VLM/*.txt` — văn bản phiên âm thuần của từng tài liệu (27/50)
+- `outputs/VLM/*.txt` — văn bản phiên âm thuần của từng tài liệu (47/50)
 - `outputs/VLM/*_parsed.json` — cây Điều/Khoản/Điểm/Phụ lục đã phân tích của
   từng tài liệu
 - `outputs/VLM/_parser_summary.json` — số liệu node tổng hợp theo từng tài
   liệu
 - `server/src/law-index/crawl/document-node.parser.ts` — parser sản xuất, nay
-  có thêm `SIGNATURE_TITLE_PATTERN`
+  có thêm `SIGNATURE_TITLE_PATTERN` (khoảng trống Nghị quyết không cấu trúc
+  theo Điều tìm thấy trong phiên này chưa được sửa ở đây)
 - `server/src/law-index/crawl/document-node.parser.spec.ts` — nay có thêm bài
   test hồi quy cho cách sửa khối chữ ký
