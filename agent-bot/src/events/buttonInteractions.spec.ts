@@ -42,6 +42,32 @@ describe('extractCitations', () => {
     expect(citations).toEqual(['Nghị định 123/2020/NĐ-CP — 123/2020/NĐ-CP']);
   });
 
+  it('supports the items[] shape the real search_documents tool returns (with sourceUrl)', () => {
+    const messages: ChatCompletionMessageParam[] = [
+      {
+        role: 'tool',
+        tool_call_id: 'call_1',
+        content: JSON.stringify({
+          total: 2,
+          items: [
+            {
+              documentId: 'd1',
+              sourceUrl: 'https://vbpl.vn/doc/1',
+              citation: 'Số 91/2015/QH13',
+              title: 'Bộ luật Dân sự 2015',
+            },
+          ],
+        }),
+      },
+    ];
+
+    // extractCitations renders "title — citation" and drops the link, but the
+    // key point is it no longer silently extracts nothing from the real shape.
+    expect(extractCitations(messages)).toEqual([
+      'Bộ luật Dân sự 2015 — Số 91/2015/QH13',
+    ]);
+  });
+
   it('omits the title part when a document has no title', () => {
     const messages: ChatCompletionMessageParam[] = [
       {

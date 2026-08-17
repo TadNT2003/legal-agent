@@ -8,12 +8,18 @@ import { config } from './config.js';
 import { createMcpClient, ReconnectingMcpClient } from './mcp/client.js';
 import { fetchPromptText, listOpenAiTools } from './mcp/tools.js';
 import { startServer } from './server.js';
+import type { HealthChecks } from './routes/health.js';
 import { createLogger } from './tools/logging.js';
 
 const logger = createLogger('index');
 
 const SYSTEM_PROMPT_INTRO =
   'Bạn là trợ lý tra cứu văn bản pháp luật Việt Nam, sử dụng các công cụ (tools) do legal-mcp cung cấp.';
+
+// How often to purge sessions idle for longer than SESSION_STALE_MS (7 days).
+// Hourly keeps the table bounded without hammering Postgres; the exact value
+// is not load-bearing.
+const SESSION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
 async function main(): Promise<void> {
   // Fatal on failure, unlike the Discord login below: there is no useful
@@ -35,6 +41,15 @@ async function main(): Promise<void> {
     logger.error('Failed to load active sessions from DB — starting fresh', error);
   }
 
+  // Purge stale sessions once at startup, then on a periodic schedule
+  // (feature #11). cleanupStaleSessions never throws, so the interval is safe.
+  void sessionStore.cleanupStaleSessions();
+  const cleanupTimer = setInterval(() => {
+    void sessionStore.cleanupStaleSessions();
+  }, SESSION_CLEANUP_INTERVAL_MS);
+  // Don't let the cleanup timer keep the process alive on its own.
+  cleanupTimer.unref?.();
+
   const agentService = new AgentService(
     createLlmClient(),
     config.llm.model,
@@ -43,7 +58,20 @@ async function main(): Promise<void> {
     systemPrompt,
   );
 
-  startServer(agentService, sessionStore);
+  // Live health checks, injected into the /api/health route (feature #9).
+  const healthChecks: HealthChecks = {
+    mcp: () => reconnectingClient.listTools().then(() => undefined),
+    db: async () => {
+      const result = await pool.query('SELECT 1');
+      if (!result.rows.length) {
+        throw new Error('DB SELECT 1 returned no rows');
+      }
+    },
+    sessionCount: () => sessionStore.getActiveCount(),
+    model: config.llm.model,
+  };
+
+  startServer(agentService, sessionStore, healthChecks);
 
   // Non-fatal: a bad/expired Discord token shouldn't take down POST
   // /agent/chat, which is meant to work standalone as a manual test path.
@@ -56,21 +84,17 @@ async function main(): Promise<void> {
     );
   }
 
-  // Graceful shutdown: close DB pool and MCP heartbeat
-  process.on('SIGTERM', () => {
-    logger.log('SIGTERM received — shutting down');
+  // Graceful shutdown: stop the session-cleanup timer, close DB pool and MCP heartbeat
+  const shutdown = (signal: string): void => {
+    logger.log(`${signal} received — shutting down`);
+    clearInterval(cleanupTimer);
     reconnectingClient.stopHeartbeat();
     void reconnectingClient.close();
     void closeDb(pool);
     process.exit(0);
-  });
-  process.on('SIGINT', () => {
-    logger.log('SIGINT received — shutting down');
-    reconnectingClient.stopHeartbeat();
-    void reconnectingClient.close();
-    void closeDb(pool);
-    process.exit(0);
-  });
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch((error: unknown) => {

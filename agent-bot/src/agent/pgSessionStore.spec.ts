@@ -18,6 +18,10 @@ function createMockDb(): {
   getByIdResult: Array<{ id: string; messages: unknown }>;
   limitResults: Array<unknown>;
   getByIdError: { current: Error | null };
+  deleteResult: Array<{ id: string }>;
+  deleteError: { current: Error | null };
+  latestResult: Array<{ id: string; messages: unknown }>;
+  latestError: { current: Error | null };
 } {
   const selectResult: Array<{
     id: string;
@@ -28,22 +32,57 @@ function createMockDb(): {
   const getByIdResult: Array<{ id: string; messages: unknown }> = [];
   const limitResults: Array<unknown> = [];
   const getByIdError: { current: Error | null } = { current: null };
+  const deleteResult: Array<{ id: string }> = [];
+  const deleteError: { current: Error | null } = { current: null };
+  const latestResult: Array<{ id: string; messages: unknown }> = [];
+  const latestError: { current: Error | null } = { current: null };
 
   const insertPromise = makePromiseLike();
   const updatePromise = makePromiseLike();
 
   let limitCallIndex = 0;
 
+  // A single select() chain serves three different query shapes, all built the
+  // same way: select().from().where().orderBy().limit() (or .orderBy() alone).
+  // getLatestByUserId is disambiguated by the latestResult/latestError controls
+  // below; getById and getByReplyTarget share the index-based limitResults.
   const db = {
-    select: jest.fn().mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        where: jest.fn().mockReturnValue({
-          orderBy: jest.fn().mockReturnValue({
+    select: jest.fn().mockImplementation(() => ({
+      from: jest.fn().mockImplementation(() => ({
+        where: jest.fn().mockImplementation(() => ({
+          orderBy: jest.fn().mockImplementation(() => ({
             then: (onFulfilled: (val: unknown) => void) => {
               void Promise.resolve(selectResult).then(onFulfilled);
             },
-          }),
+            limit: jest.fn().mockImplementation(() => {
+              // getLatestByUserId: dedicated controls take priority.
+              if (latestError.current) {
+                return Promise.reject(latestError.current);
+              }
+              if (latestResult.length > 0) {
+                const rows = latestResult.slice();
+                latestResult.length = 0;
+                return Promise.resolve(rows);
+              }
+              // getById / getByReplyTarget: shared index-based results.
+              const result = limitResults[limitCallIndex++] ?? (
+                getByIdError.current
+                  ? Promise.reject(getByIdError.current)
+                  : getByIdResult
+              );
+              if (result instanceof Promise) return result;
+              return Promise.resolve(result);
+            }),
+          })),
           limit: jest.fn().mockImplementation(() => {
+            if (latestError.current) {
+              return Promise.reject(latestError.current);
+            }
+            if (latestResult.length > 0) {
+              const rows = latestResult.slice();
+              latestResult.length = 0;
+              return Promise.resolve(rows);
+            }
             const result = limitResults[limitCallIndex++] ?? (
               getByIdError.current
                 ? Promise.reject(getByIdError.current)
@@ -52,14 +91,14 @@ function createMockDb(): {
             if (result instanceof Promise) return result;
             return Promise.resolve(result);
           }),
-        }),
-        orderBy: jest.fn().mockReturnValue({
+        })),
+        orderBy: jest.fn().mockImplementation(() => ({
           then: (onFulfilled: (val: unknown) => void) => {
             void Promise.resolve(rtResult).then(onFulfilled);
           },
-        }),
-      }),
-    }),
+        })),
+      })),
+    })),
     insert: jest.fn().mockReturnValue({
       values: jest.fn().mockReturnValue({
         then: (onFulfilled: (val: unknown) => void) => {
@@ -84,9 +123,31 @@ function createMockDb(): {
         }),
       }),
     }),
+    // delete().where(...).returning(...) — used by cleanupStaleSessions.
+    delete: jest.fn().mockReturnValue({
+      where: jest.fn().mockReturnValue({
+        returning: jest.fn().mockImplementation(() => {
+          if (deleteError.current) {
+            return Promise.reject(deleteError.current);
+          }
+          return Promise.resolve(deleteResult);
+        }),
+      }),
+    }),
   } as unknown as jest.Mocked<NodePgDatabase<typeof schema>>;
 
-  return { db, selectResult, rtResult, getByIdResult, limitResults, getByIdError };
+  return {
+    db,
+    selectResult,
+    rtResult,
+    getByIdResult,
+    limitResults,
+    getByIdError,
+    deleteResult,
+    deleteError,
+    latestResult,
+    latestError,
+  };
 }
 
 describe('PgSessionStore', () => {
@@ -272,6 +333,103 @@ describe('PgSessionStore', () => {
       );
 
       await expect(store.getById('not-a-uuid')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('getActiveCount', () => {
+    it('reports the number of cached sessions', () => {
+      expect(store.getActiveCount()).toBe(0);
+      store.createSession();
+      store.createSession();
+      expect(store.getActiveCount()).toBe(2);
+    });
+  });
+
+  describe('getLatestByUserId', () => {
+    it('resolves the user most recent session from the DB', async () => {
+      mockDb.latestResult.push({
+        id: 'user-latest',
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+
+      const resolved = await store.getLatestByUserId('discord-user-1');
+
+      expect(resolved).toEqual({
+        id: 'user-latest',
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+      // The resolved session is also cached by id so getById() can hit it.
+      expect(await store.getById('user-latest')).toBe(resolved);
+    });
+
+    it('resolves undefined when the user has no session in the DB', async () => {
+      const resolved = await store.getLatestByUserId('no-such-user');
+      expect(resolved).toBeUndefined();
+    });
+
+    it('resolves undefined (not a thrown error) when the DB lookup fails', async () => {
+      mockDb.latestError.current = new Error('connection refused');
+
+      await expect(store.getLatestByUserId('fail-user')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('cleanupStaleSessions', () => {
+    it('returns the number of sessions the DB reported as deleted', async () => {
+      mockDb.deleteResult.push({ id: 'stale-1' }, { id: 'stale-2' });
+
+      const removed = await store.cleanupStaleSessions();
+
+      expect(removed).toBe(2);
+    });
+
+    it('returns 0 when there is nothing to clean up', async () => {
+      expect(await store.cleanupStaleSessions()).toBe(0);
+    });
+
+    it('evicts deleted sessions from the in-memory cache', async () => {
+      const session = store.createSession();
+      store.linkReplyTarget('msg-x', session);
+      // Warm the reply-target -> session map the way a live session would have.
+      expect(await store.getByReplyTarget('msg-x')).toBe(session);
+
+      mockDb.deleteResult.push({ id: session.id });
+      await store.cleanupStaleSessions();
+
+      // The session is gone from the cache; its reply target can no longer
+      // resolve to it.
+      expect(store.getActiveCount()).toBe(0);
+      expect(await store.getById(session.id)).toBeUndefined();
+      // (getById falls through to the mock DB and finds nothing by default.)
+    });
+
+    it('drops reply-target links that pointed at a deleted session', async () => {
+      const session = store.createSession();
+      store.linkReplyTarget('orphan-msg', session);
+
+      mockDb.deleteResult.push({ id: session.id });
+      await store.cleanupStaleSessions();
+
+      // The reply target no longer resolves, even though the session id is
+      // still a valid string — its cache entry was pruned with the session.
+      // (getByReplyTarget will fall through to the mock DB, which returns no
+      // rows by default, so it resolves undefined.)
+      expect(await store.getByReplyTarget('orphan-msg')).toBeUndefined();
+    });
+
+    it('swallows a DB failure and returns 0 instead of throwing', async () => {
+      mockDb.deleteError.current = new Error('connection reset');
+
+      const removed = await store.cleanupStaleSessions();
+
+      expect(removed).toBe(0);
+    });
+
+    it('does not throw on consecutive runs (schedule-safe)', async () => {
+      mockDb.deleteResult.push({ id: 'a' });
+      await expect(store.cleanupStaleSessions()).resolves.toBe(1);
+      mockDb.deleteResult.length = 0;
+      await expect(store.cleanupStaleSessions()).resolves.toBe(0);
     });
   });
 });

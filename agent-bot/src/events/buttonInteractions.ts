@@ -7,6 +7,10 @@ import type { AgentService } from '../agent/agentService.js';
 import type { Session } from '../agent/sessionStore.js';
 import type { PgSessionStore } from '../agent/pgSessionStore.js';
 import { createLogger } from '../tools/logging.js';
+import {
+  extractSources,
+  sourcesToCitationLines,
+} from './sourceExtraction.js';
 
 const logger = createLogger('button-interactions');
 
@@ -135,25 +139,22 @@ async function handleButtonInteraction(
 }
 
 export function extractCitations(messages: Session['messages']): string[] {
+  // Delegate to the shared extractor (also used by /sources) so the real
+  // search_documents shape (items[] with sourceUrl) is handled, then render
+  // back to the "title — citation" lines this button has always shown.
+  const structured = extractSources(messages);
+  if (structured.length > 0) {
+    return sourcesToCitationLines(structured);
+  }
+
+  // Fallback for the rare case where a tool result was a short non-JSON string
+  // (an error message, etc.) — surface it verbatim rather than nothing.
   const citations: string[] = [];
   const seen = new Set<string>();
-
   for (const msg of messages) {
     if (msg.role !== 'tool' || typeof msg.content !== 'string') continue;
-
     try {
-      const parsed = JSON.parse(msg.content) as Record<string, unknown>;
-      const docs = (parsed.documents ?? parsed.results ?? []) as unknown[];
-      for (const raw of docs) {
-        const doc = raw as Record<string, unknown>;
-        const title = toStr(doc.title) ?? toStr(doc.tieuDe) ?? '';
-        const citation = toStr(doc.citation) ?? toStr(doc.soHieu) ?? '';
-        const entry = `${title ? `${title} \u2014 ` : ''}${citation || '(kh\u00f4ng c\u00f3 tr\u00edch d\u1eabn)'}`;
-        if (entry && !seen.has(entry)) {
-          seen.add(entry);
-          citations.push(entry);
-        }
-      }
+      JSON.parse(msg.content);
     } catch {
       const text = msg.content;
       if (text.length < 500 && !seen.has(text)) {
@@ -162,10 +163,5 @@ export function extractCitations(messages: Session['messages']): string[] {
       }
     }
   }
-
   return citations;
-}
-
-function toStr(v: unknown): string | undefined {
-  return typeof v === 'string' ? v : undefined;
 }

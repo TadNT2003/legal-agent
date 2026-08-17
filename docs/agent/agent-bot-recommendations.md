@@ -1,6 +1,6 @@
 # Agent Bot — Recommendations
 
-**Last updated:** 2026-08-12
+**Last updated:** 2026-08-17
 
 Improvement recommendations for the Discord legal agent (`agent-bot/`), grouped by UX (user-facing Discord experience) and internal operations. Items are ordered by impact vs. effort.
 
@@ -32,11 +32,15 @@ This turns a flat text reply into a navigable conversation without requiring use
 
 **Files changed:** `events/buttonInteractions.ts` (new), `events/messageCreate.ts`, `bot.ts`.
 
-### 3. `/sources` Command (Low effort — Medium impact)
+### 3. ✅ `/sources` Slash Command — DONE (2026-08-17)
 
 List the documents the agent consulted during the current session, with clickable links. Legal users need to verify sources, and currently citations are buried in the text reply.
 
-**Implementation:** Extract `citationId` / source references from the session's tool call history (stored in `session.messages`), format as an embed with hyperlinks.
+**Status: Implemented.** New `/sources` slash command (`commands/splashCommands.ts`, `sourcesCommand` + `sourcesHandler`). It lists the legal documents the agent consulted in the user's most recent conversation, with a "🔗 Mở tài nguyên" hyperlink for each source that has one.
+
+The handler resolves the session via a new `PgSessionStore.getLatestByUserId(interaction.user.id)` (`agent/pgSessionStore.ts`), which queries `agent_sessions` for the user's most recently updated row — no message-reference plumbing needed, so it works in DMs and avoids Discord snowflake-precision issues with passing a raw message ID. Citations are extracted from the session's tool-call history by `extractSources()` (`events/sourceExtraction.ts`, shared with the "Chi tiết" button and the answer embed), which reads `title`/`citation`/`sourceUrl` from each tool message's `items`/`documents`/`results` array and deduplicates. The command is registered in `handlers` and is exempt from the MCP-availability guard (it only needs the session store).
+
+**Files changed:** `commands/splashCommands.ts`, `agent/pgSessionStore.ts`, `agent/pgSessionStore.spec.ts` (new `getLatestByUserId` describe block).
 
 ### 4. ✅ Persistent Typing Indicator During Tool Calls — DONE (2026-08-13)
 
@@ -90,11 +94,15 @@ Neither the HTTP endpoint nor the Discord handler has rate limiting. A simple to
 
 **Files changed:** `utils/rateLimiter.ts` (new), `utils/rateLimiter.spec.ts` (new), `events/messageCreate.ts`, `routes/chat.ts`.
 
-### 9. Enriched Health Endpoint (Low effort — Low impact)
+### 9. ✅ Enriched Health Endpoint — DONE (2026-08-17)
 
 The `/api/health` route only returns a timestamp. Add MCP connectivity status, DB connection status, active session count, and LLM model name. Useful for monitoring and for backing a future `/status` command with live data.
 
-**Implementation:** In `routes/health.ts`, accept injected health checks: ping MCP with `listTools`, run `SELECT 1` on DB, read `sessionStore` size.
+**Status: Implemented.** `createHealthRouter(checks: HealthChecks)` in `routes/health.ts` now accepts an injected `HealthChecks` interface (`mcp`, `db`, `sessionCount`, `model`) so the route is unit-testable with fakes and each dependency degrades independently. `GET /api/health` runs the MCP (`listTools`) and DB (`SELECT 1`) checks concurrently via `Promise.all` and a `safeCheck` wrapper that never throws — a failing check reports `{ status: 'down', detail }` instead of taking down the endpoint. The response body is `{ status: 'ok' | 'degraded', timestamp, checks: { mcp, db, sessions, model } }`, returning HTTP 200 when both MCP and DB are `ok` and 503 (`degraded`) otherwise.
+
+The live checks are wired in `index.ts`: `mcp` pings `reconnectingClient.listTools()`, `db` runs `SELECT 1` on the pool, `sessionCount` reads `sessionStore.getActiveCount()`, and `model` is `config.llm.model`.
+
+**Files changed:** `routes/health.ts`, `routes/health.spec.ts` (new), `index.ts`, `server.ts` (route now takes injected checks).
 
 ### 10. ✅ MCP Tool Call Retry Policy — DONE (2026-08-14)
 
@@ -104,11 +112,15 @@ When `callMcpTool` fails, it returns a JSON error string to the LLM which may th
 
 **Files changed:** `mcp/tools.ts`, `mcp/tools.spec.ts`.
 
-### 11. Session Cleanup (Low effort — Medium impact)
+### 11. ✅ Session Cleanup — DONE (2026-08-17)
 
 Sessions older than 7 days accumulate in Postgres with no cleanup. The `SESSION_STALE_MS` constant defines staleness for loading, but no deletion happens.
 
-**Implementation:** On startup (or on a `setInterval`), run `DELETE FROM agent_sessions WHERE updated_at < cutoff`, which cascades to `agent_reply_targets` via the foreign key.
+**Status: Implemented.** `PgSessionStore.cleanupStaleSessions()` (`agent/pgSessionStore.ts`) runs `DELETE FROM agent_sessions WHERE updated_at < (now - SESSION_STALE_MS)` with `.returning(id)`. The `agent_reply_targets` rows are removed automatically via the FK `ON DELETE CASCADE`. The returned IDs are evicted from the in-memory cache (`this.sessions`) and any dangling `sessionIdByReplyTarget` entries are dropped, so a pruned session can't keep being served from memory after its DB row is gone. The method never throws — a transient DB failure is logged and returns 0, so a cleanup hiccup can't crash the bot.
+
+It is scheduled in `index.ts`: run once at startup, then on an hourly `setInterval` (`SESSION_CLEANUP_INTERVAL_MS`), with `unref()` so the timer doesn't keep the process alive, and `clearInterval` on graceful shutdown (SIGTERM/SIGINT).
+
+**Files changed:** `agent/pgSessionStore.ts`, `agent/pgSessionStore.spec.ts` (new `cleanupStaleSessions` describe block), `index.ts` (startup + hourly schedule + shutdown cleanup).
 
 ### 12. ✅ MCP Client Reconnection — DONE (2026-08-14)
 
@@ -127,10 +139,10 @@ The `AgentService` constructor now takes an `McpToolCaller` function instead of 
 
 ## Priority Matrix
 
-| Priority | Items                                              | Rationale                            |
-| -------- | -------------------------------------------------- | ------------------------------------ |
-| P0       | #4 Typing, #12 MCP reconnect (both done)           | Highest impact, lowest effort        |
-| P1       | #2 Buttons, #10 Retry (both done)                  | Strong UX and reliability wins       |
-| P1.5     | #6 Streaming (done)                                | Biggest perceived-latency win        |
-| P2       | #7 Abort, #8 Rate limit (both done)                | Implemented with minimal refactoring |
-| P3       | #5 Embeds (done), #3 `/sources`, #9 Health, #11 Cleanup | Nice-to-have, incremental value      |
+| Priority | Items                                                     | Rationale                            |
+| -------- | --------------------------------------------------------- | ------------------------------------ |
+| P0       | #4 Typing, #12 MCP reconnect (both done)                  | Highest impact, lowest effort        |
+| P1       | #2 Buttons, #10 Retry (both done)                         | Strong UX and reliability wins       |
+| P1.5     | #6 Streaming (done)                                       | Biggest perceived-latency win        |
+| P2       | #7 Abort, #8 Rate limit (both done)                       | Implemented with minimal refactoring |
+| P3       | #5 Embeds, #3 `/sources`, #9 Health, #11 Cleanup (all done) | Nice-to-have, incremental value      |

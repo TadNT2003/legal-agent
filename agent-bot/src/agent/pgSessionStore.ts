@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, lt, sql } from 'drizzle-orm';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type * as schema from '../schema/index.js';
 import { replyTargets, sessions } from '../schema/session.schema.js';
@@ -87,6 +87,62 @@ export class PgSessionStore {
     return loaded;
   }
 
+/**
+   * Deletes sessions not updated within SESSION_STALE_MS. The
+   * agent_reply_targets rows are removed automatically via the FK ON DELETE
+   * CASCADE, so only agent_sessions is touched here.
+   *
+   * Also evicts the matching in-memory cache entries so a pruned session can't
+   * keep being served from memory after its DB row is gone.
+   *
+   * Returns the number of sessions removed from the DB. Safe to call on a
+   * schedule; a no-op returns 0. A transient DB failure is logged, not thrown,
+   * so a cleanup hiccup can never crash the bot.
+   */
+  /**
+   * Deletes sessions not updated within SESSION_STALE_MS. The
+   * agent_reply_targets rows are removed automatically via the FK ON DELETE
+   * CASCADE, so only agent_sessions is touched here.
+   *
+   * Uses `.returning(id)` so the deleted ids can also be evicted from the
+   * in-memory cache — a pruned session can't keep being served from memory
+   * after its DB row is gone.
+   *
+   * Returns the number of sessions removed. Safe to call on a schedule; a
+   * no-op returns 0. A transient DB failure is logged, not thrown, so a
+   * cleanup hiccup can never crash the bot.
+   */
+  async cleanupStaleSessions(): Promise<number> {
+    const staleCutoff = new Date(Date.now() - SESSION_STALE_MS);
+
+    let rows: { id: string }[];
+    try {
+      rows = await this.db
+        .delete(sessions)
+        .where(lt(sessions.updatedAt, staleCutoff))
+        .returning({ id: sessions.id });
+    } catch (err) {
+      logger.error('Failed to run session cleanup', err);
+      return 0;
+    }
+
+    for (const row of rows) {
+      this.sessions.delete(row.id);
+    }
+    // A deleted session's reply-target links become dangling; drop any that
+    // pointed at a removed id so they don't linger or resolve to a ghost.
+    for (const [messageId, sessionId] of this.sessionIdByReplyTarget) {
+      if (rows.some((r) => r.id === sessionId)) {
+        this.sessionIdByReplyTarget.delete(messageId);
+      }
+    }
+
+    if (rows.length > 0) {
+      logger.log(`Session cleanup removed ${rows.length} stale session(s)`);
+    }
+    return rows.length;
+  }
+
   createSession(
     discordUserId?: string,
     discordChannelId?: string,
@@ -132,6 +188,45 @@ export class PgSessionStore {
       // Covers a malformed (non-UUID) id, which Postgres rejects outright,
       // the same way a genuine miss does: not found, not a 500.
       logger.error(`Failed to look up session ${id}`, err);
+      return undefined;
+    }
+
+    const row = rows[0];
+    if (!row) return undefined;
+
+    const session: Session = {
+      id: row.id,
+      messages: (row.messages as ChatCompletionMessageParam[]) ?? [],
+    };
+    this.sessions.set(session.id, session);
+    evictOldest(this.sessions, MAX_CACHE);
+    return session;
+  }
+
+/** Number of sessions currently held in the in-memory cache. Cheap, sync. */
+  getActiveCount(): number {
+    return this.sessions.size;
+  }
+
+  /**
+   * Returns the user's most recently updated session, or undefined if the
+   * user has no session yet. Used by /sources so a user can see the documents
+   * consulted in their current conversation without referencing a specific
+   * bot message.
+   */
+  async getLatestByUserId(
+    discordUserId: string,
+  ): Promise<Session | undefined> {
+    let rows: { id: string; messages: unknown }[];
+    try {
+      rows = await this.db
+        .select({ id: sessions.id, messages: sessions.messages })
+        .from(sessions)
+        .where(eq(sessions.discordUserId, discordUserId))
+        .orderBy(desc(sessions.updatedAt))
+        .limit(1);
+    } catch (err) {
+      logger.error(`Failed to look up latest session for user ${discordUserId}`, err);
       return undefined;
     }
 

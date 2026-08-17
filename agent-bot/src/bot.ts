@@ -33,7 +33,7 @@ export function createBot(
   registerReadyEvent(client);
   registerMessageCreateEvent(client, agentService, sessionStore);
   registerButtonInteractions(client, agentService, sessionStore);
-  registerSlashCommands(client, mcpClient);
+  registerSlashCommands(client, mcpClient, sessionStore);
 
   client.once('ready', () => {
     void registerGlobalCommands(client);

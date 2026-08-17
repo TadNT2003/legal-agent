@@ -10,6 +10,8 @@ import {
   Collection,
 } from 'discord.js';
 import type { ReconnectingMcpClient } from '../mcp/client.js';
+import type { PgSessionStore } from '../agent/pgSessionStore.js';
+import { extractSources } from '../events/sourceExtraction.js';
 import { createLogger } from '../tools/logging.js';
 
 const logger = createLogger('splash-commands');
@@ -99,6 +101,13 @@ const searchCommand = new SlashCommandBuilder()
       .setMaxValue(50),
   );
 
+const sourcesCommand = new SlashCommandBuilder()
+  .setName('sources')
+  .setDescription(
+    'Xem các tài nguyên pháp lý bot đã tra cứu trong hội thoại gần nhất của bạn',
+  )
+  .setDMPermission(true);
+
 const commands: SlashCommandBuilder[] = [
   new SlashCommandBuilder()
     .setName('help')
@@ -113,6 +122,7 @@ const commands: SlashCommandBuilder[] = [
     .setDescription('Kiểm tra trạng thái bot'),
 
   searchCommand as unknown as SlashCommandBuilder,
+  sourcesCommand,
 ];
 
 const commandBuilders = new Collection<string, SlashCommandBuilder>(
@@ -123,22 +133,27 @@ type CmdHandler = (
   interaction: ChatInputCommandInteraction,
   client: DiscordClient,
   mcpClient: ReconnectingMcpClient,
+  sessionStore: PgSessionStore,
 ) => Promise<void>;
 
 let mcpClientRef: ReconnectingMcpClient | undefined;
+let sessionStoreRef: PgSessionStore | undefined;
 
 const handlers = new Collection<string, CmdHandler>([
   ['help', helpHandler],
   ['about', aboutHandler],
   ['status', statusHandler],
   ['search', searchHandler],
+  ['sources', sourcesHandler],
 ]);
 
 export function registerSlashCommands(
   client: DiscordClient,
   mcpClient: ReconnectingMcpClient,
+  sessionStore: PgSessionStore,
 ): void {
   mcpClientRef = mcpClient;
+  sessionStoreRef = sessionStore;
 
   client.on(Events.InteractionCreate, (interaction) => {
     void handleInteraction(interaction, client);
@@ -154,7 +169,9 @@ async function handleInteraction(
   const handler = handlers.get(interaction.commandName);
   if (!handler) return;
 
-  if (!mcpClientRef) {
+  // /sources only needs the session store (no MCP round-trip), so it can run
+  // even if the MCP client is down. Every other command still requires MCP.
+  if (!mcpClientRef && interaction.commandName !== 'sources') {
     logger.error('MCP client not initialized');
     await interaction.reply({
       content: 'MCP chưa được khởi tạo. Vui lòng thử lại sau.',
@@ -163,8 +180,22 @@ async function handleInteraction(
     return;
   }
 
+  if (!sessionStoreRef) {
+    logger.error('Session store not initialized');
+    await interaction.reply({
+      content: 'Phiên làm việc chưa được khởi tạo. Vui lòng thử lại sau.',
+      ephemeral: true,
+    });
+    return;
+  }
+
   try {
-    await handler(interaction, client, mcpClientRef);
+    await handler(
+      interaction,
+      client,
+      mcpClientRef as ReconnectingMcpClient,
+      sessionStoreRef,
+    );
   } catch (error) {
     logger.error(`Error executing ${interaction.commandName}:`, error);
     if (interaction.replied || interaction.deferred) {
@@ -191,6 +222,7 @@ async function helpHandler(
   interaction: ChatInputCommandInteraction,
   _client: DiscordClient,
   _mcp: ReconnectingMcpClient,
+  _sessionStore: PgSessionStore,
 ): Promise<void> {
   const embed = new EmbedBuilder()
     .setTitle('📖 Trợ Lý Pháp Luật — Hướng Dẫn Sử Dụng')
@@ -202,7 +234,8 @@ async function helpHandler(
           '`/help` — Hiển thị hướng dẫn này\n' +
           '`/about` — Thông tin về trợ lý\n' +
           '`/status` — Kiểm tra trạng thái bot\n' +
-          '`/search` — Tìm kiếm văn bản pháp luật',
+          '`/search` — Tìm kiếm văn bản pháp luật\n' +
+          '`/sources` — Xem các tài nguyên pháp lý bot đã tra cứu trong hội thoại gần nhất của bạn',
       },
       {
         name: 'Cách Hỏi Bằng Tin Nhắn Thường',
@@ -237,6 +270,7 @@ async function aboutHandler(
   interaction: ChatInputCommandInteraction,
   _client: DiscordClient,
   _mcp: ReconnectingMcpClient,
+  _sessionStore: PgSessionStore,
 ): Promise<void> {
   const embed = new EmbedBuilder()
     .setTitle('ℹ️ Về Trợ Lý Pháp Luật')
@@ -277,6 +311,7 @@ async function statusHandler(
   interaction: ChatInputCommandInteraction,
   client: DiscordClient,
   mcp: ReconnectingMcpClient,
+  _sessionStore: PgSessionStore,
 ): Promise<void> {
   const uptime = getUptimeString(client.uptime);
   const guildCount = client.guilds.cache.size;
@@ -335,6 +370,7 @@ async function searchHandler(
   interaction: ChatInputCommandInteraction,
   _client: DiscordClient,
   mcp: ReconnectingMcpClient,
+  _sessionStore: PgSessionStore,
 ): Promise<void> {
   const keyword = interaction.options.getString('keyword', true);
   const searchScope = interaction.options.getString('phạm-vi', false);
@@ -433,6 +469,76 @@ async function searchHandler(
 }
 
 /* ── Helpers ── */
+
+async function sourcesHandler(
+  interaction: ChatInputCommandInteraction,
+  _client: DiscordClient,
+  _mcp: ReconnectingMcpClient,
+  sessionStore: PgSessionStore,
+): Promise<void> {
+  // /sources lists the documents the agent consulted in the user's most recent
+// conversation. The user's Discord ID keys the lookup — no need to reference
+// a specific bot message, which keeps the command usable in DMs and avoids
+// fragile message-ID plumbing.
+  const session = await sessionStore.getLatestByUserId(interaction.user.id);
+  if (!session) {
+    await interaction.reply({
+      content:
+        'Bạn chưa có hội thoại nào với bot. Hãy hỏi một câu hỏi pháp luật trước, sau đó dùng lại `/sources` để xem các tài nguyên đã được tra cứu.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const sources = extractSources(session.messages);
+  if (sources.length === 0) {
+    await interaction.reply({
+      content:
+        'Hội thoại này chưa tra cứu văn bản pháp lý nào có trích dẫn.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const fields = sources.map((src, i) => {
+    const name = `${i + 1}. ${src.title || src.citation || 'Không có tiêu đề'}`;
+    const lines: string[] = [];
+    if (src.citation && src.citation !== (src.title || '')) {
+      lines.push(`**Số hiệu:** ${src.citation}`);
+    }
+    if (src.sourceUrl) {
+      lines.push(`[🔗 Mở tài nguyên](${src.sourceUrl})`);
+    }
+    return {
+      name,
+      value: lines.length > 0 ? lines.join('\n') : '—',
+      inline: false,
+    };
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle('📚 Tài nguyên đã tra cứu')
+    .setColor(0x0099ff)
+    .setDescription(`Hội thoại này trích dẫn ${sources.length} văn bản pháp lý:`)
+    .addFields(fields)
+    .setTimestamp();
+
+  if (
+    embed.data.description &&
+    embed.data.description.length > DISCORD_EMBED_DESC_LIMIT
+  ) {
+    embed.setDescription(
+      embed.data.description.slice(0, DISCORD_EMBED_DESC_LIMIT - 3) + '...',
+    );
+  }
+  for (const field of embed.data.fields ?? []) {
+    if (field.value && field.value.length > DISCORD_FIELD_VALUE_LIMIT) {
+      field.value = field.value.slice(0, DISCORD_FIELD_VALUE_LIMIT - 3) + '...';
+    }
+  }
+
+  await interaction.reply({ embeds: [embed] });
+}
 
 function splitCsv(value: string): string[] {
   return value
