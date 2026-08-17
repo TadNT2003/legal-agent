@@ -44,11 +44,15 @@ The bot sends a typing indicator on the initial message, but not during the mult
 
 **Status: Implemented.** The `AgentService.chat()` method now accepts an optional `onProgress` callback that fires at three phases: `round_start`, `tool_call`, and `final_answer`. The Discord message handler (`messageCreate.ts`) uses this callback to send `channel.sendTyping()` on each tool call and round start, plus runs a `setInterval` (every 10s) as a safety net for long-running rounds. The interval is cleared in a `finally` block when the reply completes or an error occurs.
 
-### 5. Embed-Based Replies (Medium effort — Medium impact)
+### 5. ✅ Embed-Based Replies — DONE (2026-08-17)
 
 Format agent answers as Discord embeds instead of plain text chunks. Use the embed description for the answer body, and a dedicated "📚 Nguồn" (Sources) field for citations. This is more readable and visually distinguishable from regular chat messages.
 
-**Implementation:** In `messageCreate.ts`, replace `message.reply(chunk)` with `message.reply({ embeds: [embed] })`. Parse the reply text to separate answer from citations, or have `AgentService` return structured output.
+**Status: Implemented.** In `messageCreate.ts`, a `buildAnswerEmbed()` helper creates a Discord embed (blurple `0x5865F2`) with the answer in the description (truncated to the 4096-char embed limit) and a "📚 Nguồn" field (truncated to the 1024-char field limit) listing the cited documents. Citations are extracted from the session's tool-call history by `extractCitations()` (now exported from `events/buttonInteractions.ts` and shared with the "Chi tiết" button), which reads `title`/`citation` (or the Vietnamese `tieuDe`/`soHieu`) from each tool message's JSON `documents`/`results` array and deduplicates.
+
+All reply paths now use embeds: the final answer (single and multi-chunk — citations attached to the first chunk only), the incremental streaming edits, and the error reply (red `0xED4245` embed, which now returns early instead of falling through to a second send).
+
+**Files changed:** `events/messageCreate.ts`, `events/buttonInteractions.ts` (export `extractCitations`), `events/buttonInteractions.spec.ts` (new).
 
 ---
 
@@ -123,10 +127,10 @@ The `AgentService` constructor now takes an `McpToolCaller` function instead of 
 
 ## Priority Matrix
 
-| Priority | Items                                              | Rationale                       |
-| -------- | -------------------------------------------------- | ------------------------------- |
-| P0       | #4 Typing, #12 MCP reconnect (both done)           | Highest impact, lowest effort   |
-| P1       | #2 Buttons, #10 Retry (both done)                  | Strong UX and reliability wins  |
-| P1.5     | #6 Streaming (done)                                | Biggest perceived-latency win   |
+| Priority | Items                                              | Rationale                            |
+| -------- | -------------------------------------------------- | ------------------------------------ |
+| P0       | #4 Typing, #12 MCP reconnect (both done)           | Highest impact, lowest effort        |
+| P1       | #2 Buttons, #10 Retry (both done)                  | Strong UX and reliability wins       |
+| P1.5     | #6 Streaming (done)                                | Biggest perceived-latency win        |
 | P2       | #7 Abort, #8 Rate limit (both done)                | Implemented with minimal refactoring |
-| P3       | #3 `/sources`, #5 Embeds, #9 Health, #11 Cleanup | Nice-to-have, incremental value |
+| P3       | #5 Embeds (done), #3 `/sources`, #9 Health, #11 Cleanup | Nice-to-have, incremental value      |

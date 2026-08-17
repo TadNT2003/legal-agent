@@ -1,12 +1,13 @@
 import type { Client, DMChannel, Message } from 'discord.js';
-import { ChannelType, Events } from 'discord.js';
+import { ChannelType, EmbedBuilder, Events } from 'discord.js';
 import type {
   AgentService,
   StreamEvent,
 } from '../agent/agentService.js';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';
 import type { Session } from '../agent/sessionStore.js';
 import type { PgSessionStore } from '../agent/pgSessionStore.js';
-import { createFollowUpRow } from './buttonInteractions.js';
+import { createFollowUpRow, extractCitations } from './buttonInteractions.js';
 import { createLogger } from '../tools/logging.js';
 import { createRateLimiter } from '../utils/rateLimiter.js';
 
@@ -15,6 +16,9 @@ const DISCORD_MESSAGE_LIMIT = 2000;
 const TRIGGER_KEYWORD = 'harpae';
 const STREAM_EDIT_INTERVAL_MS = 1500;
 const STREAM_EDIT_MIN_CHARS = 80;
+const EMBED_MAX_DESCRIPTION = 4096;
+const EMBED_MAX_FIELD_VALUE = 1024;
+const EMBED_COLOR = 0x5865F2;
 
 const activeRequests = new Map<string, AbortController>();
 const rateLimiter = createRateLimiter({
@@ -141,17 +145,18 @@ async function handleMessage(
       return;
     }
     logger.error('AgentService.chatStream failed', error);
-    result = {
-      reply: 'Xin lỗi, đã có lỗi xảy ra khi xử lý câu hỏi. Vui lòng thử lại sau.',
-      messages: session.messages,
-    };
-    await initialMsg.edit('Xin lỗi, đã có lỗi xảy ra khi xử lý câu hỏi. Vui lòng thử lại sau.');
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xED4245)
+      .setDescription('Xin lỗi, đã có lỗi xảy ra khi xử lý câu hỏi. Vui lòng thử lại sau.')
+      .setTimestamp();
+    await initialMsg.edit({ embeds: [errorEmbed] });
+    return;
   } finally {
     clearInterval(typingInterval);
     activeRequests.delete(requestKey);
   }
 
-  await sendStreamingReply(initialMsg, result.reply, session, message, sessionStore);
+  await sendStreamingReply(initialMsg, result.reply, session, result.messages, message, sessionStore);
 }
 
 /** True if `message` is a reply, and the replied-to message was authored by the bot. */
@@ -223,51 +228,85 @@ function handleStreamEvent(
 
 async function attemptEditReply(msg: Message, content: string): Promise<void> {
   try {
-    if (content.length <= DISCORD_MESSAGE_LIMIT) {
-      await msg.edit(content);
-    } else {
-      await msg.edit(content.slice(0, DISCORD_MESSAGE_LIMIT));
-    }
+    const embed = buildAnswerEmbed(content);
+    await msg.edit({ embeds: [embed] });
   } catch {
     // Message may no longer be editable; ignore.
   }
+}
+
+function buildAnswerEmbed(
+  answer: string,
+  citations?: string[],
+): EmbedBuilder {
+  const embed = new EmbedBuilder();
+  embed.setColor(EMBED_COLOR);
+
+  const truncated =
+    answer.length > EMBED_MAX_DESCRIPTION
+      ? answer.slice(0, EMBED_MAX_DESCRIPTION - 3) + '...'
+      : answer;
+  embed.setDescription(truncated || '(no answer)');
+
+  if (citations && citations.length > 0) {
+    const sources = citations.join('\n');
+    const sourcesText =
+      sources.length > EMBED_MAX_FIELD_VALUE
+        ? sources.slice(0, EMBED_MAX_FIELD_VALUE - 3) + '...'
+        : sources;
+    embed.addFields({
+      name: '📚 Nguồn',
+      value: sourcesText,
+      inline: false,
+    });
+  }
+
+  embed.setTimestamp();
+  return embed;
 }
 
 async function sendStreamingReply(
   initialMsg: Message,
   reply: string,
   session: Session,
+  messages: ChatCompletionMessageParam[],
   originalMessage: Message,
   store: PgSessionStore,
 ): Promise<void> {
-  if (reply.length <= DISCORD_MESSAGE_LIMIT) {
+  const citations = extractCitations(messages);
+  const body = reply || '(no answer)';
+
+  if (body.length <= DISCORD_MESSAGE_LIMIT) {
+    const embed = buildAnswerEmbed(body, citations);
     try {
       await initialMsg.edit({
-        content: reply || '(no answer)',
+        embeds: [embed],
         components: [createFollowUpRow(session.id).toJSON()],
       });
       store.linkReplyTarget(initialMsg.id, session);
     } catch {
       await originalMessage.reply({
-        content: reply || '(no answer)',
+        embeds: [embed],
         components: [createFollowUpRow(session.id).toJSON()],
       });
     }
   } else {
-    const chunks = splitMessage(reply);
+    const chunks = splitMessage(body);
+    const firstEmbed = buildAnswerEmbed(chunks[0], citations);
     try {
       await initialMsg.edit({
-        content: chunks[0],
+        embeds: [firstEmbed],
       });
       store.linkReplyTarget(initialMsg.id, session);
     } catch {
-      await originalMessage.reply(chunks[0]);
+      await originalMessage.reply({ embeds: [firstEmbed] });
     }
     for (let i = 1; i < chunks.length; i++) {
       const isLast = i === chunks.length - 1;
+      const chunkEmbed = buildAnswerEmbed(chunks[i]);
       const sent = isLast
-        ? await originalMessage.reply({ content: chunks[i], components: [createFollowUpRow(session.id).toJSON()] })
-        : await originalMessage.reply(chunks[i]);
+        ? await originalMessage.reply({ embeds: [chunkEmbed], components: [createFollowUpRow(session.id).toJSON()] })
+        : await originalMessage.reply({ embeds: [chunkEmbed] });
       store.linkReplyTarget(sent.id, session);
     }
   }

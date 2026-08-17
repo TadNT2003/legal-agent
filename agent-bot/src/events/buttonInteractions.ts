@@ -134,7 +134,7 @@ async function handleButtonInteraction(
   }
 }
 
-function extractCitations(messages: Session['messages']): string[] {
+export function extractCitations(messages: Session['messages']): string[] {
   const citations: string[] = [];
   const seen = new Set<string>();
 
